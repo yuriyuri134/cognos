@@ -206,7 +206,15 @@ class ConversationService:
             )
             # 发送给指定参与者的独立运行时，保持该参与者自己的连续性
             reply = await participant.runtime.send(actual_input)
-            
+
+            runtime_ref: dict[str, Any] = {
+                "runtime": participant.id,
+                "thread_id": reply.thread_id,
+                "turn_id": reply.turn_id,
+            }
+            if getattr(reply, "model_used", None):
+                runtime_ref["model"] = reply.model_used
+
             ai_record = self.history.append_message(
                 author=participant.name,
                 author_participant_id=participant.id,
@@ -214,11 +222,7 @@ class ConversationService:
                 in_reply_to=user_record["id"],
                 quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
                 project_id=project_id,
-                runtime_ref={
-                    "runtime": participant.id,
-                    "thread_id": reply.thread_id,
-                    "turn_id": reply.turn_id,
-                },
+                runtime_ref=runtime_ref,
             )
             return {
                 "user": user_record,

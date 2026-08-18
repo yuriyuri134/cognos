@@ -1336,3 +1336,53 @@ button {
   background: var(--accent, #8ab4ff);
   flex: none;
 }
+
+/* ---------- @ 提及补全 ---------- */
+
+.composer {
+  position: relative;
+}
+
+.mention-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  z-index: 20;
+  min-width: 200px;
+  max-width: min(360px, 85%);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  margin-bottom: 4px;
+  background: rgba(18, 22, 30, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mention-item:hover,
+.mention-item.selected {
+  background: rgba(120, 170, 255, 0.16);
+}
+
+.mention-kind {
+  margin-left: auto;
+  font-size: 0.65rem;
+  opacity: 0.6;
+}

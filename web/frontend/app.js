@@ -36,6 +36,7 @@ const viewNote = document.querySelector("#view-note");
 const scopeLabel = document.querySelector("#scope-label");
 const emptyTitle = document.querySelector("#empty-title");
 const emptySub = document.querySelector("#empty-sub");
+const mentionPopup = document.querySelector("#mention-popup");
 
 let sending = false;
 let activeTraceElement = null;
@@ -46,6 +47,11 @@ let isHandoffMode = false;
 let messagesMap = new Map();
 let orgData = null;
 let currentView = { type: "field" };
+let currentMembers = [];
+let mentionOpen = false;
+let mentionItems = [];
+let mentionIndex = 0;
+let mentionStart = -1;
 const stagedBadgeEl = document.querySelector("#staged-badge");
 
 function shortId(value, fallback) {
@@ -321,6 +327,109 @@ function renderTargetPills() {
   });
 }
 
+// ---------- @ 提及补全 ----------
+
+function mentionCandidates() {
+  const seen = new Set();
+  const list = [];
+  activeParticipants.forEach((p) => {
+    if (seen.has(p.id)) return;
+    seen.add(p.id);
+    list.push({ key: p.id, label: p.name, kind: "AI", participantId: p.id });
+  });
+  currentMembers.forEach((m) => {
+    const key = m.participant_id || `m-${m.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    list.push({
+      key,
+      label: m.name,
+      kind: m.kind === "ai" ? "AI" : "人",
+      participantId: m.kind === "ai" ? m.participant_id : null,
+    });
+  });
+  return list;
+}
+
+function mentionTriggerPos() {
+  const pos = input.selectionStart;
+  const text = input.value.slice(0, pos);
+  const match = text.match(/(^|\s)@([^\s@]*)$/u);
+  if (!match) return null;
+  return {
+    start: pos - match[0].length + match[1].length,
+    query: match[2] || "",
+  };
+}
+
+function renderMentionPopup() {
+  if (!mentionPopup) return;
+  mentionPopup.replaceChildren();
+  mentionItems.forEach((item, idx) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `mention-item${idx === mentionIndex ? " selected" : ""}`;
+    btn.innerHTML = `<span>@${item.label}</span><span class="mention-kind">${item.kind}</span>`;
+    btn.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      selectMention(idx);
+    });
+    mentionPopup.append(btn);
+  });
+  mentionPopup.hidden = false;
+}
+
+function closeMention() {
+  mentionOpen = false;
+  mentionItems = [];
+  mentionIndex = 0;
+  if (mentionPopup) mentionPopup.hidden = true;
+}
+
+function openMention(start, query) {
+  const candidates = mentionCandidates().filter((item) =>
+    item.label.toLowerCase().includes(query.toLowerCase())
+  );
+  if (!candidates.length) {
+    closeMention();
+    return;
+  }
+  mentionOpen = true;
+  mentionStart = start;
+  mentionItems = candidates;
+  mentionIndex = 0;
+  renderMentionPopup();
+}
+
+function updateMention() {
+  if (!mentionPopup) return;
+  const trig = mentionTriggerPos();
+  if (trig) {
+    openMention(trig.start, trig.query);
+  } else {
+    closeMention();
+  }
+}
+
+function selectMention(idx) {
+  const item = mentionItems[idx];
+  if (!item) return;
+  const before = input.value.slice(0, mentionStart);
+  const after = input.value.slice(input.selectionStart);
+  const insert = `@${item.label} `;
+  input.value = before + insert + after;
+  const caret = before.length + insert.length;
+  input.setSelectionRange(caret, caret);
+  closeMention();
+  resizeInput();
+  // 选中 AI 参与者时同步设为受话方
+  if (item.participantId && activeParticipants.some((p) => p.id === item.participantId)) {
+    currentTargetId = item.participantId;
+    renderTargetPills();
+  }
+  input.focus();
+}
+
 function renderParticipants(participants) {
   if (!participantsList) return;
   participantsList.replaceChildren();
@@ -363,6 +472,7 @@ function renderState(payload) {
 
 function renderMembers(members) {
   if (!membersBlock || !membersList) return;
+  currentMembers = members || [];
   membersList.replaceChildren();
   members.forEach((m) => {
     const chip = document.createElement("span");
@@ -759,7 +869,26 @@ composer.addEventListener("submit", (event) => {
 });
 
 input.addEventListener("input", resizeInput);
+input.addEventListener("input", updateMention);
 input.addEventListener("keydown", (event) => {
+  if (mentionOpen && !event.isComposing) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      mentionIndex = (mentionIndex + 1) % mentionItems.length;
+      renderMentionPopup();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length;
+      renderMentionPopup();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      selectMention(mentionIndex);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeMention();
+    }
+    return;
+  }
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendCurrentMessage();

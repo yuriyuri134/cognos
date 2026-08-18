@@ -28,6 +28,7 @@ class RuntimeReply:
     thread_id: str
     turn_id: str
     text: str
+    model_used: str | None = None
 
 
 class RuntimeAdapter(Protocol):

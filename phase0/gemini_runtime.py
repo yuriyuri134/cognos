@@ -76,6 +76,8 @@ class GeminiRuntimeAdapter:
         self.model = model
         self.developer_instructions = developer_instructions
         self.timeout = timeout
+        # 静默回退默认开启；设 COGNOS_GEMINI_ALLOW_FALLBACK=0 则只用配置模型，错误直接暴露
+        self.allow_fallback = os.environ.get("COGNOS_GEMINI_ALLOW_FALLBACK", "1") != "0"
         self._cached_state: GeminiConversationState | None = None
 
     def _get_or_create_state(self) -> GeminiConversationState:
@@ -112,11 +114,13 @@ class GeminiRuntimeAdapter:
         response: httpx.Response | None = None
         last_error: Exception | None = None
         models_to_try = [self.model]
-        if self.model != "gemini-3.6-flash":
-            models_to_try.append("gemini-3.6-flash")
-        if "gemini-3.5-flash" not in models_to_try:
-            models_to_try.append("gemini-3.5-flash")
+        if self.allow_fallback:
+            if self.model != "gemini-3.6-flash":
+                models_to_try.append("gemini-3.6-flash")
+            if "gemini-3.5-flash" not in models_to_try:
+                models_to_try.append("gemini-3.5-flash")
 
+        model_used: str | None = None
         for current_model in models_to_try:
             for attempt in range(2):
                 try:
@@ -134,6 +138,7 @@ class GeminiRuntimeAdapter:
                     continue
 
             if response is not None and response.status_code == 200:
+                model_used = current_model
                 break
 
         if response is None:
@@ -177,4 +182,5 @@ class GeminiRuntimeAdapter:
             thread_id=state.thread_id,
             turn_id=turn_id,
             text=reply_text,
+            model_used=model_used,
         )
