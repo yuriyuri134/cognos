@@ -1,0 +1,4 @@
+# 本地运行状态与缓存不进入 git
+.state/
+__pycache__/
+*.pyc

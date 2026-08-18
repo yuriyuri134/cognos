@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Cognos · 第一发生场</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Cognos 首页">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>
+            <strong>COGNOS</strong>
+            <small>第一数字承载 · 雏形 01</small>
+          </span>
+        </a>
+        <div class="runtime-pill" id="runtime-pill" title="这里只表示本地服务已启动">
+          <span class="status-dot"></span>
+          <span id="runtime-status">正在连接本地承载</span>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="left-rail panel">
+          <p class="eyebrow">当前入口</p>
+          <button class="field-card active-field" type="button">
+            <span class="field-glyph" aria-hidden="true">01</span>
+            <span>
+              <strong>第一发生场</strong>
+              <small>持续沟通 · 单一入口</small>
+            </span>
+            <span class="field-live" aria-label="当前活跃"></span>
+          </button>
+
+          <div class="rail-section">
+            <p class="eyebrow">此刻承载什么</p>
+            <p class="purpose-copy">
+              让一次真实沟通能够发生、留下、关闭后继续。这里还没有预定主体、位置或关系的最终形状。
+            </p>
+          </div>
+
+          <div class="rail-section rail-bottom">
+            <div class="metric-row">
+              <span>已留下的发言</span>
+              <strong id="history-count">0</strong>
+            </div>
+            <div class="metric-row">
+              <span>历史状态</span>
+              <strong class="soft-accent">只追加</strong>
+            </div>
+          </div>
+        </aside>
+
+        <section class="conversation panel" aria-label="沟通区域">
+          <header class="conversation-head">
+            <div>
+              <p class="eyebrow">正在发生</p>
+              <h1>第一发生场</h1>
+            </div>
+            <p class="head-note">同一发生场内多参与者共在；原文保存在本地 Vault</p>
+          </header>
+
+          <div class="message-stream" id="message-stream" aria-live="polite">
+            <div class="empty-state" id="empty-state">
+              <div class="empty-orbit" aria-hidden="true"><span></span></div>
+              <p class="eyebrow">尚未留下发言</p>
+              <h2>从正在牵引你的地方开始。</h2>
+              <p>无需选择类型，也无需先把它整理成任务。</p>
+            </div>
+          </div>
+
+          <div class="error-banner" id="error-banner" role="alert" hidden></div>
+
+          <form class="composer" id="composer">
+            <div class="staged-quote" id="staged-quote" hidden>
+              <div class="staged-quote-info">
+                <span class="staged-badge" id="staged-badge">引用已有发生</span>
+                <strong class="staged-author" id="staged-author"></strong>
+                <span class="staged-id" id="staged-id"></span>
+                <span class="staged-preview" id="staged-preview"></span>
+              </div>
+              <button class="staged-close" id="staged-close" type="button" title="取消引用">×</button>
+            </div>
+            <label class="sr-only" for="message-input">输入消息</label>
+            <textarea
+              id="message-input"
+              rows="1"
+              maxlength="100000"
+              placeholder="写下此刻要继续的东西…（可输入 @Codex 或 @Gemini 定向邀请）"
+              autocomplete="off"
+            ></textarea>
+            <div class="composer-foot">
+              <div class="target-selector" id="target-selector">
+                <span class="target-caption">受话方</span>
+                <div class="target-pills" id="target-pills"></div>
+              </div>
+              <div class="send-action">
+                <span class="key-hint">Enter 发送 · Shift + Enter 换行</span>
+                <button id="send-button" type="submit">
+                  <span>发出</span>
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M4 10h11M11 5l5 5-5 5" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <aside class="right-rail panel">
+          <div class="inspector-head">
+            <p class="eyebrow">运行事实</p>
+            <span class="trace-tag">TRACE</span>
+          </div>
+
+          <section class="fact-block">
+            <span class="fact-label">空间参与者</span>
+            <div class="participants-list" id="participants-list"></div>
+          </section>
+
+          <section class="fact-block">
+            <span class="fact-label">最近一次发生</span>
+            <code id="turn-id">尚无 turn</code>
+          </section>
+
+          <section class="fact-block">
+            <span class="fact-label">历史落点</span>
+            <strong id="persistence">Obsidian Vault</strong>
+            <small>每行一条原始记录，不覆盖旧发言</small>
+          </section>
+
+          <div class="boundary-note">
+            <span aria-hidden="true">∅</span>
+            <p>这是当前窗口，不是世界边界。新的结构只在真实沟通要求它时出现。</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="quote-preview" hidden></div>
+        <div class="message-meta">
+          <span class="author"></span>
+          <time></time>
+        </div>
+        <div class="message-body"></div>
+        <div class="handoff-request-preview" hidden></div>
+        <div class="handoff-result-preview" hidden></div>
+        <div class="message-foot">
+          <button class="quote-button" type="button" title="以此发生作为引用，邀请其他参与者面对">引用</button>
+          <button class="handoff-button" type="button" title="以此发生为上下文，交接给外部 Agent (Antigravity)">交接</button>
+          <button class="trace-button" type="button" hidden></button>
+        </div>
+      </article>
+    </template>
+
+    <template id="pending-template">
+      <article class="message pending-reply">
+        <div class="message-meta">
+          <span class="author">Codex</span>
+          <time>正在回应</time>
+        </div>
+        <div class="message-body">
+          <span class="pulse-dot"></span>
+          <span class="pulse-dot"></span>
+          <span class="pulse-dot"></span>
+        </div>
+      </article>
+    </template>
+
+    <script src="/assets/vendor/marked.min.js"></script>
+    <script src="/assets/vendor/purify.min.js"></script>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+# Headless session 没有交互审批者；保持 workspace-write sandbox，
+# 自定义 workspace-write-auto preset：approval=never。
+- id: permission
+  name: '@deepseek-ai/dsh-permission-presets'
+  config:
+    defaultPreset: workspace-write-auto
+    presets:
+      workspace-write-auto:
+        sandbox: workspace-write
+        approval: never
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: never

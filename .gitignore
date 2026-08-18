@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# 环境与密钥
+.env
+*.key
+*.env
+
+# 运行时状态（projection/cache，不是源码）
+web/.state/
+*.db
+
+# 实验输出（含递归快照副本，禁止扫描/入库）
+pilot_experiment_output/
+
+# OS
+Thumbs.db
+Desktop.ini
