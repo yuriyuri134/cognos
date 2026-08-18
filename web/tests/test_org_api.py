@@ -262,6 +262,66 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(422, add_res.status_code)
             self.assertEqual(200, (await client.get(f"/api/orgs/{org_a}")).status_code)
 
+    async def test_member_role_and_project_position(self) -> None:
+        org_id, project_id = await self.create_org_and_project()
+        async with await self.client() as client:
+            member_res = await client.post(
+                f"/api/orgs/{org_id}/members",
+                json={"kind": "ai", "name": "Gemini", "participant_id": "gemini", "org_role": "架构判断"},
+            )
+            self.assertEqual(200, member_res.status_code)
+            member_id = member_res.json()["member"]["id"]
+            await client.post(
+                f"/api/projects/{project_id}/members", json={"org_member_id": member_id}
+            )
+
+            # 设定项目内负责位置
+            pos = await client.patch(
+                f"/api/projects/{project_id}/members/{member_id}",
+                json={"position": "接口与发生层负责人"},
+            )
+            self.assertEqual(200, pos.status_code)
+            # 更新组织职位/职责 + 专属资料
+            upd = await client.patch(
+                f"/api/orgs/{org_id}/members/{member_id}",
+                json={
+                    "org_role": "认识论与工程衔接",
+                    "materials": "参考：决策与残余.md；当前边界约束清单。",
+                },
+            )
+            self.assertEqual(200, upd.status_code)
+
+            detail = (await client.get(f"/api/members/{member_id}")).json()
+            member = detail["member"]
+            self.assertEqual("认识论与工程衔接", member["org_role"])
+            self.assertEqual("参考：决策与残余.md；当前边界约束清单。", member["materials"])
+            self.assertEqual(1, len(member["projects"]))
+            self.assertEqual("接口与发生层负责人", member["projects"][0]["position"])
+
+    async def test_member_detail_returns_its_occurrences(self) -> None:
+        org_id, project_id = await self.create_org_and_project()
+        async with await self.client() as client:
+            member_res = await client.post(
+                f"/api/orgs/{org_id}/members",
+                json={"kind": "ai", "name": "Gemini", "participant_id": "gemini"},
+            )
+            member_id = member_res.json()["member"]["id"]
+            await client.post(
+                f"/api/projects/{project_id}/members", json={"org_member_id": member_id}
+            )
+
+            await client.post(
+                f"/api/projects/{project_id}/messages",
+                json={"content": "问 Gemini 一个问题", "target": "gemini"},
+            )
+            detail = (await client.get(f"/api/members/{member_id}")).json()
+            # authored：Gemini 的 AI 回复；addressed：被 @ 指向的一条
+            self.assertEqual(1, len(detail["authored"]))
+            self.assertEqual("Gemini", detail["authored"][0]["author"])
+            self.assertEqual(1, len(detail["addressed"]))
+            self.assertEqual("Gemini", detail["addressed"][0]["target"])
+            self.assertIsNone(detail["thread"])  # 假运行时无 thread 状态文件
+
 
 if __name__ == "__main__":
     unittest.main()

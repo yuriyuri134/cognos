@@ -63,6 +63,19 @@ CREATE TABLE IF NOT EXISTS project_members (
 """
 
 
+_ORG_MEMBER_EXTRA_COLUMNS = (
+    ("org_role", "TEXT NOT NULL DEFAULT ''"),
+    ("materials", "TEXT NOT NULL DEFAULT ''"),
+)
+_PROJECT_MEMBER_EXTRA_COLUMNS = (
+    ("position", "TEXT NOT NULL DEFAULT ''"),
+)
+
+
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
 class OrgStore:
     """SQLite 投影库；每次操作短连接，事务内完成。"""
 
@@ -71,6 +84,15 @@ class OrgStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+            # 幂等迁移：旧库补新增列（普通软件字段，不宣称本体）
+            for table, extra in (
+                ("org_members", _ORG_MEMBER_EXTRA_COLUMNS),
+                ("project_members", _PROJECT_MEMBER_EXTRA_COLUMNS),
+            ):
+                existing = _column_names(conn, table)
+                for name, ddl in extra:
+                    if name not in existing:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
@@ -173,6 +195,7 @@ class OrgStore:
         kind: str,
         name: str,
         participant_id: str | None = None,
+        org_role: str = "",
     ) -> dict[str, Any]:
         member = {
             "id": _new_id(),
@@ -180,18 +203,81 @@ class OrgStore:
             "kind": kind,
             "name": name,
             "participant_id": participant_id,
+            "org_role": org_role,
+            "materials": "",
             "status": "active",
             "created_at": _now(),
         }
         with self._conn() as conn:
             conn.execute(
                 """
-                INSERT INTO org_members (id, org_id, kind, name, participant_id, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO org_members
+                    (id, org_id, kind, name, participant_id, org_role, materials, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (member["id"], org_id, kind, name, participant_id, member["status"], member["created_at"]),
+                (
+                    member["id"],
+                    org_id,
+                    kind,
+                    name,
+                    participant_id,
+                    org_role,
+                    "",
+                    member["status"],
+                    member["created_at"],
+                ),
             )
         return member
+
+    def update_org_member(
+        self,
+        member_id: str,
+        *,
+        org_role: str | None = None,
+        materials: str | None = None,
+    ) -> dict[str, Any] | None:
+        """更新成员的组织职位/职责或专属资料；返回更新后的成员。"""
+        with self._conn() as conn:
+            if org_role is not None:
+                conn.execute(
+                    "UPDATE org_members SET org_role = ? WHERE id = ?",
+                    (org_role, member_id),
+                )
+            if materials is not None:
+                conn.execute(
+                    "UPDATE org_members SET materials = ? WHERE id = ?",
+                    (materials, member_id),
+                )
+            row = conn.execute(
+                "SELECT * FROM org_members WHERE id = ?", (member_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_member(self, member_id: str) -> dict[str, Any] | None:
+        """成员 + 所属组织名 + 所在项目（含负责位置）。"""
+        with self._conn() as conn:
+            member = conn.execute(
+                "SELECT * FROM org_members WHERE id = ?", (member_id,)
+            ).fetchone()
+            if member is None:
+                return None
+            result = dict(member)
+            org = conn.execute(
+                "SELECT name FROM organizations WHERE id = ?", (result["org_id"],)
+            ).fetchone()
+            result["org_name"] = org["name"] if org else ""
+            projects = conn.execute(
+                """
+                SELECT p.id, p.title, pm.position
+                FROM projects p
+                JOIN project_members pm ON pm.project_id = p.id
+                WHERE pm.org_member_id = ?
+                ORDER BY p.created_at
+                """,
+                (member_id,),
+            ).fetchall()
+            result["projects"] = [dict(r) for r in projects]
+        return result
 
     # ---------- 项目成员 ----------
 
@@ -210,6 +296,16 @@ class OrgStore:
             conn.execute(
                 "INSERT OR IGNORE INTO project_members (project_id, org_member_id) VALUES (?, ?)",
                 (project_id, org_member_id),
+            )
+
+    def set_project_member_position(
+        self, project_id: str, org_member_id: str, position: str
+    ) -> None:
+        """设定成员在项目内负责的位置/职责（普通软件字段）。"""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE project_members SET position = ? WHERE project_id = ? AND org_member_id = ?",
+                (position, project_id, org_member_id),
             )
 
     def list_project_members(self, project_id: str) -> list[dict[str, Any]]:

@@ -31,10 +31,20 @@ class MemberCreateRequest(BaseModel):
     kind: str = Field(..., pattern="^(human|ai)$")
     name: str = Field(..., min_length=1, max_length=80)
     participant_id: str | None = None
+    org_role: str = ""
+
+
+class MemberUpdateRequest(BaseModel):
+    org_role: str | None = None
+    materials: str | None = None
 
 
 class ProjectMemberAddRequest(BaseModel):
     org_member_id: str = Field(...)
+
+
+class ProjectPositionRequest(BaseModel):
+    position: str = ""
 
 
 class ProjectMessageRequest(BaseModel):
@@ -48,6 +58,7 @@ def create_org_router(
     store: OrgStore,
     service: Any,
     history: Any,
+    thread_state_dir: Any,
 ) -> APIRouter:
     """service: ConversationService（duck-typed，避免循环导入）。
 
@@ -109,6 +120,7 @@ def create_org_router(
             kind,
             request.name.strip(),
             request.participant_id if kind == "ai" else None,
+            org_role=request.org_role.strip(),
         )
         return {"member": member}
 
@@ -125,6 +137,83 @@ def create_org_router(
         return {"status": "ok"}
 
     # ---------- 项目内沟通 ----------
+
+    @router.patch("/api/orgs/{org_id}/members/{member_id}")
+    def update_member(
+        org_id: str, member_id: str, request: MemberUpdateRequest
+    ) -> dict[str, Any]:
+        if store.get_organization(org_id) is None:
+            raise HTTPException(status_code=404, detail="组织不存在")
+        member = store.update_org_member(
+            member_id,
+            org_role=request.org_role,
+            materials=request.materials,
+        )
+        if member is None:
+            raise HTTPException(status_code=404, detail="成员不存在")
+        return {"member": member}
+
+    @router.patch("/api/projects/{project_id}/members/{org_member_id}")
+    def set_project_position(
+        project_id: str, org_member_id: str, request: ProjectPositionRequest
+    ) -> dict[str, Any]:
+        if store.get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        store.set_project_member_position(project_id, org_member_id, request.position)
+        return {"status": "ok"}
+
+    @router.get("/api/members/{member_id}")
+    def member_detail(member_id: str) -> dict[str, Any]:
+        """成员主体空间：身份 + 职位/职责 + 所在项目与负责位置 + 它的发生 + 连续性。"""
+
+        member = store.get_member(member_id)
+        if member is None:
+            raise HTTPException(status_code=404, detail="成员不存在")
+
+        records = history.read_all()
+        participant_id = member.get("participant_id")
+        name = member["name"]
+
+        authored = [
+            m
+            for m in records
+            if (participant_id and m.get("author_participant_id") == participant_id)
+            or (not participant_id and m.get("author") == name)
+        ]
+        addressed = [m for m in records if m.get("target") == name]
+
+        seen: set[str] = set()
+        referenced: list[dict[str, Any]] = []
+        for m in authored:
+            quoted_id = m.get("quoted_occurrence_id")
+            if quoted_id and quoted_id not in seen:
+                seen.add(quoted_id)
+                record = history.get_by_id(quoted_id)
+                if record is not None:
+                    referenced.append(record)
+
+        thread: dict[str, Any] | None = None
+        if participant_id:
+            thread_file = thread_state_dir / f"{participant_id.replace('-', '_')}_thread.json"
+            if thread_file.exists():
+                import json as _json
+
+                thread = {"file": thread_file.name, "exists": True, "size": thread_file.stat().st_size}
+                try:
+                    data = _json.loads(thread_file.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        thread["thread_id"] = str(data.get("thread_id") or "")
+                        thread["turns"] = len(data.get("contents") or [])
+                except (OSError, ValueError):
+                    thread["readable"] = False
+
+        return {
+            "member": member,
+            "authored": authored[-100:],
+            "addressed": addressed[-100:],
+            "referenced": referenced[-50:],
+            "thread": thread,
+        }
 
     @router.get("/api/projects/{project_id}/messages")
     def project_messages(project_id: str) -> dict[str, Any]:

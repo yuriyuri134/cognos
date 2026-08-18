@@ -1,4 +1,7 @@
 const stream = document.querySelector("#message-stream");
+const memberPage = document.querySelector("#member-page");
+const memberPageBody = document.querySelector("#member-page-body");
+const memberBack = document.querySelector("#member-back");
 const emptyState = document.querySelector("#empty-state");
 const composer = document.querySelector("#composer");
 const input = document.querySelector("#message-input");
@@ -33,6 +36,7 @@ const memberParticipant = document.querySelector("#member-participant");
 const memberAddBtn = document.querySelector("#member-add-btn");
 const viewTitle = document.querySelector("#view-title");
 const viewNote = document.querySelector("#view-note");
+const scopeBar = document.querySelector("#scope-bar");
 const scopeLabel = document.querySelector("#scope-label");
 const emptyTitle = document.querySelector("#empty-title");
 const emptySub = document.querySelector("#empty-sub");
@@ -47,6 +51,7 @@ let isHandoffMode = false;
 let messagesMap = new Map();
 let orgData = null;
 let currentView = { type: "field" };
+let previousView = { type: "field" };
 let currentMembers = [];
 let mentionOpen = false;
 let mentionItems = [];
@@ -475,12 +480,12 @@ function renderMembers(members) {
   currentMembers = members || [];
   membersList.replaceChildren();
   members.forEach((m) => {
-    const chip = document.createElement("span");
+    const chip = document.createElement("button");
+    chip.type = "button";
     chip.className = `member-chip member-${m.kind}`;
-    chip.title = m.kind === "ai"
-      ? `AI 参与者 · runtime binding: ${m.participant_id || "无"}`
-      : "人类成员";
+    chip.title = `进入 ${m.name} 的主体空间`;
     chip.textContent = `${m.kind === "ai" ? "AI" : "人"} · ${m.name}`;
+    chip.addEventListener("click", () => openMember(m.id));
     membersList.append(chip);
   });
   membersBlock.hidden = false;
@@ -661,13 +666,211 @@ async function switchToField() {
   if (membersBlock) membersBlock.hidden = true;
   setScope("正在发生于：第一发生场（全局）");
   setEmptyState("从正在牵引你的地方开始。", "无需选择类型，也无需先把它整理成任务。");
+  showConversationPane();
   await loadOrgData();
   await bootstrap();
 }
 
+function showConversationPane() {
+  if (memberPage) memberPage.hidden = true;
+  if (stream) stream.hidden = false;
+  if (composer) composer.hidden = false;
+  if (scopeBar) scopeBar.hidden = false;
+}
+
+async function openMember(memberId) {
+  previousView = { ...currentView };
+  currentView = { type: "member", memberId };
+  try {
+    const payload = await requestJson(`/api/members/${memberId}`);
+    renderMemberPage(payload);
+    if (stream) stream.hidden = true;
+    if (composer) composer.hidden = true;
+    if (scopeBar) scopeBar.hidden = true;
+    if (memberPage) memberPage.hidden = false;
+    const member = payload.member;
+    if (viewTitle) viewTitle.textContent = `成员：${member.name}`;
+    if (viewNote) viewNote.textContent = `${member.org_name || "组织"} · ${member.kind === "ai" ? "AI 参与者" : "人类成员"}`;
+  } catch (error) {
+    showError(error.message || "无法读取成员空间");
+    currentView = previousView;
+    showConversationPane();
+  }
+}
+
+async function backFromMember() {
+  const prev = previousView || { type: "field" };
+  currentView = prev;
+  if (prev.type === "project") {
+    await switchToProject(prev.orgId, prev.projectId);
+  } else {
+    await switchToField();
+  }
+}
+
+function occLine(record) {
+  const author = record.author || "?";
+  const date = formatTime(record.occurred_at);
+  const text = (record.content || "").replace(/\s+/g, " ").trim();
+  return `${author} · ${date} · ${text.length > 72 ? text.slice(0, 72) + "…" : text}`;
+}
+
+function renderMemberPage(payload) {
+  if (!memberPageBody) return;
+  const member = payload.member;
+  const participant = activeParticipants.find((p) => p.id === member.participant_id);
+  const buf = [];
+
+  // 身份与职责
+  buf.push(`<div class="mp-section"><span class="fact-label">身份</span>`);
+  buf.push(`<div class="mp-grid"><span>名称</span><strong>${member.name}</strong>`);
+  buf.push(`<span>类型</span><strong>${member.kind === "ai" ? "AI 参与者" : "人类成员"}</strong>`);
+  buf.push(`<span>模型</span><strong>${participant ? participant.model_name + " · " + participant.id : (member.participant_id || "—")}</strong>`);
+  buf.push(`<span>所属组织</span><strong>${member.org_name || "—"}</strong></div></div>`);
+
+  // 组织职位/职责
+  buf.push(`<div class="mp-section"><span class="fact-label">组织职位 / 职责</span>`);
+  buf.push(`<div class="mp-edit-row"><input id="mp-org-role" value="" maxlength="120"><button class="mp-save" id="mp-org-role-save" type="button">保存职位</button></div></div>`);
+
+  // 专属资料
+  buf.push(`<div class="mp-section"><span class="fact-label">专属资料</span>`);
+  buf.push(`<textarea id="mp-materials" rows="4"></textarea>`);
+  buf.push(`<div class="mp-edit-row"><button class="mp-save" id="mp-materials-save" type="button">保存资料</button></div></div>`);
+
+  // 所在项目与负责位置
+  buf.push(`<div class="mp-section"><span class="fact-label">所在项目与负责位置</span><div class="mp-projects" id="mp-projects"></div></div>`);
+
+  // 连续性
+  buf.push(`<div class="mp-section"><span class="fact-label">连续性（runtime thread）</span><div id="mp-thread" class="mp-thread"></div></div>`);
+
+  // 它的发生
+  buf.push(`<div class="mp-section"><span class="fact-label">它的发生（${payload.authored.length}）</span><div class="mp-list" id="mp-authored"></div></div>`);
+  // 被指向/面对的
+  buf.push(`<div class="mp-section"><span class="fact-label">被指向 / 面对的（${payload.addressed.length}）</span><div class="mp-list" id="mp-addressed"></div></div>`);
+  // 引用过的
+  buf.push(`<div class="mp-section"><span class="fact-label">引用过的发生（${payload.referenced.length}）</span><div class="mp-list" id="mp-referenced"></div></div>`);
+
+  memberPageBody.innerHTML = buf.join("");
+
+  const roleInput = document.querySelector("#mp-org-role");
+  const materialsInput = document.querySelector("#mp-materials");
+  if (roleInput) roleInput.value = member.org_role || "";
+  if (materialsInput) materialsInput.value = member.materials || "";
+
+  // 项目位置
+  const projectsNode = document.querySelector("#mp-projects");
+  if (projectsNode) {
+    (member.projects || []).forEach((proj) => {
+      projectsNode.append(makePositionRow(proj, member.id));
+    });
+    if (!(member.projects || []).length) {
+      const p = document.createElement("p");
+      p.className = "mp-empty";
+      p.textContent = "尚未被加入任何项目";
+      projectsNode.append(p);
+    }
+  }
+
+  const threadNode = document.querySelector("#mp-thread");
+  if (threadNode) {
+    if (payload.thread) {
+      threadNode.textContent = `文件 ${payload.thread.file} · thread_id ${shortId(payload.thread.thread_id, "未建")} · ${payload.thread.turns ?? 0} turns · ${payload.thread.size ?? 0} B`;
+    } else {
+      threadNode.textContent = "该成员尚未建立独立 runtime 连续性（或非 AI 成员）";
+    }
+  }
+
+  fillOccList("#mp-authored", payload.authored);
+  fillOccList("#mp-addressed", payload.addressed);
+  fillOccList("#mp-referenced", payload.referenced);
+
+  const roleSave = document.querySelector("#mp-org-role-save");
+  if (roleSave) {
+    roleSave.addEventListener("click", async () => {
+      try {
+        await requestJson(`/api/orgs/${member.org_id}/members/${member.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ org_role: roleInput.value }),
+        });
+        await openMember(member.id);
+      } catch (error) {
+        showError(error.message || "保存职位失败");
+      }
+    });
+  }
+  const materialSave = document.querySelector("#mp-materials-save");
+  if (materialSave) {
+    materialSave.addEventListener("click", async () => {
+      try {
+        await requestJson(`/api/orgs/${member.org_id}/members/${member.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ materials: materialsInput.value }),
+        });
+        await openMember(member.id);
+      } catch (error) {
+        showError(error.message || "保存资料失败");
+      }
+    });
+  }
+
+  if (memberBack) memberBack.addEventListener("click", backFromMember);
+}
+
+function makePositionRow(proj, memberId) {
+  const row = document.createElement("div");
+  row.className = "mp-position-row";
+  const title = document.createElement("strong");
+  title.textContent = proj.title;
+  const input = document.createElement("input");
+  input.value = proj.position || "";
+  input.placeholder = "项目内负责位置（如：发生层负责人）";
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "mp-save";
+  save.textContent = "保存位置";
+  save.addEventListener("click", async () => {
+    try {
+      await requestJson(`/api/projects/${proj.id}/members/${memberId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ position: input.value }),
+      });
+      save.textContent = "已保存";
+    } catch (error) {
+      showError(error.message || "保存位置失败");
+    }
+  });
+  row.append(title, input, save);
+  return row;
+}
+
+function fillOccList(selector, records) {
+  const node = document.querySelector(selector);
+  if (!node) return;
+  if (!records.length) {
+    const p = document.createElement("p");
+    p.className = "mp-empty";
+    p.textContent = "无";
+    node.append(p);
+    return;
+  }
+  records.slice().reverse().slice(0, 40).forEach((record) => {
+    const line = document.createElement("div");
+    line.className = "mp-occurrence";
+    line.title = `id: ${record.id}`;
+    line.textContent = occLine(record);
+    node.append(line);
+  });
+}
+
+if (memberBack) memberBack.addEventListener("click", backFromMember);
+
 async function switchToProject(orgId, projectId) {
   currentView = { type: "project", orgId, projectId };
   setFieldActive(false);
+  showConversationPane();
   try {
     const payload = await requestJson(`/api/projects/${projectId}/messages`);
     if (viewTitle) viewTitle.textContent = payload.project.title;

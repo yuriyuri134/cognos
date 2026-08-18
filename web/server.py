@@ -383,7 +383,12 @@ def create_app(
     org_store = OrgStore(config.org_db_path or config.thread_state_dir / "org.db")
     app.state.org_store = org_store
     app.include_router(
-        create_org_router(store=org_store, service=service, history=history)
+        create_org_router(
+            store=org_store,
+            service=service,
+            history=history,
+            thread_state_dir=config.thread_state_dir,
+        )
     )
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
 
