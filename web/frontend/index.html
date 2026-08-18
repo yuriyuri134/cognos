@@ -29,19 +29,29 @@
       <section class="workspace">
         <aside class="left-rail panel">
           <p class="eyebrow">当前入口</p>
-          <button class="field-card active-field" type="button">
+          <button class="field-card active-field" id="field-entry" type="button">
             <span class="field-glyph" aria-hidden="true">01</span>
             <span>
               <strong>第一发生场</strong>
               <small>持续沟通 · 单一入口</small>
             </span>
-            <span class="field-live" aria-label="当前活跃"></span>
+            <span class="field-live" id="field-live" aria-label="当前活跃"></span>
           </button>
+
+          <div class="rail-section" id="org-section">
+            <p class="eyebrow">组织与项目</p>
+            <div class="org-nav" id="org-nav"></div>
+            <div class="inline-form" id="org-create-form" hidden>
+              <input id="org-name-input" placeholder="组织名称" maxlength="120" autocomplete="off" />
+              <button id="org-create-btn" type="button">创建</button>
+            </div>
+            <button class="nav-mini-btn" id="org-create-toggle" type="button" hidden>＋ 新建组织</button>
+          </div>
 
           <div class="rail-section">
             <p class="eyebrow">此刻承载什么</p>
             <p class="purpose-copy">
-              让一次真实沟通能够发生、留下、关闭后继续。这里还没有预定主体、位置或关系的最终形状。
+              让一次真实沟通能够发生、留下、关闭后继续。项目是当前组织方式，不是发生存在的容器。
             </p>
           </div>
 
@@ -61,9 +71,9 @@
           <header class="conversation-head">
             <div>
               <p class="eyebrow">正在发生</p>
-              <h1>第一发生场</h1>
+              <h1 id="view-title">第一发生场</h1>
             </div>
-            <p class="head-note">同一发生场内多参与者共在；原文保存在本地 Vault</p>
+            <p class="head-note" id="view-note">同一发生场内多参与者共在；原文保存在本地 Vault</p>
           </header>
 
           <div class="message-stream" id="message-stream" aria-live="polite">
@@ -122,6 +132,11 @@
           <section class="fact-block">
             <span class="fact-label">空间参与者</span>
             <div class="participants-list" id="participants-list"></div>
+          </section>
+
+          <section class="fact-block" id="members-block" hidden>
+            <span class="fact-label">项目成员</span>
+            <div class="members-list" id="members-list"></div>
           </section>
 
           <section class="fact-block">

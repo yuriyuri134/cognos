@@ -31,6 +31,8 @@ from codex_runtime import (
 from gemini_runtime import GeminiRuntimeAdapter, GeminiStateStore
 from history import AppendOnlyHistory, HistoryCorruptionError
 from handoff.envelope import build_envelope, write_envelope
+from org_api import create_org_router
+from org_store import OrgStore
 
 
 def _load_env_file(path: Path) -> None:
@@ -89,6 +91,7 @@ class AppConfig:
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.7-flash"
     handoff_dir: Path | None = None
+    org_db_path: Path | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -158,6 +161,7 @@ class ConversationService:
         content: str,
         target: str | None = None,
         quoted_occurrence_id: str | None = None,
+        project_id: str | None = None,
     ) -> dict[str, Any]:
         if not content.strip():
             raise ValueError("消息不能为空")
@@ -198,6 +202,7 @@ class ConversationService:
                 target=participant.name,
                 target_participant_id=participant.id,
                 quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
+                project_id=project_id,
             )
             # 发送给指定参与者的独立运行时，保持该参与者自己的连续性
             reply = await participant.runtime.send(actual_input)
@@ -208,6 +213,7 @@ class ConversationService:
                 content=reply.text,
                 in_reply_to=user_record["id"],
                 quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
+                project_id=project_id,
                 runtime_ref={
                     "runtime": participant.id,
                     "thread_id": reply.thread_id,
@@ -252,6 +258,12 @@ def default_config() -> AppConfig:
             os.environ.get(
                 "COGNOS_HANDOFF_DIR",
                 str(thread_state_dir / "handoffs"),
+            )
+        ).resolve(),
+        org_db_path=Path(
+            os.environ.get(
+                "COGNOS_ORG_DB_PATH",
+                str(thread_state_dir / "org.db"),
             )
         ).resolve(),
     )
@@ -341,6 +353,11 @@ def create_app(
     app.state.history = history
     app.state.service = service
     app.state.participants = registry
+    org_store = OrgStore(config.org_db_path or config.thread_state_dir / "org.db")
+    app.state.org_store = org_store
+    app.include_router(
+        create_org_router(store=org_store, service=service, history=history)
+    )
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
 
     @app.get("/", include_in_schema=False)

@@ -58,3 +58,15 @@ PYTHONPATH=phase0:web <venv>/bin/python -m handoff.dsh_runner <envelope.json> --
 PYTHONPATH=phase0:web <venv>/bin/python -m handoff.exporter --session-log <session_log> ...
 PYTHONPATH=phase0:web <venv>/bin/python -m handoff.result_poster <vault-payload.json>
 ```
+
+## Organization v0（第一可用切片）
+
+在既有发生场之上增加普通组织/项目应用层（`web/org_store.py` + `web/org_api.py`）：
+
+- 组织 → 项目 → 成员（human / AI；AI 成员绑定既有 participant_id，如 gemini/gemini-b/codex）。
+- 项目内沟通复用既有 `ConversationService`（@定向、引用已有发生、各自 runtime continuity）。
+- occurrence 可带可选 `project_id` 操作作用域；跨项目引用（quoted_occurrence_id 指向任何已有发生）始终成立，不假定一个发生永久只属于一个项目。
+- SQLite 投影（`web/.state/org.db`，可被 `COGNOS_ORG_DB_PATH` 覆盖）只是 application projection/state，不是 raw 真相源；raw 真相源仍只有 Vault `第一发生场.jsonl`。
+- Project/Member/Channel 等是普通软件对象，不是 Space/Subject/Relation 本体。
+
+新端点：`/api/orgs`、`/api/orgs/{id}/projects`、`/api/orgs/{id}/members`、`/api/projects/{id}/messages`。

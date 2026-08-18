@@ -16,6 +16,18 @@ const stagedIdEl = document.querySelector("#staged-id");
 const stagedPreviewEl = document.querySelector("#staged-preview");
 const stagedCloseBtn = document.querySelector("#staged-close");
 
+const fieldEntry = document.querySelector("#field-entry");
+const fieldLive = document.querySelector("#field-live");
+const orgNav = document.querySelector("#org-nav");
+const orgCreateForm = document.querySelector("#org-create-form");
+const orgNameInput = document.querySelector("#org-name-input");
+const orgCreateBtn = document.querySelector("#org-create-btn");
+const orgCreateToggle = document.querySelector("#org-create-toggle");
+const membersBlock = document.querySelector("#members-block");
+const membersList = document.querySelector("#members-list");
+const viewTitle = document.querySelector("#view-title");
+const viewNote = document.querySelector("#view-note");
+
 let sending = false;
 let activeTraceElement = null;
 let activeParticipants = [];
@@ -23,6 +35,8 @@ let currentTargetId = "gemini";
 let stagedQuote = null;
 let isHandoffMode = false;
 let messagesMap = new Map();
+let orgData = null;
+let currentView = { type: "field" };
 const stagedBadgeEl = document.querySelector("#staged-badge");
 
 function shortId(value, fallback) {
@@ -338,6 +352,167 @@ function renderState(payload) {
   document.querySelector("#history-count").textContent = String(state.history_count || 0);
 }
 
+function renderMembers(members) {
+  if (!membersBlock || !membersList) return;
+  membersList.replaceChildren();
+  members.forEach((m) => {
+    const chip = document.createElement("span");
+    chip.className = `member-chip member-${m.kind}`;
+    chip.title = m.kind === "ai"
+      ? `AI 参与者 · runtime binding: ${m.participant_id || "无"}`
+      : "人类成员";
+    chip.textContent = `${m.kind === "ai" ? "AI" : "人"} · ${m.name}`;
+    membersList.append(chip);
+  });
+  membersBlock.hidden = false;
+}
+
+function setFieldActive(active) {
+  if (!fieldEntry || !fieldLive) return;
+  fieldEntry.classList.toggle("active-field", active);
+  fieldLive.style.display = active ? "" : "none";
+}
+
+async function loadOrgData() {
+  try {
+    const payload = await requestJson("/api/orgs");
+    orgData = payload.organizations || [];
+    renderOrgNav();
+  } catch (error) {
+    console.warn("组织数据加载失败", error);
+  }
+}
+
+function renderOrgNav() {
+  if (!orgNav) return;
+  orgNav.replaceChildren();
+  const hasOrgs = orgData && orgData.length > 0;
+  if (orgCreateToggle) orgCreateToggle.hidden = hasOrgs;
+  if (orgCreateForm) orgCreateForm.hidden = hasOrgs;
+
+  (orgData || []).forEach((org) => {
+    const group = document.createElement("div");
+    group.className = "org-group";
+
+    const head = document.createElement("div");
+    head.className = "org-head";
+    const label = document.createElement("strong");
+    label.textContent = org.name;
+    const count = document.createElement("small");
+    count.textContent = `${org.project_count || 0} 项目`;
+    head.append(label, count);
+    group.append(head);
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "nav-mini-btn project-add";
+    addBtn.textContent = "＋ 新建项目";
+    addBtn.addEventListener("click", async () => {
+      const title = window.prompt(`在「${org.name}」中新建项目，标题：`);
+      if (!title || !title.trim()) return;
+      try {
+        await requestJson(`/api/orgs/${org.id}/projects`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: title.trim(), description: "" }),
+        });
+        await loadOrgData();
+      } catch (error) {
+        showError(error.message || "创建项目失败");
+      }
+    });
+    group.append(addBtn);
+
+    const projects = org.projects || [];
+    if (!projects.length) {
+      const empty = document.createElement("p");
+      empty.className = "org-empty";
+      empty.textContent = "还没有项目";
+      group.append(empty);
+    }
+    projects.forEach((project) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "project-item";
+      if (currentView.type === "project" && currentView.projectId === project.id) {
+        btn.classList.add("active");
+      }
+      btn.innerHTML = `<span class="project-glyph">◌</span><span class="project-title">${project.title}</span>`;
+      btn.title = project.description || project.title;
+      btn.addEventListener("click", () => switchToProject(org.id, project.id));
+      group.append(btn);
+    });
+    orgNav.append(group);
+  });
+}
+
+async function switchToField() {
+  currentView = { type: "field" };
+  setFieldActive(true);
+  if (viewTitle) viewTitle.textContent = "第一发生场";
+  if (viewNote) viewNote.textContent = "同一发生场内多参与者共在；原文保存在本地 Vault";
+  if (membersBlock) membersBlock.hidden = true;
+  await loadOrgData();
+  await bootstrap();
+}
+
+async function switchToProject(orgId, projectId) {
+  currentView = { type: "project", orgId, projectId };
+  setFieldActive(false);
+  try {
+    const payload = await requestJson(`/api/projects/${projectId}/messages`);
+    if (viewTitle) viewTitle.textContent = payload.project.title;
+    if (viewNote) viewNote.textContent = payload.project.description || `${payload.project.status} · 项目内沟通`;
+    if (payload.quoted) {
+      Object.values(payload.quoted).forEach((record) => {
+        if (record.id) messagesMap.set(record.id, record);
+      });
+    }
+    renderMessages(payload.messages || []);
+    renderState(payload);
+    renderMembers(payload.members || []);
+    renderOrgNav();
+    document.querySelector("#runtime-status").textContent = "项目沟通就绪";
+  } catch (error) {
+    showError(error.message || "无法读取项目发生");
+    switchToField();
+  }
+}
+
+async function createOrg() {
+  const name = orgNameInput ? orgNameInput.value.trim() : "";
+  if (!name) return;
+  try {
+    await requestJson("/api/orgs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, description: "" }),
+    });
+    if (orgNameInput) orgNameInput.value = "";
+    await loadOrgData();
+  } catch (error) {
+    showError(error.message || "创建组织失败");
+  }
+}
+
+if (fieldEntry) fieldEntry.addEventListener("click", switchToField);
+if (orgCreateBtn) orgCreateBtn.addEventListener("click", createOrg);
+if (orgNameInput) {
+  orgNameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      createOrg();
+    }
+  });
+}
+if (orgCreateToggle) {
+  orgCreateToggle.addEventListener("click", () => {
+    orgCreateToggle.hidden = true;
+    orgCreateForm.hidden = false;
+    orgNameInput.focus();
+  });
+}
+
 function showError(message) {
   errorBanner.textContent = message;
   errorBanner.hidden = false;
@@ -374,6 +549,13 @@ async function bootstrap() {
   } catch (error) {
     showError(error.message || "无法读取当前发生场");
   }
+  await loadOrgData();
+}
+
+function currentMessagesUrl() {
+  return currentView.type === "project"
+    ? `/api/projects/${currentView.projectId}/messages`
+    : "/api/messages";
 }
 
 function resizeInput() {
@@ -441,7 +623,7 @@ async function sendCurrentMessage() {
         }),
       });
     } else {
-      await requestJson("/api/messages", {
+      await requestJson(currentMessagesUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -451,10 +633,18 @@ async function sendCurrentMessage() {
         }),
       });
     }
-    await bootstrap();
+    if (currentView.type === "project") {
+      await switchToProject(currentView.orgId, currentView.projectId);
+    } else {
+      await bootstrap();
+    }
   } catch (error) {
     showError(error.message || "消息没有完成送达");
-    await bootstrap();
+    if (currentView.type === "project") {
+      await switchToProject(currentView.orgId, currentView.projectId);
+    } else {
+      await bootstrap();
+    }
   } finally {
     sending = false;
     sendButton.disabled = false;
@@ -475,6 +665,7 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
+setFieldActive(true);
 bootstrap();
 input.focus();
 

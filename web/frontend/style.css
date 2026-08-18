@@ -1104,3 +1104,167 @@ button {
     display: none;
   }
 }
+
+/* ---------- Organization v0：组织导航 / 成员 / 内联表单 ---------- */
+
+.org-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.org-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.org-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+  padding: 2px 2px 0;
+}
+
+.org-head strong {
+  color: var(--text, inherit);
+  letter-spacing: 0.02em;
+}
+
+.org-head small {
+  opacity: 0.55;
+  font-size: 0.72rem;
+}
+
+.project-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.project-item:hover {
+  border-color: var(--accent, rgba(120, 170, 255, 0.6));
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.project-item.active {
+  border-color: var(--accent, rgba(120, 170, 255, 0.8));
+  background: rgba(120, 170, 255, 0.10);
+}
+
+.project-glyph {
+  opacity: 0.6;
+  font-size: 0.7rem;
+}
+
+.project-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.org-empty {
+  margin: 0;
+  padding: 2px 4px;
+  font-size: 0.75rem;
+  opacity: 0.45;
+}
+
+.nav-mini-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border: none;
+  background: none;
+  color: var(--accent, #8ab4ff);
+  font: inherit;
+  font-size: 0.75rem;
+  opacity: 0.75;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.nav-mini-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nav-mini-btn.project-add {
+  margin: 2px 0 2px 2px;
+  font-size: 0.7rem;
+}
+
+.inline-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.inline-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.inline-form button {
+  padding: 6px 10px;
+  border: 1px solid rgba(120, 170, 255, 0.5);
+  border-radius: 6px;
+  background: rgba(120, 170, 255, 0.12);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.inline-form button:hover {
+  background: rgba(120, 170, 255, 0.22);
+}
+
+.members-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.member-chip.member-ai {
+  border-color: rgba(120, 170, 255, 0.45);
+  color: #a8c8ff;
+}
+
+.member-chip.member-human {
+  border-color: rgba(120, 220, 170, 0.45);
+  color: #a0e8c0;
+}
