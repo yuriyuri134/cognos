@@ -80,12 +80,17 @@
             <div class="empty-state" id="empty-state">
               <div class="empty-orbit" aria-hidden="true"><span></span></div>
               <p class="eyebrow">尚未留下发言</p>
-              <h2>从正在牵引你的地方开始。</h2>
-              <p>无需选择类型，也无需先把它整理成任务。</p>
+              <h2 id="empty-title">从正在牵引你的地方开始。</h2>
+              <p id="empty-sub">无需选择类型，也无需先把它整理成任务。</p>
             </div>
           </div>
 
           <div class="error-banner" id="error-banner" role="alert" hidden></div>
+
+          <div class="scope-bar" id="scope-bar">
+            <span class="scope-dot" aria-hidden="true"></span>
+            <span id="scope-label">正在发生于：第一发生场（全局）</span>
+          </div>
 
           <form class="composer" id="composer">
             <div class="staged-quote" id="staged-quote" hidden>

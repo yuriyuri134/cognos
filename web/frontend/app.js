@@ -33,6 +33,9 @@ const memberParticipant = document.querySelector("#member-participant");
 const memberAddBtn = document.querySelector("#member-add-btn");
 const viewTitle = document.querySelector("#view-title");
 const viewNote = document.querySelector("#view-note");
+const scopeLabel = document.querySelector("#scope-label");
+const emptyTitle = document.querySelector("#empty-title");
+const emptySub = document.querySelector("#empty-sub");
 
 let sending = false;
 let activeTraceElement = null;
@@ -461,6 +464,32 @@ async function loadOrgData() {
   }
 }
 
+function setScope(text) {
+  if (scopeLabel) scopeLabel.textContent = text || "";
+}
+
+function setEmptyState(title, sub) {
+  if (emptyTitle) emptyTitle.textContent = title;
+  if (emptySub) emptySub.textContent = sub;
+}
+
+async function createProject(org) {
+  const title = window.prompt(`在「${org.name}」中新建项目，标题：`);
+  if (!title || !title.trim()) return null;
+  try {
+    const res = await requestJson(`/api/orgs/${org.id}/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim(), description: "" }),
+    });
+    await loadOrgData();
+    return res.project;
+  } catch (error) {
+    showError(error.message || "创建项目失败");
+    return null;
+  }
+}
+
 function renderOrgNav() {
   if (!orgNav) return;
   orgNav.replaceChildren();
@@ -486,18 +515,8 @@ function renderOrgNav() {
     addBtn.className = "nav-mini-btn project-add";
     addBtn.textContent = "＋ 新建项目";
     addBtn.addEventListener("click", async () => {
-      const title = window.prompt(`在「${org.name}」中新建项目，标题：`);
-      if (!title || !title.trim()) return;
-      try {
-        await requestJson(`/api/orgs/${org.id}/projects`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: title.trim(), description: "" }),
-        });
-        await loadOrgData();
-      } catch (error) {
-        showError(error.message || "创建项目失败");
-      }
+      const project = await createProject(org);
+      if (project && project.id) await switchToProject(org.id, project.id);
     });
     group.append(addBtn);
 
@@ -530,6 +549,8 @@ async function switchToField() {
   if (viewTitle) viewTitle.textContent = "第一发生场";
   if (viewNote) viewNote.textContent = "同一发生场内多参与者共在；原文保存在本地 Vault";
   if (membersBlock) membersBlock.hidden = true;
+  setScope("正在发生于：第一发生场（全局）");
+  setEmptyState("从正在牵引你的地方开始。", "无需选择类型，也无需先把它整理成任务。");
   await loadOrgData();
   await bootstrap();
 }
@@ -541,6 +562,8 @@ async function switchToProject(orgId, projectId) {
     const payload = await requestJson(`/api/projects/${projectId}/messages`);
     if (viewTitle) viewTitle.textContent = payload.project.title;
     if (viewNote) viewNote.textContent = payload.project.description || `${payload.project.status} · 项目内沟通`;
+    setScope(`正在发生于：项目「${payload.project.title}」· 消息写入该项目`);
+    setEmptyState("这个项目还没有讨论。", "在这里发出第一条，它将写入该项目。");
     if (payload.quoted) {
       Object.values(payload.quoted).forEach((record) => {
         if (record.id) messagesMap.set(record.id, record);

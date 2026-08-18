@@ -1315,3 +1315,24 @@ button {
 .member-add-form button:hover {
   background: rgba(120, 170, 255, 0.22);
 }
+
+/* ---------- 对话作用域提示条 ---------- */
+
+.scope-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px;
+  font-size: 0.72rem;
+  opacity: 0.85;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.scope-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #8ab4ff);
+  flex: none;
+}
