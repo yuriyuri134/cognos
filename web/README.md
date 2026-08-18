@@ -70,3 +70,13 @@ PYTHONPATH=phase0:web <venv>/bin/python -m handoff.result_poster <vault-payload.
 - Project/Member/Channel 等是普通软件对象，不是 Space/Subject/Relation 本体。
 
 新端点：`/api/orgs`、`/api/orgs/{id}/projects`、`/api/orgs/{id}/members`、`/api/projects/{id}/messages`。
+
+## 参与者运行时
+
+| participant | runtime | 说明 |
+|---|---|---|
+| gemini / gemini-b | `GeminiRuntimeAdapter` | Google API；环境变量 `GEMINI_API_KEY`/`GEMINI_MODEL`；`COGNOS_GEMINI_ALLOW_FALLBACK=0` 可关闭静默降级 |
+| codex | `CodexRuntimeAdapter` | 本地 ChatGPT OAuth，线程可跨进程恢复 |
+| deepseek | `DeepSeekRuntimeAdapter` | opencode-go / zen go 套餐；凭据在 `~/.dsh/.credentials.yaml` 或 `~/.pi/agent/auth.json`，可被 `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`/`DEEPSEEK_MODEL` 覆盖；只做对话，不执行工具 |
+
+所有 AI 回复的 `runtime_ref` 都带 `model` 字段（实际响应模型，可识别降级）。

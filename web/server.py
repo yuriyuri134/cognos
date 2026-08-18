@@ -29,6 +29,7 @@ from codex_runtime import (
     RuntimeUnavailableError,
 )
 from gemini_runtime import GeminiRuntimeAdapter, GeminiStateStore
+from deepseek_runtime import DeepSeekRuntimeAdapter, DeepSeekStateStore, load_deepseek_config
 from history import AppendOnlyHistory, HistoryCorruptionError
 from handoff.envelope import build_envelope, write_envelope
 from org_api import create_org_router
@@ -348,6 +349,28 @@ def create_app(
             runtime=codex_adapter,
             description="本地 ChatGPT OAuth 接入",
         )
+
+        # DeepSeek (opencode-go / zen go 套餐)：有凭据才注册，无凭据则跳过
+        deepseek_config = load_deepseek_config()
+        if deepseek_config is not None:
+            deepseek_store = DeepSeekStateStore(
+                config.thread_state_dir / "deepseek_thread.json"
+            )
+            deepseek_adapter = DeepSeekRuntimeAdapter(
+                api_key=deepseek_config["api_key"],
+                base_url=deepseek_config["base_url"],
+                model=deepseek_config["model"],
+                model_name=deepseek_config["model_name"],
+                state_store=deepseek_store,
+                developer_instructions=instructions,
+            )
+            registry["deepseek"] = Participant(
+                id="deepseek",
+                name="DeepSeek",
+                model_name=deepseek_config["model_name"],
+                runtime=deepseek_adapter,
+                description="opencode-go / DeepSeek V4 (zen go 套餐)",
+            )
 
     default_target = "gemini" if "gemini" in registry else next(iter(registry.keys()), "codex")
     service = ConversationService(history, registry, default_target_id=default_target)
