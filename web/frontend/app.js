@@ -25,6 +25,12 @@ const orgCreateBtn = document.querySelector("#org-create-btn");
 const orgCreateToggle = document.querySelector("#org-create-toggle");
 const membersBlock = document.querySelector("#members-block");
 const membersList = document.querySelector("#members-list");
+const memberAddToggle = document.querySelector("#member-add-toggle");
+const memberAddForm = document.querySelector("#member-add-form");
+const memberKind = document.querySelector("#member-kind");
+const memberName = document.querySelector("#member-name");
+const memberParticipant = document.querySelector("#member-participant");
+const memberAddBtn = document.querySelector("#member-add-btn");
 const viewTitle = document.querySelector("#view-title");
 const viewNote = document.querySelector("#view-note");
 
@@ -365,6 +371,78 @@ function renderMembers(members) {
     membersList.append(chip);
   });
   membersBlock.hidden = false;
+  populateMemberParticipant();
+}
+
+function populateMemberParticipant() {
+  if (!memberParticipant) return;
+  const current = memberParticipant.value;
+  memberParticipant.replaceChildren();
+  activeParticipants.forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = `${p.name} (${p.id})`;
+    memberParticipant.append(opt);
+  });
+  if (current) memberParticipant.value = current;
+}
+
+async function addProjectMember() {
+  if (!currentView || currentView.type !== "project") return;
+  const name = (memberName.value || "").trim();
+  if (!name) {
+    memberName.focus();
+    return;
+  }
+  const kind = memberKind.value;
+  let participantId = null;
+  if (kind === "ai") {
+    participantId = memberParticipant.value;
+    if (!activeParticipants.some(p => p.id === participantId)) {
+      showError("AI 参与者不在当前注册表中");
+      return;
+    }
+  }
+  try {
+    const orgRes = await requestJson(`/api/orgs/${currentView.orgId}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, name, participant_id: participantId }),
+    });
+    await requestJson(`/api/projects/${currentView.projectId}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ org_member_id: orgRes.member.id }),
+    });
+    memberName.value = "";
+    memberAddForm.hidden = true;
+    await switchToProject(currentView.orgId, currentView.projectId);
+  } catch (error) {
+    showError(error.message || "添加成员失败");
+  }
+}
+
+if (memberAddToggle) {
+  memberAddToggle.addEventListener("click", () => {
+    const show = memberAddForm.hidden;
+    memberAddForm.hidden = !show;
+    if (memberParticipant) memberParticipant.hidden = memberKind.value !== "ai";
+    if (show) memberName.focus();
+  });
+}
+if (memberKind) {
+  memberKind.addEventListener("change", () => {
+    if (memberParticipant) memberParticipant.hidden = memberKind.value !== "ai";
+  });
+}
+if (memberAddBtn) memberAddBtn.addEventListener("click", addProjectMember);
+if (memberName) {
+  memberName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addProjectMember();
+    }
+  });
 }
 
 function setFieldActive(active) {

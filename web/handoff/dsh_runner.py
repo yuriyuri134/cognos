@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -20,6 +21,10 @@ from .envelope import HandoffEnvelopeError, build_dsh_prompt, load_envelope
 
 class DshRunnerError(RuntimeError):
     """无法启动 DSH、执行后没有找到新 session log、非零退出码、或缺少 completed turn/end。"""
+
+
+# Windows 目录名非法字符（含盘符冒号）；同时兼容 `<>:"/\\|?*` 与控制字符
+_INVALID_SLUG_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 @dataclass(frozen=True)
@@ -35,14 +40,19 @@ class DshRunResult:
 
 
 def encode_workspace_dir(working_directory: Path | str) -> str:
-    """按当前 DSH 规则编码 workspace 目录名。
+    """按当前 DSH 规则编码 workspace 目录名，并兼容 Windows 盘符冒号。
 
     `/mnt/c/Users/lnp/Documents/Playground/cognos`
     -> `--mnt-c-Users-lnp-Documents-Playground-cognos--`
+
+    `C:\\Users\\lnp\\...\\cognos`（Windows）
+    -> `--C-Users-lnp-...-cognos--`（原实现在 Windows 会留下非法冒号 `C:`）
     """
 
     path = Path(working_directory)
     normalized = path.as_posix().strip("/")
+    # 先整体清洗 Windows 非法字符，再按既有规则把 `/` 变成 `-`
+    normalized = _INVALID_SLUG_CHARS.sub("-", normalized).strip("-")
     return f"--{normalized.replace('/', '-')}--"
 
 

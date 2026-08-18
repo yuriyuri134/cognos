@@ -100,9 +100,31 @@ class DshRunnerTest(unittest.TestCase):
         )
 
     def _write_fake_dsh(self, root: Path, cwd: Path, *, write_turn_end: bool, exit_code: int) -> Path:
+        slug = encode_workspace_dir(cwd)
+        if os.name == "nt":
+            # Windows：CreateProcess 可直接执行 .cmd；模拟 dsh 写 session log 并退出
+            fake_dsh = root / "fake-dsh.cmd"
+            log_dir = f"%DSH_HOME%\\sessions\\{slug}\\session-fake-s1"
+            log_path = f"%DSH_HOME%\\sessions\\{slug}\\session-fake-s1\\session.jsonl"
+            cwd_esc = str(cwd).replace("\\", "\\\\").replace("%", "%%")
+            lines = ["@echo off"]
+            lines.append(f'mkdir "{log_dir}" 2>nul')
+            lines.append(
+                f'echo {{"type":"session","id":"session-fake-s1","cwd":"{cwd_esc}"}} > "{log_path}"'
+            )
+            if write_turn_end:
+                lines.append(
+                    'echo {"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}} >> '
+                    + f'"{log_path}"'
+                )
+            lines.append(f"exit /b {exit_code}")
+            fake_dsh.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+            return fake_dsh
+
+        # POSIX（WSL / Linux / macOS）：保留原 shell 脚本
         fake_dsh = root / "fake-dsh"
-        log_path = "$DSH_HOME/sessions/" + encode_workspace_dir(cwd) + "/session-fake-s1/session.jsonl"
-        script = "#!/bin/sh\n" + 'mkdir -p "$DSH_HOME/sessions/' + encode_workspace_dir(cwd) + '/session-fake-s1"\n'
+        log_path = "$DSH_HOME/sessions/" + slug + "/session-fake-s1/session.jsonl"
+        script = "#!/bin/sh\n" + 'mkdir -p "$DSH_HOME/sessions/' + slug + '/session-fake-s1"\n'
         script += (
             "printf '%s\\n' "
             + "'{\"type\":\"session\",\"id\":\"session-fake-s1\",\"cwd\":\""

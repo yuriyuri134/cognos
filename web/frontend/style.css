@@ -1268,3 +1268,50 @@ button {
   border-color: rgba(120, 220, 170, 0.45);
   color: #a0e8c0;
 }
+
+/* ---------- Organization v0：成员管理 UI ---------- */
+
+.member-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.member-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.member-add-form select,
+.member-add-form input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  font: inherit;
+  font-size: 0.76rem;
+}
+
+.member-add-form button {
+  padding: 6px 10px;
+  border: 1px solid rgba(120, 170, 255, 0.5);
+  border-radius: 6px;
+  background: rgba(120, 170, 255, 0.12);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.member-add-form button:hover {
+  background: rgba(120, 170, 255, 0.22);
+}

@@ -135,8 +135,20 @@
           </section>
 
           <section class="fact-block" id="members-block" hidden>
-            <span class="fact-label">项目成员</span>
+            <div class="member-head">
+              <span class="fact-label">项目成员</span>
+              <button class="nav-mini-btn" id="member-add-toggle" type="button">＋ 添加成员</button>
+            </div>
             <div class="members-list" id="members-list"></div>
+            <div class="member-add-form" id="member-add-form" hidden>
+              <select id="member-kind" title="成员类型">
+                <option value="human">人类</option>
+                <option value="ai">AI 参与者</option>
+              </select>
+              <input id="member-name" placeholder="显示名" maxlength="80" autocomplete="off" />
+              <select id="member-participant" title="绑定参与者" hidden></select>
+              <button id="member-add-btn" type="button">添加</button>
+            </div>
           </section>
 
           <section class="fact-block">
