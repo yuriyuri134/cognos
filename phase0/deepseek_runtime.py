@@ -128,6 +128,52 @@ def load_deepseek_config() -> dict[str, str] | None:
     }
 
 
+def list_opencode_go_models() -> list[dict[str, str]]:
+    """读取现有 OpenCode Go 配置里的可用模型（不硬编码模型清单）。
+
+    解析 `~/.dsh/settings.yaml` 中 opencode-go 块的 models 段（- id / name 对）。
+    """
+
+    path = Path.home() / ".dsh" / "settings.yaml"
+    if not path.exists():
+        return [{"id": DEFAULT_MODEL, "name": DEFAULT_MODEL_NAME}]
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return [{"id": DEFAULT_MODEL, "name": DEFAULT_MODEL_NAME}]
+
+    # 定位 opencode-go 块
+    start = None
+    block_indent = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("opencode-go:"):
+            start = i
+            block_indent = len(line) - len(line.lstrip())
+            break
+    if start is None:
+        return [{"id": DEFAULT_MODEL, "name": DEFAULT_MODEL_NAME}]
+
+    models: list[dict[str, str]] = []
+    current_id: str | None = None
+    for line in lines[start + 1 :]:
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent <= block_indent:
+            break
+        stripped = line.strip()
+        if stripped.startswith("- id:"):
+            current_id = stripped[len("- id:") :].strip().strip("'\"")
+        elif stripped.startswith("name:") and current_id:
+            name = stripped[len("name:") :].strip().strip("'\"")
+            models.append({"id": current_id, "name": name})
+            current_id = None
+    if not models:
+        return [{"id": DEFAULT_MODEL, "name": DEFAULT_MODEL_NAME}]
+    return models
+
+
 class DeepSeekRuntimeAdapter:
     """OpenAI-completions 兼容端点适配器；只做对话连续性，不做工具执行。"""
 
@@ -248,4 +294,5 @@ class DeepSeekRuntimeAdapter:
             turn_id=turn_id,
             text=reply_text,
             model_used=self.model,
+            requested_model=self.model,
         )

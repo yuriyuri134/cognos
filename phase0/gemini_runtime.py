@@ -76,8 +76,9 @@ class GeminiRuntimeAdapter:
         self.model = model
         self.developer_instructions = developer_instructions
         self.timeout = timeout
-        # 静默回退默认开启；设 COGNOS_GEMINI_ALLOW_FALLBACK=0 则只用配置模型，错误直接暴露
-        self.allow_fallback = os.environ.get("COGNOS_GEMINI_ALLOW_FALLBACK", "1") != "0"
+        # 持久 Participant 默认严格模型绑定：指定模型不可用时明确失败，不静默降级。
+        # 用户显式设 COGNOS_GEMINI_ALLOW_FALLBACK=1 才允许回退。
+        self.allow_fallback = os.environ.get("COGNOS_GEMINI_ALLOW_FALLBACK", "0") != "0"
         self._cached_state: GeminiConversationState | None = None
 
     def _get_or_create_state(self) -> GeminiConversationState:
@@ -183,4 +184,5 @@ class GeminiRuntimeAdapter:
             turn_id=turn_id,
             text=reply_text,
             model_used=model_used,
+            requested_model=self.model,
         )

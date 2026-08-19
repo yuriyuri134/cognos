@@ -198,6 +198,7 @@
           <button class="quote-button" type="button" title="以此发生作为引用，邀请其他参与者面对">引用</button>
           <button class="handoff-button" type="button" title="以此发生为上下文，交接给外部 Agent (Antigravity)">交接</button>
           <button class="trace-button" type="button" hidden></button>
+          <button class="situation-button" type="button" title="查看这次回答时 Participant 实际所处的处境投影" hidden>处境</button>
         </div>
       </article>
     </template>
@@ -215,6 +216,16 @@
         </div>
       </article>
     </template>
+
+    <div class="situation-overlay" id="situation-overlay" hidden>
+      <div class="situation-card">
+        <div class="situation-card-head">
+          <strong>处境投影 / Situation Projection</strong>
+          <button id="situation-close" type="button" title="关闭">×</button>
+        </div>
+        <pre class="situation-content" id="situation-content"></pre>
+      </div>
+    </div>
 
     <script src="/assets/vendor/marked.min.js"></script>
     <script src="/assets/vendor/purify.min.js"></script>

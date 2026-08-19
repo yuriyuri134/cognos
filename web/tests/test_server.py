@@ -28,7 +28,7 @@ class FakeRuntime:
     async def send(self, message: str) -> RuntimeReply:
         return RuntimeReply(
             thread_id=self.thread_id,
-            turn_id=f"turn-{self.prefix}-{len(message)}",
+            turn_id=f"turn-{self.prefix}-fixed",
             text=f"{self.prefix} 回复：{message}",
         )
 
@@ -84,7 +84,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, len(payload["messages"]))
         self.assertEqual(["小林", "Codex"], [item["author"] for item in payload["messages"]])
         self.assertEqual("从这里继续", payload["messages"][0]["content"])
-        self.assertEqual("turn-fake-5", payload["state"]["latest_runtime_ref"]["turn_id"])
+        self.assertEqual("turn-fake-fixed", payload["state"]["latest_runtime_ref"]["turn_id"])
 
     async def test_multi_participant_coexistence_and_routing(self) -> None:
         participants = {

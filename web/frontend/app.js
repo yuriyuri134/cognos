@@ -41,6 +41,9 @@ const scopeLabel = document.querySelector("#scope-label");
 const emptyTitle = document.querySelector("#empty-title");
 const emptySub = document.querySelector("#empty-sub");
 const mentionPopup = document.querySelector("#mention-popup");
+const situationOverlay = document.querySelector("#situation-overlay");
+const situationContent = document.querySelector("#situation-content");
+const situationClose = document.querySelector("#situation-close");
 
 let sending = false;
 let activeTraceElement = null;
@@ -277,11 +280,56 @@ function createMessage(record, { pending = false } = {}) {
   const trace = node.querySelector(".trace-button");
   if (record.runtime_ref) {
     trace.hidden = false;
-    trace.textContent = `${record.runtime_ref.runtime || "ai"} · ${shortId(record.runtime_ref.turn_id, "未知")}`;
-    trace.title = `点击关联右栏 Trace\nruntime: ${record.runtime_ref.runtime}\nthread: ${record.runtime_ref.thread_id}\nturn: ${record.runtime_ref.turn_id}`;
+    const model = record.runtime_ref.model ? `${record.runtime_ref.model} · ` : "";
+    trace.textContent = `${record.runtime_ref.runtime || "ai"} · ${model}${shortId(record.runtime_ref.turn_id, "未知")}`;
+    trace.title = `点击关联右栏 Trace\nruntime: ${record.runtime_ref.runtime}\nthread: ${record.runtime_ref.thread_id}\nturn: ${record.runtime_ref.turn_id}\nactual model: ${record.runtime_ref.model || "未记录"}`;
     trace.addEventListener("click", () => inspectTrace(record.runtime_ref, trace));
   }
+
+  // 处境按钮：查看当时 Situation Projection
+  const situationBtn = node.querySelector(".situation-button");
+  if (situationBtn) {
+    if (record.situation_ref) {
+      situationBtn.hidden = false;
+      situationBtn.addEventListener("click", () => openSituation(record.situation_ref));
+    }
+  }
+
+  // orientation 状态标识
+  if (record.orientation && record.orientation.status) {
+    const meta = node.querySelector(".message-meta");
+    if (meta) {
+      const chip = document.createElement("span");
+      if (record.orientation.status === "clarification_required") {
+        chip.className = "orientation-chip chip-clarify";
+        chip.textContent = "需要澄清";
+        chip.title = (record.orientation.missing || []).join("；") || "关键信息缺失";
+      } else if (record.orientation.status === "assumption") {
+        chip.className = "orientation-chip chip-assume";
+        chip.textContent = "带假设";
+        chip.title = (record.orientation.assumptions || []).join("；") || "部分假设";
+      }
+      if (chip.textContent) meta.append(chip);
+    }
+  }
   return node;
+}
+
+async function openSituation(situationId) {
+  if (!situationOverlay || !situationContent) return;
+  try {
+    const situation = await requestJson(`/api/situations/${situationId}`);
+    situationContent.textContent = JSON.stringify(situation, null, 2);
+    situationOverlay.hidden = false;
+  } catch (error) {
+    showError(error.message || "无法读取处境投影");
+  }
+}
+
+if (situationClose) {
+  situationClose.addEventListener("click", () => {
+    if (situationOverlay) situationOverlay.hidden = true;
+  });
 }
 
 function createPendingReply(targetName) {

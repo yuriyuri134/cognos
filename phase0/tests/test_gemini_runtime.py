@@ -110,7 +110,7 @@ class GeminiRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("HTTP 404", str(ctx.exception))
 
     async def test_silent_fallback_records_model_used(self) -> None:
-        """配置模型 404 时静默降级，但回复必须带实际使用的模型。"""
+        """显式开启回退时（COGNOS_GEMINI_ALLOW_FALLBACK=1）降级，回复必须带实际模型。"""
 
         def fake_post(url: str, **kwargs):
             if "gemini-3.7-flash" in url:
@@ -125,7 +125,9 @@ class GeminiRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
                 request=httpx.Request("POST", "http://test"),
             )
 
-        with patch("httpx.AsyncClient.post", AsyncMock(side_effect=fake_post)):
+        with patch.dict(os.environ, {"COGNOS_GEMINI_ALLOW_FALLBACK": "1"}), patch(
+            "httpx.AsyncClient.post", AsyncMock(side_effect=fake_post)
+        ):
             adapter = GeminiRuntimeAdapter(
                 api_key="fake_key",
                 state_store=self.store,
@@ -134,6 +136,32 @@ class GeminiRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
             reply = await adapter.send("hi")
 
         self.assertEqual("gemini-3.6-flash", reply.model_used)
+        self.assertEqual("gemini-3.7-flash", reply.requested_model)
+
+    async def test_strict_binding_is_default(self) -> None:
+        """默认严格绑定：指定模型 404 时不降级，直接失败。"""
+
+        not_found = httpx.Response(
+            status_code=404,
+            text="model not found",
+            request=httpx.Request("POST", "http://test"),
+        )
+        mock_post = AsyncMock(return_value=not_found)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("COGNOS_GEMINI_ALLOW_FALLBACK", None)
+            with patch("httpx.AsyncClient.post", mock_post):
+                adapter = GeminiRuntimeAdapter(
+                    api_key="fake_key",
+                    state_store=self.store,
+                    model="gemini-3.7-flash",
+                )
+                with self.assertRaises(Exception) as ctx:
+                    await adapter.send("hi")
+        urls = [c.args[0] for c in mock_post.call_args_list]
+        for url in urls:
+            self.assertIn("gemini-3.7-flash", url)
+            self.assertNotIn("gemini-3.6", url)
+        self.assertIn("HTTP 404", str(ctx.exception))
 
 
 if __name__ == "__main__":

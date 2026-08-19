@@ -29,11 +29,20 @@ from codex_runtime import (
     RuntimeUnavailableError,
 )
 from gemini_runtime import GeminiRuntimeAdapter, GeminiStateStore
-from deepseek_runtime import DeepSeekRuntimeAdapter, DeepSeekStateStore, load_deepseek_config
+from deepseek_runtime import DeepSeekRuntimeAdapter, DeepSeekStateStore, load_deepseek_config, list_opencode_go_models
 from history import AppendOnlyHistory, HistoryCorruptionError
 from handoff.envelope import build_envelope, write_envelope
 from org_api import create_org_router
 from org_store import OrgStore
+from situation import (
+    build_situation,
+    build_situation_prompt,
+    format_questions,
+    load_frame_sources,
+    load_situation,
+    parse_orientation,
+    save_situation,
+)
 
 
 def _load_env_file(path: Path) -> None:
@@ -93,6 +102,7 @@ class AppConfig:
     gemini_model: str = "gemini-3.7-flash"
     handoff_dir: Path | None = None
     org_db_path: Path | None = None
+    situation_dir: Path | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -129,17 +139,27 @@ class HandoffResultRequest(BaseModel):
 
 
 class ConversationService:
-    """串行组织一次发言与特定参与者的 Runtime turn，支持同一发生场内多参与者共在。"""
+    """串行组织一次发言与特定参与者的 Runtime turn，支持同一发生场内多参与者共在。
+
+    每次调用前由系统机械构造 Situation Projection（不是模型自由总结），
+    回答后保留 situation provenance 并解析 orientation gate。
+    """
 
     def __init__(
         self,
         history: AppendOnlyHistory,
         participants: dict[str, Participant],
         default_target_id: str | None = None,
+        org_store: OrgStore | None = None,
+        situation_dir: Path | None = None,
+        frame_sources: list[dict[str, Any]] | None = None,
     ) -> None:
         self.history = history
         self.participants = participants
         self.default_target_id = default_target_id or (next(iter(participants.keys())) if participants else "gemini")
+        self.org_store = org_store
+        self.situation_dir = situation_dir
+        self.frame_sources = frame_sources or []
         self._send_lock = asyncio.Lock()
 
     def resolve_target(self, content: str, requested_target: str | None) -> tuple[str, str]:
@@ -179,22 +199,53 @@ class ConversationService:
         if quoted_occurrence_id:
             quoted_record = self.history.get_by_id(quoted_occurrence_id)
 
-        # 显式构造呈现给目标参与者的输入，不伪造原生历史，也不污染 system prompt
-        if quoted_record:
-            q_author = quoted_record.get("author", "未知参与者")
-            q_id = quoted_record.get("id", "")
-            q_content = quoted_record.get("content", "")
-            actual_input = (
-                f"[来自当前发生场的已有发生]\n"
-                f"occurrence_id: {q_id}\n"
-                f"author: {q_author}\n\n"
-                f"{q_content}\n"
-                f"[/发生]\n\n"
-                f"小林：\n"
-                f"{target_content or content}"
-            )
-        else:
-            actual_input = target_content or content
+        requested_model = getattr(participant.runtime, "model", None) or None
+
+        # ---------- Situation Projection：机械构造当前处境（不冻结成 Space schema） ----------
+        locus: dict[str, Any] = {"type": "field", "organization": None, "project": None}
+        project_members: list[dict[str, Any]] = []
+        if project_id and self.org_store is not None:
+            project = self.org_store.get_project(project_id)
+            if project is not None:
+                org = self.org_store.get_organization(project["org_id"])
+                project_members = self.org_store.list_project_members(project_id)
+                locus = {
+                    "type": "project",
+                    "organization": {
+                        "id": project["org_id"],
+                        "name": (org or {}).get("name", ""),
+                    },
+                    "project": {
+                        "id": project["id"],
+                        "title": project["title"],
+                        "description": project["description"],
+                        "status": project["status"],
+                    },
+                }
+
+        situation = build_situation(
+            participant={
+                "id": participant.id,
+                "name": participant.name,
+                "model_name": participant.model_name,
+                "runtime": participant.id,
+            },
+            requested_model=requested_model,
+            locus=locus,
+            content=target_content or content,
+            quoted=[quoted_record] if quoted_record else [],
+            project_members=project_members,
+            frame_sources=self.frame_sources,
+            reachable={
+                "explicit_quotation_ids": [quoted_occurrence_id] if quoted_occurrence_id else [],
+            },
+        )
+        if self.situation_dir is not None:
+            try:
+                save_situation(self.situation_dir, situation)
+            except OSError:
+                pass
+        actual_input = build_situation_prompt(situation)
 
         async with self._send_lock:
             user_record = self.history.append_message(
@@ -208,27 +259,56 @@ class ConversationService:
             # 发送给指定参与者的独立运行时，保持该参与者自己的连续性
             reply = await participant.runtime.send(actual_input)
 
+            # orientation gate：解析信封；无法解析时整段当作回答（保留降级）
+            orientation, final_text = parse_orientation(reply.text)
+            if (
+                isinstance(orientation, dict)
+                and orientation.get("status") == "clarification_required"
+                and not final_text
+            ):
+                final_text = format_questions(orientation)
+            if not final_text:
+                final_text = reply.text
+
+            actual_model = getattr(reply, "model_used", None) or None
+            requested = getattr(reply, "requested_model", None) or requested_model
+            fallback_happened = bool(actual_model and requested and actual_model != requested)
+
             runtime_ref: dict[str, Any] = {
                 "runtime": participant.id,
                 "thread_id": reply.thread_id,
                 "turn_id": reply.turn_id,
             }
-            if getattr(reply, "model_used", None):
-                runtime_ref["model"] = reply.model_used
+            if actual_model:
+                runtime_ref["model"] = actual_model
 
             ai_record = self.history.append_message(
                 author=participant.name,
                 author_participant_id=participant.id,
-                content=reply.text,
+                content=final_text,
                 in_reply_to=user_record["id"],
                 quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
                 project_id=project_id,
                 runtime_ref=runtime_ref,
+                situation_ref=situation["situation_id"],
+                situation_hash=situation["situation_hash"],
+                requested_model=requested,
+                actual_model=actual_model,
+                fallback_happened=fallback_happened or None,
+                orientation=orientation if isinstance(orientation, dict) else None,
             )
             return {
                 "user": user_record,
                 "reply": ai_record,
                 "target": participant.to_dict(),
+                "situation": {
+                    "situation_id": situation["situation_id"],
+                    "situation_hash": situation["situation_hash"],
+                    "requested_model": requested,
+                    "actual_model": actual_model,
+                    "fallback_happened": fallback_happened,
+                    "orientation": orientation if isinstance(orientation, dict) else None,
+                },
             }
 
 
@@ -271,6 +351,12 @@ def default_config() -> AppConfig:
                 str(thread_state_dir / "org.db"),
             )
         ).resolve(),
+        situation_dir=Path(
+            os.environ.get(
+                "COGNOS_SITUATION_DIR",
+                str(thread_state_dir / "situations"),
+            )
+        ).resolve(),
     )
 
 
@@ -290,6 +376,17 @@ def create_app(
     config = config or default_config()
     history = AppendOnlyHistory(config.history_path)
     instructions = _read_instructions(config.participant_instructions_path)
+
+    # 认知框架来源：明确 source refs，由配置机械加载（默认三份 current-view/决策台账）
+    vault_root = config.history_path.parents[3]
+    extra_frame = os.environ.get("COGNOS_FRAME_SOURCES", "").replace(";", os.pathsep)
+    frame_sources = load_frame_sources(
+        vault_root,
+        [p for p in extra_frame.split(os.pathsep) if p.strip()],
+    )
+
+    # OpenCode Go 凭据（默认参与者与额外绑定共用）
+    deepseek_config = load_deepseek_config()
 
     registry: dict[str, Participant] = {}
 
@@ -351,7 +448,6 @@ def create_app(
         )
 
         # DeepSeek (opencode-go / zen go 套餐)：有凭据才注册，无凭据则跳过
-        deepseek_config = load_deepseek_config()
         if deepseek_config is not None:
             deepseek_store = DeepSeekStateStore(
                 config.thread_state_dir / "deepseek_thread.json"
@@ -372,15 +468,58 @@ def create_app(
                 description="opencode-go / DeepSeek V4 (zen go 套餐)",
             )
 
+    # 通用 OpenCode Go runtime binding：Participant 身份与 provider/model 分离。
+    # COGNOS_EXTRA_PARTICIPANTS = [{"id":"deepseek-b","name":"DeepSeek-B","model":"deepseek-v4-flash"}, ...]
+    # 同一模型可注册多个 Participant，各自 continuity/state 独立。
+    if deepseek_config is not None:
+        extra_spec = os.environ.get("COGNOS_EXTRA_PARTICIPANTS", "").strip()
+        if extra_spec:
+            try:
+                specs = json.loads(extra_spec)
+                for spec in specs:
+                    if not isinstance(spec, dict):
+                        continue
+                    participant_id = (spec.get("id") or "").strip()
+                    if not participant_id or participant_id in registry:
+                        continue
+                    model = (spec.get("model") or deepseek_config["model"]).strip()
+                    name = (spec.get("name") or participant_id).strip()
+                    state_file = f"{participant_id.replace('-', '_')}_thread.json"
+                    store = DeepSeekStateStore(config.thread_state_dir / state_file)
+                    adapter = DeepSeekRuntimeAdapter(
+                        api_key=deepseek_config["api_key"],
+                        base_url=deepseek_config["base_url"],
+                        model=model,
+                        model_name=name,
+                        state_store=store,
+                        developer_instructions=instructions,
+                    )
+                    registry[participant_id] = Participant(
+                        id=participant_id,
+                        name=name,
+                        model_name=name,
+                        runtime=adapter,
+                        description=f"opencode-go binding / {model}",
+                    )
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
     default_target = "gemini" if "gemini" in registry else next(iter(registry.keys()), "codex")
-    service = ConversationService(history, registry, default_target_id=default_target)
+    org_store = OrgStore(config.org_db_path or config.thread_state_dir / "org.db")
+    service = ConversationService(
+        history,
+        registry,
+        default_target_id=default_target,
+        org_store=org_store,
+        situation_dir=config.situation_dir or config.thread_state_dir / "situations",
+        frame_sources=frame_sources,
+    )
 
     app = FastAPI(title="Cognos 第一发生场", docs_url=None, redoc_url=None)
     app.state.config = config
     app.state.history = history
     app.state.service = service
     app.state.participants = registry
-    org_store = OrgStore(config.org_db_path or config.thread_state_dir / "org.db")
     app.state.org_store = org_store
     app.include_router(
         create_org_router(
@@ -391,6 +530,32 @@ def create_app(
         )
     )
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
+
+    @app.get("/api/situations/{situation_id}")
+    async def get_situation(situation_id: str) -> dict[str, Any]:
+        """开发/检查入口：查看某次回答时 Participant 实际所处的处境投影。"""
+
+        situation_dir = config.situation_dir or config.thread_state_dir / "situations"
+        situation = load_situation(situation_dir, situation_id)
+        if situation is None:
+            raise HTTPException(status_code=404, detail="处境投影不存在")
+        return situation
+
+    @app.get("/api/models")
+    async def get_models() -> dict[str, Any]:
+        """读取现有 OpenCode Go 配置里的模型清单（不硬编码）。"""
+
+        return {
+            "opencode_go": list_opencode_go_models(),
+            "participants": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "requested_model": getattr(p.runtime, "model", None) or p.model_name,
+                }
+                for p in registry.values()
+            ],
+        }
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
