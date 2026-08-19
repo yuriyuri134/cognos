@@ -213,6 +213,9 @@ class DeepSeekRuntimeAdapter:
         if not self.api_key:
             raise RuntimeUnavailableError("未配置 DeepSeek (opencode-go) API Key")
 
+        # 先保存用户原文，避免被下面解析响应的局部变量覆盖（历史 bug）
+        user_text = message
+
         state = self._get_or_create_state()
 
         payload: dict[str, Any] = {
@@ -225,7 +228,7 @@ class DeepSeekRuntimeAdapter:
                 {"role": "system", "content": self.developer_instructions}
             )
         payload["messages"].extend(list(state.contents))
-        payload["messages"].append({"role": "user", "content": message})
+        payload["messages"].append({"role": "user", "content": user_text})
 
         reasoning_effort = os.environ.get("DEEPSEEK_REASONING_EFFORT", "").strip()
         if reasoning_effort:
@@ -260,7 +263,7 @@ class DeepSeekRuntimeAdapter:
         if response is None:
             raise RuntimeUnavailableError(f"DeepSeek 网络连接失败：{last_error or '多次尝试无响应'}")
         if response.status_code != 200:
-            snippet = response.text[:200].replace("\n", " ")
+            snippet = response.text[:500].replace("\n", " ")
             raise RuntimeUnavailableError(
                 f"DeepSeek (opencode-go) 返回 HTTP {response.status_code}：{snippet}"
             )
@@ -270,11 +273,11 @@ class DeepSeekRuntimeAdapter:
             choices = data.get("choices") or []
             if not choices:
                 raise RuntimeUnavailableError("DeepSeek 未返回有效 choices")
-            message = choices[0].get("message") or {}
-            reply_text = str(message.get("content") or "").strip()
+            api_message = choices[0].get("message") or {}
+            reply_text = str(api_message.get("content") or "").strip()
             if not reply_text:
                 # 部分推理模型只把可见正文放进 content；空则取 reasoning 摘要兜底
-                reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
+                reasoning = api_message.get("reasoning_content") or api_message.get("reasoning") or ""
                 reply_text = str(reasoning).strip()
             if not reply_text:
                 raise RuntimeUnavailableError("DeepSeek candidate content 为空")
@@ -285,7 +288,7 @@ class DeepSeekRuntimeAdapter:
 
         turn_id = f"turn_{uuid.uuid4()}"
 
-        state.contents.append({"role": "user", "content": message})
+        state.contents.append({"role": "user", "content": user_text})
         state.contents.append({"role": "assistant", "content": reply_text})
         self.state_store.save(state)
 

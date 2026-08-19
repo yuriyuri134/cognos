@@ -88,11 +88,17 @@ class DeepSeekRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, len(saved.contents))
         self.assertEqual("user", saved.contents[0]["role"])
         self.assertEqual("assistant", saved.contents[1]["role"])
+        # 回归：用户 turn 的 content 必须是原始字符串（曾因变量覆盖被存成响应 dict）
+        self.assertIsInstance(saved.contents[0]["content"], str)
+        self.assertEqual("你好", saved.contents[0]["content"])
+        self.assertIsInstance(saved.contents[1]["content"], str)
 
         # 请求体应包含 system 指令、历史与当前消息
         body = mock_post.call_args.kwargs["json"]
         roles = [m["role"] for m in body["messages"]]
         self.assertEqual(["system", "user"], roles[:2])
+        self.assertIsInstance(body["messages"][0]["content"], str)
+        self.assertIsInstance(body["messages"][1]["content"], str)
         self.assertEqual("deepseek-v4-flash", body["model"])
 
     async def test_send_raises_on_non_200(self) -> None:
@@ -112,6 +118,28 @@ class DeepSeekRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
         saved = self.store.load()
         self.assertIsNotNone(saved)
         self.assertEqual(0, len(saved.contents))
+
+    async def test_multiturn_replay_keeps_plain_string_messages(self) -> None:
+        """第二轮请求回放历史时，历史里的 content 必须是字符串（回归：曾存成响应 dict）。"""
+
+        mock_post = AsyncMock(return_value=self._ok_response("第二轮回复"))
+        with patch("httpx.AsyncClient.post", mock_post):
+            adapter = DeepSeekRuntimeAdapter(
+                api_key="fake_key",
+                state_store=self.store,
+                developer_instructions="保持简洁。",
+            )
+            await adapter.send("第一轮问题")
+            reply = await adapter.send("第二轮问题")
+
+        self.assertEqual("第二轮回复", reply.text)
+        calls = mock_post.call_args_list
+        self.assertEqual(2, len(calls))
+        second_body = calls[1].kwargs["json"]
+        for msg in second_body["messages"]:
+            self.assertIsInstance(msg["content"], str)
+        # 历史里第一条用户消息是原文字符串
+        self.assertEqual("第一轮问题", second_body["messages"][1]["content"])
 
     async def test_send_empty_reply_raises(self) -> None:
         empty = httpx.Response(
