@@ -51,6 +51,8 @@ class ProjectMessageRequest(BaseModel):
     content: str = Field(..., max_length=100_000)
     target: str | None = None
     quoted_occurrence_id: str | None = None
+    search: bool = False
+    search_query: str | None = None
 
 
 def create_org_router(
@@ -264,6 +266,8 @@ def create_org_router(
                 target=request.target,
                 quoted_occurrence_id=request.quoted_occurrence_id,
                 project_id=project_id,
+                search=request.search,
+                search_query=request.search_query,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

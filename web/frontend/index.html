@@ -120,6 +120,18 @@
               autocomplete="off"
             ></textarea>
             <div class="composer-foot">
+              <label class="search-toggle" title="发送前先联网检索，把带来源的材料交给参与者">
+                <input type="checkbox" id="search-toggle" />
+                <span>🌐 联网</span>
+              </label>
+              <input
+                type="text"
+                id="search-query"
+                class="search-query"
+                placeholder="检索词（留空则用整条消息）"
+                maxlength="200"
+                autocomplete="off"
+              />
               <div class="target-selector" id="target-selector">
                 <span class="target-caption">受话方</span>
                 <div class="target-pills" id="target-pills"></div>

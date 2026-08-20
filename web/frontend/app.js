@@ -6,6 +6,8 @@ const emptyState = document.querySelector("#empty-state");
 const composer = document.querySelector("#composer");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
+const searchToggle = document.querySelector("#search-toggle");
+const searchQueryInput = document.querySelector("#search-query");
 const messageTemplate = document.querySelector("#message-template");
 const pendingTemplate = document.querySelector("#pending-template");
 const errorBanner = document.querySelector("#error-banner");
@@ -271,6 +273,33 @@ function createMessage(record, { pending = false } = {}) {
       a.rel = "noopener noreferrer";
       a.textContent = s.title || s.uri;
       a.title = s.uri;
+      a.className = "source-link";
+      wrap.append(a);
+    });
+    body.after(wrap);
+  }
+
+  // 应用层联网检索：来源/失败提示回显
+  if (record.search_error) {
+    const note = document.createElement("div");
+    note.className = "search-note";
+    note.textContent = `⚠ 联网检索未完成（${record.search_error}），已照常发送`;
+    body.after(note);
+  }
+  if (record.search_sources && record.search_sources.length) {
+    const wrap = document.createElement("div");
+    wrap.className = "sources-block";
+    const label = document.createElement("span");
+    label.className = "sources-label";
+    label.textContent = "联网检索来源";
+    wrap.append(label);
+    record.search_sources.slice(0, 5).forEach((s) => {
+      const a = document.createElement("a");
+      a.href = s.url || "#";
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = s.title || s.url;
+      a.title = s.url;
       a.className = "source-link";
       wrap.append(a);
     });
@@ -1113,6 +1142,8 @@ async function sendCurrentMessage() {
           content,
           target: targetId,
           quoted_occurrence_id: quoteId,
+          search: searchToggle ? searchToggle.checked : false,
+          search_query: searchQueryInput ? searchQueryInput.value.trim() || undefined : undefined,
         }),
       });
     }

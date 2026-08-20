@@ -213,6 +213,73 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(422, response.status_code)
         self.assertEqual([], history)
 
+    async def test_web_search_injects_material_and_records_sources(self) -> None:
+        async def fake_search(query):
+            return [{"title": "T1", "url": "https://example.com/1", "snippet": "s1"}]
+
+        app = create_app(self.config, runtime=FakeRuntime(), search_fn=fake_search)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/messages", json={"content": "检索一下 CERN 近况", "search": True}
+            )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("检索一下 CERN 近况", body["search"]["query"])
+        self.assertEqual("https://example.com/1", body["search"]["sources"][0]["url"])
+        self.assertEqual("检索一下 CERN 近况", body["user"]["search_query"])
+        self.assertEqual("https://example.com/1", body["reply"]["search_sources"][0]["url"])
+
+    async def test_web_search_failure_keeps_message(self) -> None:
+        async def bad_search(query):
+            raise RuntimeError("检索通道不可用")
+
+        app = create_app(self.config, runtime=FakeRuntime(), search_fn=bad_search)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/messages", json={"content": "查一下", "search": True}
+            )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertIn("检索通道不可用", body["user"]["search_error"])
+        self.assertEqual("Codex", body["reply"]["author"])
+
+    async def test_without_search_no_search_fields(self) -> None:
+        async def never_called(query):
+            raise AssertionError("不应当触发联网")
+
+        app = create_app(self.config, runtime=FakeRuntime(), search_fn=never_called)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/messages", json={"content": "普通消息"})
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertIsNone(body["search"])
+        self.assertNotIn("search_query", body["user"])
+
+    async def test_search_query_field_overrides_content(self) -> None:
+        seen: dict[str, str] = {}
+
+        async def fake_search(query):
+            seen["query"] = query
+            return [{"title": "T", "url": "https://example.com/1", "snippet": "s"}]
+
+        app = create_app(self.config, runtime=FakeRuntime(), search_fn=fake_search)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/messages",
+                json={
+                    "content": "告诉我 CERN 近况",
+                    "search": True,
+                    "search_query": "CERN 2026 news",
+                },
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("CERN 2026 news", seen["query"])
+        self.assertEqual("CERN 2026 news", response.json()["search"]["query"])
+
     async def test_gemini_web_registered_when_env_gated(self) -> None:
         """GEMINI_WEB=1 时注册联网检索参与者 gemini-web。"""
 

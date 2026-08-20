@@ -1690,3 +1690,54 @@ button {
 .source-link:hover {
   background: rgba(138, 180, 255, 0.12);
 }
+
+/* ---------- 联网检索开关与回显 ---------- */
+
+.search-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.search-toggle:hover {
+  border-color: rgba(138, 180, 255, 0.4);
+}
+
+.search-toggle input {
+  accent-color: #8ab4ff;
+  cursor: pointer;
+}
+
+.search-note {
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-left: 3px solid rgba(226, 186, 121, 0.7);
+  background: rgba(226, 186, 121, 0.08);
+  border-radius: 4px;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.search-query {
+  flex: 1;
+  min-width: 120px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  font-size: 0.74rem;
+}
+
+.search-query:focus {
+  outline: none;
+  border-color: rgba(138, 180, 255, 0.5);
+}

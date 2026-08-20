@@ -34,6 +34,7 @@ from history import AppendOnlyHistory, HistoryCorruptionError
 from handoff.envelope import build_envelope, write_envelope
 from org_api import create_org_router
 from org_store import OrgStore
+from search_provider import SearchUnavailableError, format_search_material, web_search
 from situation import (
     build_situation,
     build_situation_prompt,
@@ -109,6 +110,8 @@ class SendMessageRequest(BaseModel):
     content: str
     target: str | None = None
     quoted_occurrence_id: str | None = None
+    search: bool = False
+    search_query: str | None = None
 
 
 class HandoffCreateRequest(BaseModel):
@@ -153,6 +156,7 @@ class ConversationService:
         org_store: OrgStore | None = None,
         situation_dir: Path | None = None,
         frame_sources: list[dict[str, Any]] | None = None,
+        search_fn: Any | None = None,
     ) -> None:
         self.history = history
         self.participants = participants
@@ -160,6 +164,7 @@ class ConversationService:
         self.org_store = org_store
         self.situation_dir = situation_dir
         self.frame_sources = frame_sources or []
+        self.search_fn = search_fn or web_search
         self._send_lock = asyncio.Lock()
 
     def resolve_target(self, content: str, requested_target: str | None) -> tuple[str, str]:
@@ -183,6 +188,8 @@ class ConversationService:
         target: str | None = None,
         quoted_occurrence_id: str | None = None,
         project_id: str | None = None,
+        search: bool = False,
+        search_query: str | None = None,
     ) -> dict[str, Any]:
         if not content.strip():
             raise ValueError("消息不能为空")
@@ -247,6 +254,24 @@ class ConversationService:
                 pass
         actual_input = build_situation_prompt(situation)
 
+        # ---------- 可选联网检索：抓取带来源的材料注入上下文（不自动视为事实） ----------
+        search_sources: list[dict[str, str]] | None = None
+        search_error: str | None = None
+        effective_query: str | None = None
+        if search:
+            effective_query = (
+                search_query.strip()
+                if search_query and search_query.strip()
+                else (target_content or content).strip()
+            )
+            try:
+                search_sources = await self.search_fn(effective_query)
+                if search_sources:
+                    material = format_search_material(search_sources)
+                    actual_input = f"{material}\n\n{actual_input}"
+            except Exception as exc:  # 检索失败不阻断沟通，留痕并照常发送
+                search_error = f"{type(exc).__name__}: {exc}"
+
         async with self._send_lock:
             user_record = self.history.append_message(
                 author="小林",
@@ -255,6 +280,8 @@ class ConversationService:
                 target_participant_id=participant.id,
                 quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
                 project_id=project_id,
+                search_query=effective_query,
+                search_error=search_error,
             )
             # 发送给指定参与者的独立运行时，保持该参与者自己的连续性
             reply = await participant.runtime.send(actual_input)
@@ -297,6 +324,7 @@ class ConversationService:
                 fallback_happened=fallback_happened or None,
                 orientation=orientation if isinstance(orientation, dict) else None,
                 sources=reply.sources,
+                search_sources=search_sources,
             )
             return {
                 "user": user_record,
@@ -310,6 +338,14 @@ class ConversationService:
                     "fallback_happened": fallback_happened,
                     "orientation": orientation if isinstance(orientation, dict) else None,
                 },
+                "search": {
+                    "query": effective_query,
+                    "requested": bool(search),
+                    "sources": search_sources,
+                    "error": search_error,
+                }
+                if search
+                else None,
             }
 
 
@@ -373,6 +409,7 @@ def create_app(
     *,
     runtime: RuntimeAdapter | None = None,
     participants: dict[str, Participant] | None = None,
+    search_fn: Any | None = None,
 ) -> FastAPI:
     config = config or default_config()
     history = AppendOnlyHistory(config.history_path)
@@ -534,6 +571,7 @@ def create_app(
         org_store=org_store,
         situation_dir=config.situation_dir or config.thread_state_dir / "situations",
         frame_sources=frame_sources,
+        search_fn=search_fn,
     )
 
     app = FastAPI(title="Cognos 第一发生场", docs_url=None, redoc_url=None)
@@ -612,6 +650,8 @@ def create_app(
                 request.content,
                 target=request.target,
                 quoted_occurrence_id=request.quoted_occurrence_id,
+                search=request.search,
+                search_query=request.search_query,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
