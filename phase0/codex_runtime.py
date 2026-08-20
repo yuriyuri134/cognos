@@ -29,6 +29,7 @@ class RuntimeReply:
     turn_id: str
     text: str
     model_used: str | None = None
+    sources: list[dict[str, str]] | None = None
     requested_model: str | None = None
 
 

@@ -75,8 +75,9 @@ PYTHONPATH=phase0:web <venv>/bin/python -m handoff.result_poster <vault-payload.
 
 | participant | runtime | 说明 |
 |---|---|---|
-| gemini / gemini-b | `GeminiRuntimeAdapter` | Google API；环境变量 `GEMINI_API_KEY`/`GEMINI_MODEL`；`COGNOS_GEMINI_ALLOW_FALLBACK=0` 可关闭静默降级 |
+| gemini / gemini-b | `GeminiRuntimeAdapter` | Google API；环境变量 `GEMINI_API_KEY`/`GEMINI_MODEL`；默认严格绑定（`COGNOS_GEMINI_ALLOW_FALLBACK=1` 才允许降级） |
+| gemini-web | `GeminiRuntimeAdapter(search=True)` | 联网检索（Search Grounding）；`GEMINI_WEB=1` 时注册；回复带 `sources`（检索来源在消息下方回显）；注意 Gemini 配额（429）会同时影响它 |
 | codex | `CodexRuntimeAdapter` | 本地 ChatGPT OAuth，线程可跨进程恢复 |
-| deepseek | `DeepSeekRuntimeAdapter` | opencode-go / zen go 套餐；凭据在 `~/.dsh/.credentials.yaml` 或 `~/.pi/agent/auth.json`，可被 `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`/`DEEPSEEK_MODEL` 覆盖；只做对话，不执行工具 |
+| deepseek | `DeepSeekRuntimeAdapter` | opencode-go / zen go 套餐；凭据在 `~/.dsh/.credentials.yaml` 或 `~/.pi/agent/auth.json`，可被 `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`/`DEEPSEEK_MODEL`/`DEEPSEEK_TIMEOUT` 覆盖；只做对话，不执行工具 |
 
 所有 AI 回复的 `runtime_ref` 都带 `model` 字段（实际响应模型，可识别降级）。

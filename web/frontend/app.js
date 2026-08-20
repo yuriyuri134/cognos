@@ -256,6 +256,27 @@ function createMessage(record, { pending = false } = {}) {
   const body = node.querySelector(".message-body");
   renderContent(body, record.content, isUser);
 
+  // 联网检索来源（Search Grounding）回显
+  if (record.sources && record.sources.length) {
+    const wrap = document.createElement("div");
+    wrap.className = "sources-block";
+    const label = document.createElement("span");
+    label.className = "sources-label";
+    label.textContent = "检索来源";
+    wrap.append(label);
+    record.sources.slice(0, 5).forEach((s) => {
+      const a = document.createElement("a");
+      a.href = s.uri || "#";
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = s.title || s.uri;
+      a.title = s.uri;
+      a.className = "source-link";
+      wrap.append(a);
+    });
+    body.after(wrap);
+  }
+
   // 引用按钮
   const quoteBtn = node.querySelector(".quote-button");
   if (quoteBtn) {

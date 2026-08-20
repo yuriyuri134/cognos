@@ -70,12 +70,17 @@ class GeminiRuntimeAdapter:
         model: str = "gemini-3.7-flash",
         developer_instructions: str | None = None,
         timeout: float = 60.0,
+        search: bool = False,
+        search_tool: dict[str, Any] | None = None,
     ) -> None:
         self.api_key = api_key.strip()
         self.state_store = state_store
         self.model = model
         self.developer_instructions = developer_instructions
         self.timeout = timeout
+        # 联网检索（Search Grounding）：开启后模型可基于实时搜索结果作答
+        self.search = search
+        self.search_tool = search_tool if search_tool is not None else {"google_search": {}}
         # 持久 Participant 默认严格模型绑定：指定模型不可用时明确失败，不静默降级。
         # 用户显式设 COGNOS_GEMINI_ALLOW_FALLBACK=1 才允许回退。
         self.allow_fallback = os.environ.get("COGNOS_GEMINI_ALLOW_FALLBACK", "0") != "0"
@@ -111,6 +116,8 @@ class GeminiRuntimeAdapter:
             payload["systemInstruction"] = {
                 "parts": [{"text": self.developer_instructions}]
             }
+        if self.search:
+            payload["tools"] = [self.search_tool]
 
         response: httpx.Response | None = None
         last_error: Exception | None = None
@@ -173,6 +180,19 @@ class GeminiRuntimeAdapter:
 
         turn_id = f"turn_{uuid.uuid4()}"
 
+        # 联网检索：提取 Search Grounding 的 web 引用来源
+        sources: list[dict[str, str]] | None = None
+        grounding_chunks = (
+            (candidates[0].get("groundingMetadata") or {}).get("groundingChunks") or []
+        )
+        if grounding_chunks:
+            sources = []
+            for chunk in grounding_chunks:
+                web = chunk.get("web") or {}
+                uri = (web.get("uri") or "").strip()
+                if uri:
+                    sources.append({"uri": uri, "title": (web.get("title") or "").strip()})
+
         # 更新并持久化状态
         model_turn = {"role": "model", "parts": [{"text": reply_text}]}
         state.contents.append(user_turn)
@@ -185,4 +205,5 @@ class GeminiRuntimeAdapter:
             text=reply_text,
             model_used=model_used,
             requested_model=self.model,
+            sources=sources,
         )

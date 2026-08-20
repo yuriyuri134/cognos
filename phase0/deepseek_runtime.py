@@ -194,7 +194,7 @@ class DeepSeekRuntimeAdapter:
         self.model = model
         self.model_name = model_name
         self.developer_instructions = developer_instructions
-        self.timeout = timeout
+        self.timeout = float(os.environ.get("DEEPSEEK_TIMEOUT", str(timeout)))
         self._cached_state: DeepSeekConversationState | None = None
 
     def _get_or_create_state(self) -> DeepSeekConversationState:
@@ -261,11 +261,14 @@ class DeepSeekRuntimeAdapter:
                 continue
 
         if response is None:
-            raise RuntimeUnavailableError(f"DeepSeek 网络连接失败：{last_error or '多次尝试无响应'}")
-        if response.status_code != 200:
-            snippet = response.text[:500].replace("\n", " ")
+            detail = repr(last_error) if last_error else "多次尝试无响应（网络/代理/DNS 层）"
             raise RuntimeUnavailableError(
-                f"DeepSeek (opencode-go) 返回 HTTP {response.status_code}：{snippet}"
+                f"DeepSeek 网络连接失败（url={url}，timeout={self.timeout:.0f}s）：{detail}"
+            )
+        if response.status_code != 200:
+            snippet = (response.text or "")[:500].replace("\n", " ")
+            raise RuntimeUnavailableError(
+                f"DeepSeek (opencode-go) 返回 HTTP {response.status_code}（url={url}）：{snippet or '(空响应体)'}"
             )
 
         try:

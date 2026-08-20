@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from httpx import ASGITransport, AsyncClient
 
@@ -210,6 +212,35 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(422, response.status_code)
         self.assertEqual([], history)
+
+    async def test_gemini_web_registered_when_env_gated(self) -> None:
+        """GEMINI_WEB=1 时注册联网检索参与者 gemini-web。"""
+
+        config = AppConfig(
+            history_path=self.config.history_path,
+            thread_state_dir=self.config.thread_state_dir,
+            codex_cwd=self.config.codex_cwd,
+            participant_instructions_path=self.config.participant_instructions_path,
+            gemini_api_key="fake-key",
+            gemini_model="gemini-3.7-flash",
+        )
+        with patch.dict(os.environ, {"GEMINI_WEB": "1"}):
+            app = create_app(config)
+        self.assertIn("gemini-web", app.state.participants)
+        self.assertTrue(app.state.participants["gemini-web"].runtime.search)
+
+        # 默认（未设 GEMINI_WEB）不注册
+        config_plain = AppConfig(
+            history_path=self.config.history_path,
+            thread_state_dir=self.config.thread_state_dir,
+            codex_cwd=self.config.codex_cwd,
+            participant_instructions_path=self.config.participant_instructions_path,
+            gemini_api_key="fake-key",
+        )
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GEMINI_WEB", None)
+            app_plain = create_app(config_plain)
+        self.assertNotIn("gemini-web", app_plain.state.participants)
 
 
 if __name__ == "__main__":

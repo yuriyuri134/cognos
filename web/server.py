@@ -296,6 +296,7 @@ class ConversationService:
                 actual_model=actual_model,
                 fallback_happened=fallback_happened or None,
                 orientation=orientation if isinstance(orientation, dict) else None,
+                sources=reply.sources,
             )
             return {
                 "user": user_record,
@@ -432,6 +433,26 @@ def create_app(
                 runtime=gemini_b_adapter,
                 description="Google AI API (独立通道 B)",
             )
+
+            # Gemini-Web：联网检索参与者（Search Grounding）；需 GEMINI_WEB=1
+            if os.environ.get("GEMINI_WEB", "0") == "1":
+                gemini_web_store = GeminiStateStore(
+                    config.thread_state_dir / "gemini_web_thread.json"
+                )
+                gemini_web_adapter = GeminiRuntimeAdapter(
+                    api_key=config.gemini_api_key,
+                    state_store=gemini_web_store,
+                    model=config.gemini_model,
+                    developer_instructions=instructions,
+                    search=True,
+                )
+                registry["gemini-web"] = Participant(
+                    id="gemini-web",
+                    name="Gemini-Web",
+                    model_name=f"Gemini {config.gemini_model.replace('gemini-', '')} + 联网检索",
+                    runtime=gemini_web_adapter,
+                    description="Google AI API · Search Grounding（可实时检索网页）",
+                )
 
         codex_store = JsonThreadStore(config.thread_state_dir / "codex_thread.json")
         codex_adapter = CodexRuntimeAdapter(

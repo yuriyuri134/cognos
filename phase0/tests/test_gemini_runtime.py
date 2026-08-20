@@ -163,6 +163,57 @@ class GeminiRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("gemini-3.6", url)
         self.assertIn("HTTP 404", str(ctx.exception))
 
+    async def test_search_grounding_sends_tool_and_parses_sources(self) -> None:
+        fake_response = {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "据检索来源。"}], "role": "model"},
+                    "groundingMetadata": {
+                        "groundingChunks": [
+                            {"web": {"uri": "https://example.com/a", "title": "来源 A"}},
+                            {"web": {"uri": "https://example.com/b", "title": "来源 B"}},
+                        ],
+                        "groundingSupports": [],
+                    },
+                }
+            ]
+        }
+        mock_post = AsyncMock(
+            return_value=httpx.Response(
+                status_code=200,
+                text=json.dumps(fake_response),
+                request=httpx.Request("POST", "http://test"),
+            )
+        )
+        with patch("httpx.AsyncClient.post", mock_post):
+            adapter = GeminiRuntimeAdapter(
+                api_key="fake_key", state_store=self.store, search=True
+            )
+            reply = await adapter.send("查一下")
+
+        self.assertEqual(2, len(reply.sources))
+        self.assertEqual("https://example.com/a", reply.sources[0]["uri"])
+        self.assertEqual("来源 A", reply.sources[0]["title"])
+        body = mock_post.call_args.kwargs["json"]
+        self.assertEqual([{"google_search": {}}], body["tools"])
+
+    async def test_without_search_no_tools_in_payload(self) -> None:
+        success = httpx.Response(
+            status_code=200,
+            text=json.dumps(
+                {"candidates": [{"content": {"parts": [{"text": "hi"}], "role": "model"}}]}
+            ),
+            request=httpx.Request("POST", "http://test"),
+        )
+        mock_post = AsyncMock(return_value=success)
+        with patch("httpx.AsyncClient.post", mock_post):
+            adapter = GeminiRuntimeAdapter(
+                api_key="fake_key", state_store=self.store, model="gemini-3.7-flash"
+            )
+            await adapter.send("你好")
+        body = mock_post.call_args.kwargs["json"]
+        self.assertNotIn("tools", body)
+
 
 if __name__ == "__main__":
     unittest.main()

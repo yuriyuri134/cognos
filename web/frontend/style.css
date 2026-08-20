@@ -1653,3 +1653,40 @@ button {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ---------- 联网检索来源回显 ---------- */
+
+.sources-block {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.sources-label {
+  flex-basis: 100%;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.source-link {
+  font-size: 0.72rem;
+  color: #8ab4ff;
+  text-decoration: none;
+  padding: 3px 9px;
+  border: 1px solid rgba(138, 180, 255, 0.3);
+  border-radius: 999px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-link:hover {
+  background: rgba(138, 180, 255, 0.12);
+}
