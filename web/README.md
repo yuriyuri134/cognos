@@ -71,6 +71,18 @@ PYTHONPATH=phase0:web <venv>/bin/python -m handoff.result_poster <vault-payload.
 
 新端点：`/api/orgs`、`/api/orgs/{id}/projects`、`/api/orgs/{id}/members`、`/api/projects/{id}/messages`。
 
+## 探究（question + 可再进入的多次尝试）
+
+Situated Cognition 的下一个小 delta：让同一问题上的多次展开尝试接成一个可再进入的过程。
+
+- 项目内可创建探究（question 原话成为一条带 `inquiry_id` 的发生）；
+- 每次尝试 = 一次 AI 调用，输入带：探究问题 + 之前所有尝试的 working_report + 当前处境；
+- 尝试信封要求 `working_report`（触及/改变/未展开/下一次），存入投影并出现在下一次尝试的输入里——后一轮承接前一轮，不从头重讲；
+- 停下 ≠ 结束：状态保留在 `web/.state/inquiry.db`（应用投影），可随时再次进入；
+- raw occurrence 仍只进第一发生场.jsonl（带 inquiry_id/attempt_no/working_report provenance）。
+
+探究/尝试是普通应用层对象，不是新本体；权威关系不变。端点：`/api/projects/{id}/inquiries`、`/api/inquiries/{id}`、`/api/inquiries/{id}/attempts`。
+
 ## 参与者运行时
 
 | participant | runtime | 说明 |

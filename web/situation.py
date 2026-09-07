@@ -32,8 +32,14 @@ def build_situation(
     reachable: dict[str, Any] | None = None,
     unresolved: list[str] | None = None,
     requested_model: str | None = None,
+    inquiry: dict[str, Any] | None = None,
+    previous_attempts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """机械构造处境投影；返回带 id 与 hash 的 dict。"""
+    """机械构造处境投影；返回带 id 与 hash 的 dict。
+
+    inquiry / previous_attempts 是探究层的小 delta：让同一问题上的多次尝试
+    进入处境与 provenance（普通应用层对象，不是新本体）。
+    """
 
     situation = {
         "situation_id": str(uuid.uuid4()),
@@ -46,6 +52,8 @@ def build_situation(
             "content": content,
             "explicit_quotations": quoted or [],
         },
+        "inquiry": inquiry,
+        "previous_attempts": previous_attempts or [],
         "project_reality": {
             "description": locus.get("project", {}).get("description", "") if locus.get("project") else "",
             "members": project_members or [],
@@ -177,6 +185,25 @@ def build_situation_prompt(situation: dict[str, Any]) -> str:
             extra += f" · 本项目位置 {position}" if position else ""
             lines.append(f"- {member.get('name')}（{kind}{extra}）")
 
+    inquiry = situation.get("inquiry")
+    if inquiry:
+        lines.append("")
+        lines.append(f"当前探究：{inquiry.get('question', '')}")
+        lines.append(f"（inquiry_id={inquiry.get('id', '')}，状态 {inquiry.get('status', 'open')}）")
+
+    previous_attempts = situation.get("previous_attempts") or []
+    if previous_attempts:
+        lines.append("之前尝试的工作报告（这是同一探究上的前几次展开，接在这里继续，不要从头重讲）：")
+        for attempt in previous_attempts:
+            lines.append(f"[尝试 {attempt.get('attempt_no')} · {attempt.get('participant_id') or attempt.get('participant', '')}]")
+            report = attempt.get("working_report") or {}
+            if isinstance(report, dict):
+                lines.append(f"触及：{report.get('touched', '')}")
+                lines.append(f"改变：{report.get('changed', '')}")
+                lines.append(f"未展开：{report.get('still_open', '')}")
+            else:
+                lines.append(str(report))
+
     quoted = situation.get("current_matter", {}).get("explicit_quotations") or []
     for record in quoted:
         lines.append("")
@@ -234,16 +261,30 @@ def build_situation_prompt(situation: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def parse_orientation(text: str) -> tuple[dict[str, Any] | None, str]:
+def build_attempt_prompt(situation: dict[str, Any]) -> str:
+    """探究尝试专用输入：与普通处境相同，但信封多一个 working_report。
+
+    尝试的目标不是给出最终答案，而是推进空间的一小步，并留下可被下一次
+    尝试承接的工作报告。"""
+
+    base = build_situation_prompt(situation)
+    return base + "\n\n注意：这是一次探究尝试，不是最终回答。请顺着内容推进一小步（展开、追问、检索、检验其中一种即可），然后在信封里额外给出 working_report：\n" + (
+        '{"orientation":{"status":"sufficient|assumption|clarification_required","assumptions":[],"missing":[],"questions":[]},'
+        '"working_report":{"touched":"本次触及了什么","changed":"本次改变/推进了什么","still_open":"仍未展开的部分","next":"建议的下一次尝试方向"},"answer":"..."}'
+    )
+
+
+def parse_orientation(text: str) -> tuple[dict[str, Any] | None, str, dict[str, Any] | None]:
     """解析模型输出的 orientation 信封。
 
-    返回 (orientation, answer)。无法解析时 orientation=None，整段文本当作 answer
-    （graceful degradation；发生处会保留 parse 失败标记）。
+    返回 (orientation, answer, working_report)。无法解析时 orientation=None、
+    working_report=None，整段文本当作 answer（graceful degradation；发生处会保留
+    parse 失败标记）。
     """
 
     raw = (text or "").strip()
     if not raw:
-        return None, ""
+        return None, "", None
 
     cleaned = raw
     if cleaned.startswith("```"):
@@ -262,18 +303,23 @@ def parse_orientation(text: str) -> tuple[dict[str, Any] | None, str]:
             decoder = json.JSONDecoder()
             obj, _ = decoder.raw_decode(cleaned)
         except (json.JSONDecodeError, ValueError):
-            return None, raw
+            return None, raw, None
 
     if not isinstance(obj, dict):
-        return None, raw
+        return None, raw, None
 
     orientation = obj.get("orientation")
     answer = obj.get("answer")
+    working_report = obj.get("working_report")
     if isinstance(orientation, dict) and isinstance(answer, str):
-        return orientation, answer.strip()
+        return (
+            orientation,
+            answer.strip(),
+            working_report if isinstance(working_report, dict) else None,
+        )
     if isinstance(answer, str):
-        return None, answer.strip()
-    return None, raw
+        return None, answer.strip(), None
+    return None, raw, None
 
 
 def format_questions(orientation: dict[str, Any]) -> str:

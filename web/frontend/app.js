@@ -47,6 +47,14 @@ const situationOverlay = document.querySelector("#situation-overlay");
 const situationContent = document.querySelector("#situation-content");
 const situationClose = document.querySelector("#situation-close");
 
+const inquirySection = document.querySelector("#inquiry-section");
+const inquiryNav = document.querySelector("#inquiry-nav");
+const inquiryCreateBtn = document.querySelector("#inquiry-create-btn");
+const inquiryPage = document.querySelector("#inquiry-page");
+const inquiryPageBody = document.querySelector("#inquiry-page-body");
+const inquiryBack = document.querySelector("#inquiry-back");
+const inquiryRetry = document.querySelector("#inquiry-retry");
+
 let sending = false;
 let activeTraceElement = null;
 let activeParticipants = [];
@@ -762,6 +770,7 @@ async function switchToField() {
   if (viewTitle) viewTitle.textContent = "第一发生场";
   if (viewNote) viewNote.textContent = "同一发生场内多参与者共在；原文保存在本地 Vault";
   if (membersBlock) membersBlock.hidden = true;
+  if (inquirySection) inquirySection.hidden = true;
   setScope("正在发生于：第一发生场（全局）");
   setEmptyState("从正在牵引你的地方开始。", "无需选择类型，也无需先把它整理成任务。");
   showConversationPane();
@@ -771,10 +780,185 @@ async function switchToField() {
 
 function showConversationPane() {
   if (memberPage) memberPage.hidden = true;
+  if (inquiryPage) inquiryPage.hidden = true;
   if (stream) stream.hidden = false;
   if (composer) composer.hidden = false;
   if (scopeBar) scopeBar.hidden = false;
 }
+
+async function loadInquiries(projectId) {
+  if (!inquiryNav) return;
+  try {
+    const payload = await requestJson(`/api/projects/${projectId}/inquiries`);
+    inquiryNav.replaceChildren();
+    (payload.inquiries || []).forEach((inquiry) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "project-item";
+      if (currentView.type === "inquiry" && currentView.inquiryId === inquiry.id) {
+        btn.classList.add("active");
+      }
+      btn.innerHTML = `<span class="project-glyph">◎</span><span class="project-title">${inquiry.question.slice(0, 40)}</span>`;
+      btn.title = `尝试 ${inquiry.attempt_count || 0} 次 · ${inquiry.status}`;
+      btn.addEventListener("click", () => openInquiry(inquiry.id));
+      inquiryNav.append(btn);
+    });
+    if (!(payload.inquiries || []).length) {
+      const p = document.createElement("p");
+      p.className = "org-empty";
+      p.textContent = "还没有探究";
+      inquiryNav.append(p);
+    }
+  } catch (error) {
+    console.warn("探究列表加载失败", error);
+  }
+}
+
+async function createInquiry() {
+  if (currentView.type !== "project") return;
+  const question = window.prompt("新探究的问题（原话，后续可以在这里多次尝试）：");
+  if (!question || !question.trim()) return;
+  try {
+    const res = await requestJson(`/api/projects/${currentView.projectId}/inquiries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: question.trim() }),
+    });
+    await openInquiry(res.inquiry.id);
+  } catch (error) {
+    showError(error.message || "创建探究失败");
+  }
+}
+
+async function openInquiry(inquiryId) {
+  previousView = { ...currentView };
+  currentView = { type: "inquiry", orgId: previousView.orgId, projectId: previousView.projectId, inquiryId };
+  try {
+    const payload = await requestJson(`/api/inquiries/${inquiryId}`);
+    renderInquiryPage(payload);
+    if (stream) stream.hidden = true;
+    if (composer) composer.hidden = false;
+    if (scopeBar) scopeBar.hidden = false;
+    setScope(`探究中：${payload.inquiry.question.slice(0, 40)} · 每次发送都是一次尝试`);
+    if (memberPage) memberPage.hidden = true;
+    if (inquiryPage) inquiryPage.hidden = false;
+    if (viewTitle) viewTitle.textContent = "探究";
+    if (viewNote) viewNote.textContent = `第 ${payload.attempts.length} 次尝试 · 状态 ${payload.inquiry.status}`;
+  } catch (error) {
+    showError(error.message || "无法读取探究");
+    currentView = previousView;
+    showConversationPane();
+  }
+}
+
+async function backFromInquiry() {
+  const prev = previousView || { type: "field" };
+  currentView = prev;
+  if (prev.type === "project") {
+    await switchToProject(prev.orgId, prev.projectId);
+  } else {
+    await switchToField();
+  }
+}
+
+async function retryInquiry() {
+  if (sending || currentView.type !== "inquiry") return;
+  sending = true;
+  sendButton.disabled = true;
+  clearError();
+  try {
+    await requestJson(`/api/inquiries/${currentView.inquiryId}/attempts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "", target: currentTargetId, quoted_occurrence_id: null }),
+    });
+    await openInquiry(currentView.inquiryId);
+  } catch (error) {
+    showError(error.message || "尝试未完成");
+  } finally {
+    sending = false;
+    sendButton.disabled = false;
+  }
+}
+
+function renderInquiryPage(payload) {
+  if (!inquiryPageBody) return;
+  const inquiry = payload.inquiry;
+  const attempts = payload.attempts || [];
+  const messages = payload.messages || [];
+  const byId = new Map(messages.filter((m) => m.id).map((m) => [m.id, m]));
+  const buf = [];
+
+  buf.push(`<div class="mp-section"><span class="fact-label">问题</span>`);
+  buf.push(`<p class="inquiry-question"></p></div>`);
+
+  buf.push(`<div class="mp-section"><span class="fact-label">尝试链（${attempts.length} 次）</span><div class="mp-projects" id="inq-attempts"></div></div>`);
+
+  inquiryPageBody.innerHTML = buf.join("");
+  const questionEl = inquiryPageBody.querySelector(".inquiry-question");
+  if (questionEl) questionEl.textContent = inquiry.question;
+
+  const attemptsNode = document.querySelector("#inq-attempts");
+  if (attemptsNode) {
+    if (!attempts.length) {
+      const p = document.createElement("p");
+      p.className = "mp-empty";
+      p.textContent = "还没有尝试。在下方输入补充指令，或直接点「再次尝试」。";
+      attemptsNode.append(p);
+    }
+    attempts.forEach((attempt) => {
+      attemptsNode.append(makeAttemptCard(attempt, byId.get(attempt.occurrence_id)));
+    });
+  }
+}
+
+function makeAttemptCard(attempt, occurrence) {
+  const card = document.createElement("div");
+  card.className = "attempt-card";
+  const head = document.createElement("div");
+  head.className = "attempt-head";
+  const title = document.createElement("strong");
+  title.textContent = `尝试 ${attempt.attempt_no} · ${attempt.participant_id}`;
+  const time = document.createElement("time");
+  time.textContent = formatTime(attempt.created_at);
+  head.append(title, time);
+  card.append(head);
+
+  const report = attempt.working_report || {};
+  if (Object.keys(report).length) {
+    const grid = document.createElement("div");
+    grid.className = "wr-grid";
+    [
+      ["触及", report.touched],
+      ["改变", report.changed],
+      ["未展开", report.still_open],
+      ["下一次", report.next],
+    ].forEach(([label, value]) => {
+      if (!value) return;
+      const row = document.createElement("div");
+      const lab = document.createElement("span");
+      lab.textContent = label;
+      const val = document.createElement("div");
+      val.textContent = String(value);
+      row.append(lab, val);
+      grid.append(row);
+    });
+    card.append(grid);
+  }
+
+  if (occurrence && occurrence.content) {
+    const preview = document.createElement("div");
+    preview.className = "attempt-answer";
+    preview.textContent = occurrence.content.slice(0, 220) + (occurrence.content.length > 220 ? "…" : "");
+    preview.title = "完整回答见第一发生场（occurrence: " + occurrence.id + "）";
+    card.append(preview);
+  }
+  return card;
+}
+
+if (inquiryCreateBtn) inquiryCreateBtn.addEventListener("click", createInquiry);
+if (inquiryBack) inquiryBack.addEventListener("click", backFromInquiry);
+if (inquiryRetry) inquiryRetry.addEventListener("click", retryInquiry);
 
 async function openMember(memberId) {
   previousView = { ...currentView };
@@ -969,6 +1153,7 @@ async function switchToProject(orgId, projectId) {
   currentView = { type: "project", orgId, projectId };
   setFieldActive(false);
   showConversationPane();
+  if (inquirySection) inquirySection.hidden = false;
   try {
     const payload = await requestJson(`/api/projects/${projectId}/messages`);
     if (viewTitle) viewTitle.textContent = payload.project.title;
@@ -984,6 +1169,7 @@ async function switchToProject(orgId, projectId) {
     renderState(payload);
     renderMembers(payload.members || []);
     renderOrgNav();
+    await loadInquiries(projectId);
     document.querySelector("#runtime-status").textContent = "项目沟通就绪";
   } catch (error) {
     showError(error.message || "无法读取项目发生");
@@ -1065,9 +1251,13 @@ async function bootstrap() {
 }
 
 function currentMessagesUrl() {
-  return currentView.type === "project"
-    ? `/api/projects/${currentView.projectId}/messages`
-    : "/api/messages";
+  if (currentView.type === "project") {
+    return `/api/projects/${currentView.projectId}/messages`;
+  }
+  if (currentView.type === "inquiry") {
+    return `/api/inquiries/${currentView.inquiryId}/attempts`;
+  }
+  return "/api/messages";
 }
 
 function resizeInput() {
@@ -1087,10 +1277,11 @@ function resizeInput() {
   }
 }
 
-async function sendCurrentMessage() {
-  if (sending || !input.value.trim()) return;
+async function sendCurrentMessage(forcedContent) {
+  const contentValue = forcedContent !== undefined ? forcedContent : input.value;
+  if (sending || !contentValue.trim()) return;
 
-  const content = input.value;
+  const content = contentValue;
   const targetId = currentTargetId;
   const targetObj = activeParticipants.find(p => p.id === targetId);
   const targetName = targetObj ? targetObj.name : "AI";
@@ -1149,6 +1340,8 @@ async function sendCurrentMessage() {
     }
     if (currentView.type === "project") {
       await switchToProject(currentView.orgId, currentView.projectId);
+    } else if (currentView.type === "inquiry") {
+      await openInquiry(currentView.inquiryId);
     } else {
       await bootstrap();
     }
@@ -1156,6 +1349,8 @@ async function sendCurrentMessage() {
     showError(error.message || "消息没有完成送达");
     if (currentView.type === "project") {
       await switchToProject(currentView.orgId, currentView.projectId);
+    } else if (currentView.type === "inquiry") {
+      await openInquiry(currentView.inquiryId);
     } else {
       await bootstrap();
     }

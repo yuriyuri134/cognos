@@ -48,6 +48,12 @@
             <button class="nav-mini-btn" id="org-create-toggle" type="button" hidden>＋ 新建组织</button>
           </div>
 
+          <div class="rail-section" id="inquiry-section" hidden>
+            <p class="eyebrow">探究（多次尝试）</p>
+            <div class="org-nav" id="inquiry-nav"></div>
+            <button class="nav-mini-btn" id="inquiry-create-btn" type="button">＋ 新探究</button>
+          </div>
+
           <div class="rail-section">
             <p class="eyebrow">此刻承载什么</p>
             <p class="purpose-copy">
@@ -91,6 +97,15 @@
               <span class="eyebrow">成员主体空间</span>
             </div>
             <div class="member-page-body" id="member-page-body"></div>
+          </section>
+
+          <section class="member-page" id="inquiry-page" hidden>
+            <div class="member-page-head">
+              <button class="nav-mini-btn" id="inquiry-back" type="button">← 返回</button>
+              <button class="nav-mini-btn" id="inquiry-retry" type="button">再次尝试</button>
+              <span class="eyebrow">探究</span>
+            </div>
+            <div class="member-page-body" id="inquiry-page-body"></div>
           </section>
 
           <div class="error-banner" id="error-banner" role="alert" hidden></div>

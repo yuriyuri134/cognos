@@ -1741,3 +1741,74 @@ button {
   outline: none;
   border-color: rgba(138, 180, 255, 0.5);
 }
+
+/* ---------- 探究（question + 可再进入的多次尝试） ---------- */
+
+.inquiry-question {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(131, 217, 174, 0.22);
+  border-radius: 10px;
+  background: rgba(131, 217, 174, 0.05);
+  font-family: Georgia, "Noto Serif SC", serif;
+  font-size: 1.02rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.attempt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.attempt-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.attempt-head strong {
+  font-size: 0.8rem;
+  color: var(--green, #83d9ae);
+}
+
+.attempt-head time {
+  font-size: 0.68rem;
+  color: var(--dim);
+}
+
+.wr-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.74rem;
+}
+
+.wr-grid > div {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 8px;
+}
+
+.wr-grid span {
+  color: var(--dim);
+}
+
+.wr-grid div div {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.attempt-answer {
+  font-size: 0.74rem;
+  color: var(--muted);
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  padding-top: 6px;
+  overflow-wrap: anywhere;
+}

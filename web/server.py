@@ -34,8 +34,11 @@ from history import AppendOnlyHistory, HistoryCorruptionError
 from handoff.envelope import build_envelope, write_envelope
 from org_api import create_org_router
 from org_store import OrgStore
+from inquiry_api import create_inquiry_router
+from inquiry_store import InquiryStore
 from search_provider import SearchUnavailableError, format_search_material, web_search
 from situation import (
+    build_attempt_prompt,
     build_situation,
     build_situation_prompt,
     format_questions,
@@ -206,52 +209,9 @@ class ConversationService:
         if quoted_occurrence_id:
             quoted_record = self.history.get_by_id(quoted_occurrence_id)
 
-        requested_model = getattr(participant.runtime, "model", None) or None
-
-        # ---------- Situation Projection：机械构造当前处境（不冻结成 Space schema） ----------
-        locus: dict[str, Any] = {"type": "field", "organization": None, "project": None}
-        project_members: list[dict[str, Any]] = []
-        if project_id and self.org_store is not None:
-            project = self.org_store.get_project(project_id)
-            if project is not None:
-                org = self.org_store.get_organization(project["org_id"])
-                project_members = self.org_store.list_project_members(project_id)
-                locus = {
-                    "type": "project",
-                    "organization": {
-                        "id": project["org_id"],
-                        "name": (org or {}).get("name", ""),
-                    },
-                    "project": {
-                        "id": project["id"],
-                        "title": project["title"],
-                        "description": project["description"],
-                        "status": project["status"],
-                    },
-                }
-
-        situation = build_situation(
-            participant={
-                "id": participant.id,
-                "name": participant.name,
-                "model_name": participant.model_name,
-                "runtime": participant.id,
-            },
-            requested_model=requested_model,
-            locus=locus,
-            content=target_content or content,
-            quoted=[quoted_record] if quoted_record else [],
-            project_members=project_members,
-            frame_sources=self.frame_sources,
-            reachable={
-                "explicit_quotation_ids": [quoted_occurrence_id] if quoted_occurrence_id else [],
-            },
+        situation = self._make_situation(
+            participant, target_content or content, quoted_record, project_id
         )
-        if self.situation_dir is not None:
-            try:
-                save_situation(self.situation_dir, situation)
-            except OSError:
-                pass
         actual_input = build_situation_prompt(situation)
 
         # ---------- 可选联网检索：抓取带来源的材料注入上下文（不自动视为事实） ----------
@@ -287,7 +247,7 @@ class ConversationService:
             reply = await participant.runtime.send(actual_input)
 
             # orientation gate：解析信封；无法解析时整段当作回答（保留降级）
-            orientation, final_text = parse_orientation(reply.text)
+            orientation, final_text, _working_report = parse_orientation(reply.text)
             if (
                 isinstance(orientation, dict)
                 and orientation.get("status") == "clarification_required"
@@ -298,7 +258,9 @@ class ConversationService:
                 final_text = reply.text
 
             actual_model = getattr(reply, "model_used", None) or None
-            requested = getattr(reply, "requested_model", None) or requested_model
+            requested = getattr(reply, "requested_model", None) or getattr(
+                participant.runtime, "model", None
+            )
             fallback_happened = bool(actual_model and requested and actual_model != requested)
 
             runtime_ref: dict[str, Any] = {
@@ -346,6 +308,172 @@ class ConversationService:
                 }
                 if search
                 else None,
+            }
+    def _make_situation(
+        self,
+        participant: Participant,
+        content: str,
+        quoted_record: dict[str, Any] | None,
+        project_id: str | None,
+        inquiry: dict[str, Any] | None = None,
+        previous_attempts: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """机械构造处境投影（不冻结成 Space schema），并落盘为投影文件。"""
+
+        requested_model = getattr(participant.runtime, "model", None) or None
+        locus: dict[str, Any] = {"type": "field", "organization": None, "project": None}
+        project_members: list[dict[str, Any]] = []
+        if project_id and self.org_store is not None:
+            project = self.org_store.get_project(project_id)
+            if project is not None:
+                org = self.org_store.get_organization(project["org_id"])
+                project_members = self.org_store.list_project_members(project_id)
+                locus = {
+                    "type": "project",
+                    "organization": {
+                        "id": project["org_id"],
+                        "name": (org or {}).get("name", ""),
+                    },
+                    "project": {
+                        "id": project["id"],
+                        "title": project["title"],
+                        "description": project["description"],
+                        "status": project["status"],
+                    },
+                }
+
+        situation = build_situation(
+            participant={
+                "id": participant.id,
+                "name": participant.name,
+                "model_name": participant.model_name,
+                "runtime": participant.id,
+            },
+            requested_model=requested_model,
+            locus=locus,
+            content=content,
+            quoted=[quoted_record] if quoted_record else [],
+            project_members=project_members,
+            frame_sources=self.frame_sources,
+            reachable={
+                "explicit_quotation_ids": [quoted_record["id"] if quoted_record else None],
+            },
+            inquiry=inquiry,
+            previous_attempts=previous_attempts,
+        )
+        if self.situation_dir is not None:
+            try:
+                save_situation(self.situation_dir, situation)
+            except OSError:
+                pass
+        return situation
+
+    async def send_attempt(
+        self,
+        *,
+        content: str,
+        target: str | None,
+        quoted_occurrence_id: str | None,
+        project_id: str,
+        inquiry: dict[str, Any],
+        previous_attempts: list[dict[str, Any]],
+        attempt_no: int,
+    ) -> dict[str, Any]:
+        """一次探究尝试：同一问题上的第 attempt_no 次展开，可被下一次承接。
+
+        与 send() 的区别：输入里带探究问题 + 之前尝试的工作报告；信封要求
+        working_report，作为下一次尝试的接点。"""
+
+        target_id, target_content = self.resolve_target(content or "", target)
+        if target_id not in self.participants:
+            raise ValueError(f"未找到指定的参与者：{target_id}")
+        participant = self.participants[target_id]
+
+        quoted_record = None
+        if quoted_occurrence_id:
+            quoted_record = self.history.get_by_id(quoted_occurrence_id)
+
+        situation = self._make_situation(
+            participant,
+            target_content or content,
+            quoted_record,
+            project_id,
+            inquiry=inquiry,
+            previous_attempts=previous_attempts,
+        )
+        actual_input = build_attempt_prompt(situation)
+
+        async with self._send_lock:
+            user_record = None
+            if content.strip():
+                user_record = self.history.append_message(
+                    author="小林",
+                    content=content,
+                    target=participant.name,
+                    target_participant_id=participant.id,
+                    quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
+                    project_id=project_id,
+                    inquiry_id=inquiry["id"],
+                    attempt_no=attempt_no,
+                )
+
+            reply = await participant.runtime.send(actual_input)
+
+            orientation, final_text, working_report = parse_orientation(reply.text)
+            if (
+                isinstance(orientation, dict)
+                and orientation.get("status") == "clarification_required"
+                and not final_text
+            ):
+                final_text = format_questions(orientation)
+            if not final_text:
+                final_text = reply.text
+
+            actual_model = getattr(reply, "model_used", None) or None
+            requested = getattr(reply, "requested_model", None) or getattr(
+                participant.runtime, "model", None
+            )
+            fallback_happened = bool(actual_model and requested and actual_model != requested)
+
+            runtime_ref: dict[str, Any] = {
+                "runtime": participant.id,
+                "thread_id": reply.thread_id,
+                "turn_id": reply.turn_id,
+            }
+            if actual_model:
+                runtime_ref["model"] = actual_model
+
+            ai_record = self.history.append_message(
+                author=participant.name,
+                author_participant_id=participant.id,
+                content=final_text,
+                in_reply_to=user_record["id"] if user_record else None,
+                quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
+                project_id=project_id,
+                inquiry_id=inquiry["id"],
+                attempt_no=attempt_no,
+                runtime_ref=runtime_ref,
+                situation_ref=situation["situation_id"],
+                situation_hash=situation["situation_hash"],
+                requested_model=requested,
+                actual_model=actual_model,
+                fallback_happened=fallback_happened or None,
+                orientation=orientation if isinstance(orientation, dict) else None,
+                working_report=working_report,
+            )
+            return {
+                "user": user_record,
+                "reply": ai_record,
+                "target": participant.to_dict(),
+                "working_report": working_report,
+                "situation": {
+                    "situation_id": situation["situation_id"],
+                    "situation_hash": situation["situation_hash"],
+                    "requested_model": requested,
+                    "actual_model": actual_model,
+                    "fallback_happened": fallback_happened,
+                    "orientation": orientation if isinstance(orientation, dict) else None,
+                },
             }
 
 
@@ -564,6 +692,14 @@ def create_app(
 
     default_target = "gemini" if "gemini" in registry else next(iter(registry.keys()), "codex")
     org_store = OrgStore(config.org_db_path or config.thread_state_dir / "org.db")
+    inquiry_store = InquiryStore(
+        Path(
+            os.environ.get(
+                "COGNOS_INQUIRY_DB_PATH",
+                str(config.thread_state_dir / "inquiry.db"),
+            )
+        ).resolve()
+    )
     service = ConversationService(
         history,
         registry,
@@ -580,12 +716,21 @@ def create_app(
     app.state.service = service
     app.state.participants = registry
     app.state.org_store = org_store
+    app.state.inquiry_store = inquiry_store
     app.include_router(
         create_org_router(
             store=org_store,
             service=service,
             history=history,
             thread_state_dir=config.thread_state_dir,
+        )
+    )
+    app.include_router(
+        create_inquiry_router(
+            store=inquiry_store,
+            service=service,
+            history=history,
+            org_store=org_store,
         )
     )
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")

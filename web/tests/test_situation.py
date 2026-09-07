@@ -78,19 +78,19 @@ class SituationBuildTest(unittest.TestCase):
 class ParseOrientationTest(unittest.TestCase):
     def test_valid_envelope(self) -> None:
         text = '{"orientation":{"status":"sufficient","assumptions":[],"missing":[],"questions":[]},"answer":"可以。"}'
-        orientation, answer = parse_orientation(text)
+        orientation, answer, _report = parse_orientation(text)
         self.assertEqual("sufficient", orientation["status"])
         self.assertEqual("可以。", answer)
 
     def test_fenced_json(self) -> None:
         text = '```json\n{"orientation":{"status":"assumption","assumptions":["x=y"]},"answer":"按假设作答"}\n```'
-        orientation, answer = parse_orientation(text)
+        orientation, answer, _report = parse_orientation(text)
         self.assertEqual("assumption", orientation["status"])
         self.assertEqual("按假设作答", answer)
 
     def test_garbage_degrades_to_plain_answer(self) -> None:
         raw = "我不知道格式，直接说：好的。"
-        orientation, answer = parse_orientation(raw)
+        orientation, answer, _report = parse_orientation(raw)
         self.assertIsNone(orientation)
         self.assertEqual(raw, answer)
 
