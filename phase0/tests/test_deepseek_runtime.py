@@ -100,6 +100,10 @@ class DeepSeekRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(body["messages"][0]["content"], str)
         self.assertIsInstance(body["messages"][1]["content"], str)
         self.assertEqual("deepseek-v4-flash", body["model"])
+        self.assertEqual(
+            reply.thread_id,
+            mock_post.call_args.kwargs["headers"]["x-opencode-session"],
+        )
 
     async def test_send_raises_on_non_200(self) -> None:
         not_found = httpx.Response(

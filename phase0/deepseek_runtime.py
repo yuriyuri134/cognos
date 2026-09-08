@@ -241,6 +241,10 @@ class DeepSeekRuntimeAdapter:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            # OpenCode Go 需要显式的 provider session 才能路由请求。
+            # 这里沿用 Cognos 为该 participant 保存的 continuity id；
+            # 不把 session id 复制进 occurrence 或结果正文。
+            "x-opencode-session": state.thread_id,
         }
 
         response: httpx.Response | None = None
