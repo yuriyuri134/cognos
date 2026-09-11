@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cognos · 共同展开</title>
+  <link rel="stylesheet" href="/assets/activity.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand">COGNOS <span>共同展开</span></a>
+    <a href="/">返回项目</a>
+  </header>
+  <main>
+    <section class="activity-toolbar" aria-label="活动入口">
+      <div><p class="eyebrow" id="project-title">当前项目</p><h1>从材料继续，让理解有地方改变。</h1></div>
+      <div class="inline"><label for="activities">活动</label><select id="activities"></select><button id="rename-activity">改名</button><button id="new-activity">新建活动</button></div>
+    </section>
+    <div class="notice" id="notice" role="status" hidden></div>
+    <div class="empty" id="no-activity">新建一个活动，放入材料或直接开始。无需先想好问题。</div>
+    <section class="activity-grid" id="activity-workspace" hidden>
+      <aside class="panel materials">
+        <div class="section-head"><h2>材料与正在写的内容</h2><button id="add-document">添加</button></div>
+        <div id="documents" class="document-list"></div>
+        <button id="import-occurrence">引入已有结果或发言</button>
+        <p class="hint">材料的原文保留。解释、草稿和组织方式可以另起版本。</p>
+        <details><summary>形成与修改</summary><ol id="revision-history" class="revision-list"></ol></details>
+      </aside>
+      <section class="panel working">
+        <section class="situation-section">
+          <div class="section-head"><h2>当前理解 <span id="situation-revision" class="badge"></span></h2><button id="toggle-situation-edit">修订理解</button></div>
+          <pre id="situation-text" class="situation-text"></pre>
+          <div id="situation-refs" class="refs"></div>
+          <div id="situation-edit" hidden>
+            <label for="situation-editor">此刻怎样理解（自由文字，可以留空或写“尚不清楚”）</label>
+            <textarea id="situation-editor" rows="5" maxlength="50000"></textarea>
+            <label for="situation-refs-editor">引用材料（可选，每行一条：材料ID 或 材料ID@版本，行尾可用 # 写一句说明）</label>
+            <textarea id="situation-refs-editor" rows="3" maxlength="10000"></textarea>
+            <div class="inline"><button id="save-situation">保存理解</button><button id="cancel-situation">取消</button></div>
+          </div>
+        </section>
+        <section class="moves-section">
+          <div class="section-head"><h2>准备做什么 · 实际得到什么</h2></div>
+          <div id="moves"></div>
+          <div id="waiting-box" hidden>
+            <p id="waiting-text" class="hint"></p>
+            <textarea id="answer-input" rows="3" maxlength="100000" placeholder="写下真实回答；也可以不回答，先去继续别的。"></textarea>
+            <div class="inline"><button id="submit-answer">提交回答</button></div>
+          </div>
+        </section>
+        <section class="focus-section">
+          <label for="focus">此刻关注 <span class="hint">可以留空，也可以改变</span></label>
+          <div class="inline"><input id="focus" maxlength="10000" /><button id="save-focus">保存</button></div>
+        </section>
+        <section id="editor-section" hidden>
+          <div class="section-head"><h2 id="document-title"></h2><span id="document-status" class="badge"></span></div>
+          <p id="document-description" class="hint"></p>
+          <textarea id="document-editor" aria-label="文档内容" rows="10"></textarea>
+          <details id="definition-details" hidden><summary>查看或编辑结构化内容</summary><textarea id="json-editor" aria-label="结构化内容" rows="12" spellcheck="false"></textarea></details>
+          <pre id="structured-summary" hidden></pre>
+          <div class="inline editor-actions"><button id="save-document">保存新版本</button><button id="adopt-document">采用这一版组织</button><button id="adopt-source-document">采用这一版取材方式</button><button id="copy-document">另起可改写内容</button></div>
+        </section>
+        <section class="organization-section">
+          <div class="section-head"><h2>当前怎样取得新材料</h2><button id="release-source">停用取材方式</button></div>
+          <p id="source-description" class="hint"></p>
+          <details id="source-builder"><summary>从当前项目的发言与结果取材</summary>
+            <label for="source-contains">包含的文字（留空不按文字筛选）</label><input id="source-contains" maxlength="1000" />
+            <label for="source-author">原作者（可留空）</label><input id="source-author" maxlength="1000" />
+            <label for="source-kind">内容范围</label><select id="source-kind"><option value="any">发言与执行结果</option><option value="message">发言</option><option value="handoff_result">执行结果</option></select>
+            <button id="save-source">采用这次取材方式</button>
+          </details>
+          <pre id="source-preview"></pre><button id="acquire-material">按当前方式取得材料</button>
+        </section>
+        <section class="organization-section">
+          <div class="section-head"><h2>当前怎样展开材料</h2><button id="release">停用当前组织</button></div>
+          <p id="adopted-description" class="hint"></p>
+          <details id="arrangement-builder"><summary>选择材料，调整并置顺序</summary><div id="arrangement-list"></div><button id="adopt-arrangement">采用这次编排</button></details>
+          <details open><summary>本次实际展开的内容</summary><pre id="preview"></pre><button id="save-preview">把这份结果另存为草稿</button></details>
+        </section>
+      </section>
+      <section class="panel conversation">
+        <div class="section-head"><h2>共同继续</h2><label for="participant" class="sr-only">参与者</label><select id="participant"></select></div>
+        <p class="hint">参与者可修改当前活动的可编辑内容与组织；原始材料继续保留。</p>
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <p id="run-status" class="hint" role="status"></p>
+        <form id="continue-form"><label class="sr-only" for="message">要继续的内容</label><textarea id="message" placeholder="写下此刻想继续的东西，也可以留空承接…" rows="4" maxlength="100000"></textarea><button type="submit" id="continue-button">共同继续</button></form>
+      </section>
+    </section>
+  </main>
+  <dialog id="add-dialog">
+    <form id="add-form"><h2>放入活动</h2><label for="new-title">名称</label><input id="new-title" maxlength="200" />
+      <label for="new-kind">怎样保留</label><select id="new-kind"><option value="source">材料原文</option><option value="draft">可改写内容</option></select>
+      <label for="new-body">内容</label><textarea id="new-body" rows="10" required maxlength="200000"></textarea>
+      <details><summary>结构化材料</summary><label><input type="checkbox" id="new-json" /> 内容是 JSON</label></details>
+      <div class="inline"><button type="button" id="cancel-add">取消</button><button type="submit">加入活动</button></div>
+    </form>
+  </dialog>
+  <dialog id="history-dialog"><h2 id="history-title"></h2><pre id="history-preview"></pre><button id="close-history">关闭</button></dialog>
+  <dialog id="rename-dialog"><form id="rename-form"><h2>活动名称</h2><label for="activity-title">名称</label><input id="activity-title" maxlength="200" /><div class="inline"><button type="button" id="cancel-rename">取消</button><button type="submit">保存名称</button></div></form></dialog>
+  <dialog id="import-dialog"><form id="import-form"><h2>引入已有结果或发言</h2><label for="import-selection">当前项目中已留下的内容</label><select id="import-selection"></select><pre id="import-preview"></pre><div class="inline"><button type="button" id="cancel-import">取消</button><button type="submit" id="confirm-import">保留原文与来源</button></div></form></dialog>
+  <script src="/assets/activity.js" defer></script>
+</body>
+</html>

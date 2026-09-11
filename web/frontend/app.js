@@ -54,6 +54,9 @@ const inquiryPage = document.querySelector("#inquiry-page");
 const inquiryPageBody = document.querySelector("#inquiry-page-body");
 const inquiryBack = document.querySelector("#inquiry-back");
 const inquiryRetry = document.querySelector("#inquiry-retry");
+document.querySelector("#activity-open-btn")?.addEventListener("click", () => {
+  if (currentView.projectId) window.location.href = `/activities?project=${encodeURIComponent(currentView.projectId)}`;
+});
 
 let sending = false;
 let activeTraceElement = null;

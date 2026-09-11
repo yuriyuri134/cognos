@@ -36,6 +36,9 @@ from org_api import create_org_router
 from org_store import OrgStore
 from inquiry_api import create_inquiry_router
 from inquiry_store import InquiryStore
+from activity_api import create_activity_router
+from activity_service import ActivityService
+from activity_store import ActivityStore
 from search_provider import SearchUnavailableError, format_search_material, web_search
 from situation import (
     build_attempt_prompt,
@@ -107,6 +110,7 @@ class AppConfig:
     handoff_dir: Path | None = None
     org_db_path: Path | None = None
     situation_dir: Path | None = None
+    activity_db_path: Path | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -717,6 +721,12 @@ def create_app(
     app.state.participants = registry
     app.state.org_store = org_store
     app.state.inquiry_store = inquiry_store
+    activity_store = ActivityStore(config.activity_db_path or config.thread_state_dir / "activities.db")
+    activity_service = ActivityService(activity_store, service)
+    app.state.activity_store = activity_store
+    app.state.activity_service = activity_service
+    app.include_router(create_activity_router(store=activity_store, service=activity_service,
+                                             org_store=org_store, history=history))
     app.include_router(
         create_org_router(
             store=org_store,
@@ -734,6 +744,10 @@ def create_app(
         )
     )
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR), name="assets")
+
+    @app.get("/activities")
+    async def activity_page() -> FileResponse:
+        return FileResponse(FRONTEND_DIR / "activity.html")
 
     @app.get("/api/situations/{situation_id}")
     async def get_situation(situation_id: str) -> dict[str, Any]:
