@@ -57,7 +57,7 @@ class SituationBuildTest(unittest.TestCase):
         self.assertNotEqual(first["situation_id"], second["situation_id"])
         self.assertEqual(first["situation_hash"], second["situation_hash"])
 
-    def test_prompt_contains_locus_matter_frame_and_gate(self) -> None:
+    def test_prompt_contains_locus_matter_frame_and_orientation_advisory(self) -> None:
         prompt = build_situation_prompt(self._situation())
         self.assertIn("DeepSeek", prompt)
         self.assertIn("deepseek-v4-flash", prompt)
@@ -73,6 +73,7 @@ class SituationBuildTest(unittest.TestCase):
         self.assertIn("定位与边界.md", prompt)
         self.assertIn("软件是第一数字身体。", prompt)
         self.assertIn("clarification_required", prompt)
+        self.assertIn("orientation advisory", prompt)
 
 
 class ParseOrientationTest(unittest.TestCase):
@@ -197,6 +198,31 @@ class SituationServiceTest(unittest.IsolatedAsyncioTestCase):
         reply = response.json()["reply"]
         self.assertIn("[需要澄清", reply["content"])
         self.assertIn("你想改动哪一部分？", reply["content"])
+        self.assertEqual("clarification_required", reply["orientation"]["status"])
+
+    async def test_clarification_status_can_keep_tentative_answer(self) -> None:
+        envelope = {
+            "orientation": {
+                "status": "clarification_required",
+                "assumptions": [],
+                "missing": ["目标不明确"],
+                "questions": ["你想改动哪一部分？"],
+            },
+            "answer": "我先暂定你是在讨论活动入口；如果不是，请补充目标。",
+        }
+        participants = {
+            "deepseek": Participant(
+                id="deepseek",
+                name="DeepSeek",
+                model_name="DeepSeek V4 Flash",
+                runtime=EnvelopeRuntime(envelope),
+            ),
+        }
+        client, _ = await self._client(participants)
+        async with client:
+            response = await client.post("/api/messages", json={"content": "帮我改一下", "target": "deepseek"})
+        reply = response.json()["reply"]
+        self.assertEqual("我先暂定你是在讨论活动入口；如果不是，请补充目标。", reply["content"])
         self.assertEqual("clarification_required", reply["orientation"]["status"])
 
     async def test_assumption_envelope_keeps_answer_and_marks(self) -> None:

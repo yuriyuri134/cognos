@@ -37,7 +37,13 @@ def main():
                 context = json.loads(message.split("本次处境（内容材料）：\n", 1)[1])
                 catalog = context["material_catalog"]
                 source = next((item for item in catalog if item["title"] == "创作片段"), None)
-                if context["user_message"] == "验证修改并接续" and source and not any(item["id"] == "ui-generated" for item in catalog):
+                if context["user_message"] == "验证并存读法":
+                    output = {"formation_updates": [{"id": "reading-a", "text": "可能是重复"},
+                                {"id": "reading-b", "text": "可能是停顿"}]}
+                elif context["user_message"] == "验证暂缓读法":
+                    output = {"formation_updates": [{"id": "reading-a", "status": "dormant"},
+                                {"id": "reading-b", "text": "停顿也许改变了节奏"}]}
+                elif context["user_message"] == "验证修改并接续" and source and not any(item["id"] == "ui-generated" for item in catalog):
                     output = {"answer": "界面检查：请求改变当前组合。", "commands": [
                         {"type": "change", "reason": "脚本化界面检查", "operations": [
                             {"action": "add_document", "id": "ui-generated", "title": "模型调整的组织", "format": "json",

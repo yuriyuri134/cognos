@@ -8,7 +8,10 @@ from unittest.mock import patch
 
 from search_provider import (
     SearchUnavailableError,
+    _canonical_url,
+    _extract_page_text,
     _fetch,
+    enrich_search_sources,
     _parse_bing,
     _parse_duckduckgo,
     format_search_material,
@@ -32,6 +35,18 @@ CANONICAL_BING = """
 
 
 class ParseBingTest(unittest.TestCase):
+    def test_canonical_url_removes_tracking_parameters(self) -> None:
+        self.assertEqual(
+            "https://example.com/article?a=1",
+            _canonical_url("https://example.com/article?utm_source=x&a=1#part"),
+        )
+
+    def test_canonical_url_decodes_bing_a1_redirect(self) -> None:
+        self.assertEqual(
+            "https://example.com/article",
+            _canonical_url("https://www.bing.com/ck/a?u=a1aHR0cHM6Ly9leGFtcGxlLmNvbS9hcnRpY2xl"),
+        )
+
     def test_parse_bing_extracts_title_url_snippet(self) -> None:
         results = _parse_bing(CANONICAL_BING, top=5)
         self.assertEqual(2, len(results))
@@ -64,6 +79,37 @@ class FormatMaterialTest(unittest.TestCase):
         self.assertIn("[联网检索材料", text)
         self.assertIn("https://x/1", text)
         self.assertIn("[/检索材料]", text)
+
+    def test_format_includes_page_excerpt_and_failed_extraction_boundary(self) -> None:
+        text = format_search_material([
+            {"title": "T", "url": "https://x/1", "snippet": "s", "page_text": "正文"},
+            {"title": "F", "url": "https://x/2", "extraction_status": "failed"},
+        ])
+        self.assertIn("页面摘录", text)
+        self.assertIn("读取失败", text)
+
+
+class ExtractPageTextTest(unittest.TestCase):
+    def test_extract_page_text_drops_script_and_collapses_whitespace(self) -> None:
+        self.assertEqual("标题 正文 内容", _extract_page_text(
+            "<h1>标题</h1><script>secret()</script><p>正文\n内容</p>"
+        ))
+
+
+class EnrichSourcesTest(unittest.IsolatedAsyncioTestCase):
+    async def test_enrich_preserves_extraction_and_raw_response_boundary(self) -> None:
+        raw = "<html><script>x()</script><p>正文</p></html>"
+        with patch("search_provider._fetch", return_value=raw):
+            sources = await enrich_search_sources([
+                {"title": "T", "url": "https://x/1", "snippet": "摘要"}
+            ])
+        item = sources[0]
+        self.assertEqual("正文", item["page_text"])
+        self.assertEqual("ok", item["extraction_status"])
+        self.assertEqual(64, len(item["raw_content_sha256"]))
+        self.assertEqual(len(raw), item["raw_content_length"])
+        self.assertIn("<script>", item["raw_content_excerpt"])
+        self.assertFalse(item["raw_content_truncated"])
 
 
 class WebSearchDispatchTest(unittest.IsolatedAsyncioTestCase):
