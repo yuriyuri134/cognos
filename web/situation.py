@@ -34,6 +34,7 @@ def build_situation(
     requested_model: str | None = None,
     inquiry: dict[str, Any] | None = None,
     previous_attempts: list[dict[str, Any]] | None = None,
+    recent_occurrences: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """机械构造处境投影；返回带 id 与 hash 的 dict。
 
@@ -52,6 +53,7 @@ def build_situation(
             "content": content,
             "explicit_quotations": quoted or [],
         },
+        "recent_occurrences": recent_occurrences or [],
         "inquiry": inquiry,
         "previous_attempts": previous_attempts or [],
         "project_reality": {
@@ -214,6 +216,22 @@ def build_situation_prompt(situation: dict[str, Any]) -> str:
         lines.append(str(record.get("content", "")))
         lines.append("[/发生]")
 
+    recent = situation.get("recent_occurrences") or []
+    if recent:
+        lines.append("")
+        lines.append(
+            "场内最近发生（原始材料，带作者与时间；不是你的原生历史，是同一场内可引用的真实发生）："
+        )
+        for record in recent:
+            content = str(record.get("content", ""))
+            if len(content) > 1200:
+                content = content[:1200] + "\n…（截断）"
+            lines.append(
+                f"--- {record.get('occurred_at', '')} | {record.get('author', '未知参与者')} "
+                f"| occurrence_id={record.get('id', '')} ---"
+            )
+            lines.append(content)
+
     lines.append("")
     lines.append("当前在说：")
     lines.append(str(situation.get("current_matter", {}).get("content", "")))
@@ -248,13 +266,13 @@ def build_situation_prompt(situation: dict[str, Any]) -> str:
 
     lines.append("")
     lines.append(
-        "回答协议（orientation gate）：先判断你的处境是否足够回答，然后只输出一个 JSON 信封，不要其他文本："
+        "回答协议（orientation advisory）：先判断当前处境，再只输出一个 JSON 信封，不要其他文本："
     )
     lines.append(
         '{"orientation":{"status":"sufficient|assumption|clarification_required",'
         '"assumptions":[],"missing":[],"questions":[]},"answer":"..."}'
     )
-    lines.append("- 关键意图、对象、范围或框架不明确，且不同解释会显著改变答案 → status=clarification_required，answer 留空，questions 最多 2 个；")
+    lines.append("- 关键意图、对象、范围或框架不明确，且不同解释会显著改变答案 → status=clarification_required；可以同时给出明确标注为暂定的局部回答或推进，只有无法安全推进时才留空并提出问题；")
     lines.append("- 只有局部不确定 → status=assumption，在 assumptions 里显式列出你的假设，再在 answer 给出回答；")
     lines.append("- 否则 status=sufficient，正常回答。")
     lines.append("不要输出 JSON 信封以外的任何文本。")

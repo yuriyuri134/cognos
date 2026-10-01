@@ -11,6 +11,7 @@ Task/Member/Assignment 等概念也不得映射成 Attempt/Subject/Relation。
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -60,7 +61,70 @@ CREATE TABLE IF NOT EXISTS project_members (
     org_member_id TEXT NOT NULL REFERENCES org_members(id),
     PRIMARY KEY (project_id, org_member_id)
 );
+
+-- 会话：普通软件对象（不是 Space）。Slice 1 只启用项目默认频道。
+CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id),
+    project_id TEXT REFERENCES projects(id),
+    kind TEXT NOT NULL DEFAULT 'channel',
+    title TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS conversations_project ON conversations(project_id, created_at);
+
+CREATE TABLE IF NOT EXISTS conversation_members (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    org_member_id TEXT NOT NULL REFERENCES org_members(id),
+    PRIMARY KEY (conversation_id, org_member_id)
+);
+
+-- 决定：对原发生/讨论的项目级投影，不替换原消息。
+CREATE TABLE IF NOT EXISTS decisions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    content TEXT NOT NULL,
+    source_refs TEXT NOT NULL DEFAULT '[]',
+    decided_by TEXT NOT NULL DEFAULT '',
+    decided_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'accepted',
+    reopen_condition TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS decisions_project ON decisions(project_id, decided_at);
+
+-- 工作项：普通软件对象（不是 Attempt）。
+CREATE TABLE IF NOT EXISTS work_items (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open',
+    assignee_member_id TEXT,
+    source_refs TEXT NOT NULL DEFAULT '[]',
+    decision_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS work_items_project ON work_items(project_id, created_at);
+
+CREATE TABLE IF NOT EXISTS work_item_events (
+    id TEXT PRIMARY KEY,
+    work_item_id TEXT NOT NULL REFERENCES work_items(id),
+    kind TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS work_item_events_item ON work_item_events(work_item_id, created_at);
 """
+
+WORK_ITEM_STATUSES = ("open", "in_progress", "blocked", "done")
+DECISION_STATUSES = ("accepted", "proposed", "rejected", "superseded")
+
+_UNSET: Any = object()
 
 
 _ORG_MEMBER_EXTRA_COLUMNS = (
@@ -317,5 +381,347 @@ class OrgStore:
                 WHERE pm.project_id = ? ORDER BY m.created_at
                 """,
                 (project_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ---------- 会话（普通软件对象，不是 Space） ----------
+
+    def ensure_project_channel(self, project_id: str) -> dict[str, Any]:
+        """项目的默认频道；不存在则创建。旧 occurrence 不迁移，由读取侧投影。"""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM conversations WHERE project_id = ? AND is_default = 1 LIMIT 1",
+                (project_id,),
+            ).fetchone()
+            if row is not None:
+                return dict(row)
+            project = conn.execute(
+                "SELECT org_id FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+            if project is None:
+                raise ValueError("项目不存在")
+            conversation = {
+                "id": _new_id(),
+                "org_id": project["org_id"],
+                "project_id": project_id,
+                "kind": "channel",
+                "title": "项目频道",
+                "is_default": 1,
+                "status": "active",
+                "created_at": _now(),
+            }
+            conn.execute(
+                """
+                INSERT INTO conversations
+                    (id, org_id, project_id, kind, title, is_default, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation["id"],
+                    conversation["org_id"],
+                    conversation["project_id"],
+                    conversation["kind"],
+                    conversation["title"],
+                    conversation["is_default"],
+                    conversation["status"],
+                    conversation["created_at"],
+                ),
+            )
+        return conversation
+
+    def list_conversations(self, project_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM conversations WHERE project_id = ? ORDER BY is_default DESC, created_at",
+                (project_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def create_conversation(
+        self,
+        org_id: str,
+        project_id: str | None,
+        title: str,
+        kind: str = "channel",
+    ) -> dict[str, Any]:
+        if kind not in ("channel", "dm", "group"):
+            raise ValueError("会话类型只支持 channel / dm / group")
+        conversation = {
+            "id": _new_id(),
+            "org_id": org_id,
+            "project_id": project_id,
+            "kind": kind,
+            "title": title.strip() or "未命名会话",
+            "is_default": 0,
+            "status": "active",
+            "created_at": _now(),
+        }
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversations
+                    (id, org_id, project_id, kind, title, is_default, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation["id"],
+                    conversation["org_id"],
+                    conversation["project_id"],
+                    conversation["kind"],
+                    conversation["title"],
+                    conversation["is_default"],
+                    conversation["status"],
+                    conversation["created_at"],
+                ),
+            )
+        return conversation
+
+    def list_conversation_members(self, conversation_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.* FROM org_members m
+                JOIN conversation_members cm ON cm.org_member_id = m.id
+                WHERE cm.conversation_id = ? ORDER BY m.created_at
+                """,
+                (conversation_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_conversation_member(self, conversation_id: str, org_member_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO conversation_members (conversation_id, org_member_id) VALUES (?, ?)",
+                (conversation_id, org_member_id),
+            )
+
+    # ---------- 决定 ----------
+
+    def list_decisions(self, project_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM decisions WHERE project_id = ? ORDER BY decided_at DESC",
+                (project_id,),
+            ).fetchall()
+        return [self._decode_decision(r) for r in rows]
+
+    def get_decision(self, decision_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM decisions WHERE id = ?", (decision_id,)
+            ).fetchone()
+        return self._decode_decision(row) if row is not None else None
+
+    @staticmethod
+    def _decode_decision(row: sqlite3.Row) -> dict[str, Any]:
+        decision = dict(row)
+        try:
+            decision["source_refs"] = json.loads(decision.get("source_refs") or "[]")
+        except (TypeError, ValueError):
+            decision["source_refs"] = []
+        return decision
+
+    def create_decision(
+        self,
+        project_id: str,
+        content: str,
+        *,
+        source_refs: list[str] | None = None,
+        decided_by: str = "小林",
+        status: str = "accepted",
+        reopen_condition: str = "",
+    ) -> dict[str, Any]:
+        if status not in DECISION_STATUSES:
+            raise ValueError(f"决定状态只支持 {', '.join(DECISION_STATUSES)}")
+        decision = {
+            "id": _new_id(),
+            "project_id": project_id,
+            "content": content,
+            "source_refs": json.dumps(list(source_refs or []), ensure_ascii=False),
+            "decided_by": decided_by.strip() or "小林",
+            "decided_at": _now(),
+            "status": status,
+            "reopen_condition": reopen_condition,
+            "created_at": _now(),
+        }
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO decisions
+                    (id, project_id, content, source_refs, decided_by, decided_at, status, reopen_condition, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    decision["id"],
+                    decision["project_id"],
+                    decision["content"],
+                    decision["source_refs"],
+                    decision["decided_by"],
+                    decision["decided_at"],
+                    decision["status"],
+                    decision["reopen_condition"],
+                    decision["created_at"],
+                ),
+            )
+        return self.get_decision(decision["id"])  # type: ignore[return-value]
+
+    # ---------- 工作项 ----------
+
+    @staticmethod
+    def _decode_work_item(row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        try:
+            item["source_refs"] = json.loads(item.get("source_refs") or "[]")
+        except (TypeError, ValueError):
+            item["source_refs"] = []
+        return item
+
+    def list_work_items(self, project_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM work_items WHERE project_id = ? ORDER BY created_at",
+                (project_id,),
+            ).fetchall()
+        return [self._decode_work_item(r) for r in rows]
+
+    def get_work_item(self, work_item_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM work_items WHERE id = ?", (work_item_id,)
+            ).fetchone()
+        return self._decode_work_item(row) if row is not None else None
+
+    def create_work_item(
+        self,
+        project_id: str,
+        title: str,
+        *,
+        description: str = "",
+        assignee_member_id: str | None = None,
+        source_refs: list[str] | None = None,
+        decision_id: str | None = None,
+        actor: str = "小林",
+    ) -> dict[str, Any]:
+        now = _now()
+        item = {
+            "id": _new_id(),
+            "project_id": project_id,
+            "title": title.strip(),
+            "description": description,
+            "status": "open",
+            "assignee_member_id": assignee_member_id,
+            "source_refs": json.dumps(list(source_refs or []), ensure_ascii=False),
+            "decision_id": decision_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO work_items
+                    (id, project_id, title, description, status, assignee_member_id, source_refs, decision_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["id"],
+                    item["project_id"],
+                    item["title"],
+                    item["description"],
+                    item["status"],
+                    item["assignee_member_id"],
+                    item["source_refs"],
+                    item["decision_id"],
+                    item["created_at"],
+                    item["updated_at"],
+                ),
+            )
+        self.add_work_item_event(item["id"], "created", item["title"], actor=actor)
+        return self.get_work_item(item["id"])  # type: ignore[return-value]
+
+    def update_work_item(
+        self,
+        work_item_id: str,
+        *,
+        title: Any = _UNSET,
+        description: Any = _UNSET,
+        status: Any = _UNSET,
+        assignee_member_id: Any = _UNSET,
+        decision_id: Any = _UNSET,
+        actor: str = "小林",
+    ) -> dict[str, Any] | None:
+        current = self.get_work_item(work_item_id)
+        if current is None:
+            return None
+        if status is not _UNSET and status not in WORK_ITEM_STATUSES:
+            raise ValueError(f"工作项状态只支持 {', '.join(WORK_ITEM_STATUSES)}")
+        changes: list[tuple[str, str]] = []
+        values: list[Any] = []
+        if title is not _UNSET and title is not None and title.strip() != current["title"]:
+            changes.append(("title", f"标题：{current['title']} → {title.strip()}"))
+            values.append(("title", title.strip()))
+        if description is not _UNSET and description is not None and description != current["description"]:
+            changes.append(("description", "描述已更新"))
+            values.append(("description", description))
+        if status is not _UNSET and status is not None and status != current["status"]:
+            changes.append(("status", f"状态：{current['status']} → {status}"))
+            values.append(("status", status))
+        if assignee_member_id is not _UNSET and assignee_member_id != current["assignee_member_id"]:
+            changes.append(("assignee", "负责人已变更"))
+            values.append(("assignee_member_id", assignee_member_id))
+        if decision_id is not _UNSET and decision_id != current["decision_id"]:
+            changes.append(("decision", "关联决定已变更"))
+            values.append(("decision_id", decision_id))
+        if not values:
+            return current
+        with self._conn() as conn:
+            assignments = ", ".join(f"{column} = ?" for column, _ in values)
+            conn.execute(
+                f"UPDATE work_items SET {assignments}, updated_at = ? WHERE id = ?",
+                [value for _, value in values] + [_now(), work_item_id],
+            )
+        for kind, detail in changes:
+            self.add_work_item_event(work_item_id, kind, detail, actor=actor)
+        return self.get_work_item(work_item_id)
+
+    def add_work_item_event(
+        self, work_item_id: str, kind: str, detail: str = "", *, actor: str = "小林"
+    ) -> dict[str, Any]:
+        event = {
+            "id": _new_id(),
+            "work_item_id": work_item_id,
+            "kind": kind,
+            "detail": detail,
+            "actor": actor,
+            "created_at": _now(),
+        }
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO work_item_events (id, work_item_id, kind, detail, actor, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event["id"],
+                    event["work_item_id"],
+                    event["kind"],
+                    event["detail"],
+                    event["actor"],
+                    event["created_at"],
+                ),
+            )
+        return event
+
+    def list_work_item_events(self, work_item_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM work_item_events WHERE work_item_id = ? ORDER BY created_at",
+                (work_item_id,),
             ).fetchall()
         return [dict(r) for r in rows]

@@ -100,6 +100,8 @@ def create_org_router(
         project = store.create_project(
             org_id, request.title.strip(), request.description.strip()
         )
+        # 项目默认频道属于普通软件对象；此处立即建立，避免 UI 与消息写入各自懒创建。
+        store.ensure_project_channel(project["id"])
         return {"project": project}
 
     # ---------- 成员 ----------
@@ -260,12 +262,14 @@ def create_org_router(
     ) -> dict[str, Any]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail="项目不存在")
+        channel = store.ensure_project_channel(project_id)
         try:
             result = await service.send(
                 request.content,
                 target=request.target,
                 quoted_occurrence_id=request.quoted_occurrence_id,
                 project_id=project_id,
+                conversation_id=channel["id"],
                 search=request.search,
                 search_query=request.search_query,
             )

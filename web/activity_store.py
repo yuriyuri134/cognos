@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -80,7 +81,26 @@ class ActivityStore:
                 );
                 CREATE INDEX IF NOT EXISTS activity_moves_idx
                     ON activity_moves(activity_id);
+                CREATE TABLE IF NOT EXISTS activity_context_snapshots (
+                    id TEXT PRIMARY KEY,
+                    activity_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    call_index INTEGER NOT NULL,
+                    activity_revision INTEGER NOT NULL,
+                    context_json TEXT NOT NULL,
+                    rendered_prompt TEXT NOT NULL,
+                    rendered_prompt_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(activity_id, run_id, call_index)
+                );
+                CREATE INDEX IF NOT EXISTS activity_context_activity
+                    ON activity_context_snapshots(activity_id, created_at);
+                CREATE INDEX IF NOT EXISTS activity_context_run
+                    ON activity_context_snapshots(run_id, call_index);
             """)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(activity_moves)")}
+            if "proposer_participant_id" not in columns:
+                conn.execute("ALTER TABLE activity_moves ADD COLUMN proposer_participant_id TEXT")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -173,14 +193,87 @@ class ActivityStore:
         return [json.loads(row["state_json"]) for row in rows]
 
     @staticmethod
+    def _decode_context(row: sqlite3.Row) -> dict[str, Any]:
+        return {"id": row["id"], "activity_id": row["activity_id"],
+                "run_id": row["run_id"], "call_index": row["call_index"],
+                "activity_revision": row["activity_revision"],
+                "context": json.loads(row["context_json"]),
+                "rendered_prompt": row["rendered_prompt"],
+                "rendered_prompt_hash": row["rendered_prompt_hash"],
+                "created_at": row["created_at"]}
+
+    def save_context_snapshot(self, *, activity_id: str, run_id: str, call_index: int,
+                              activity_revision: int, context: dict[str, Any],
+                              rendered_prompt: str,
+                              rendered_prompt_hash: str | None = None) -> dict[str, Any]:
+        """Append one immutable context snapshot; retries are idempotent."""
+        if type(call_index) is not int or call_index < 0:
+            raise ValueError("调用序号必须是非负整数")
+        if type(activity_revision) is not int or activity_revision < 1:
+            raise ValueError("活动修订必须是正整数")
+        if not isinstance(context, dict):
+            raise ValueError("上下文快照必须是对象")
+        if not isinstance(rendered_prompt, str):
+            raise ValueError("渲染提示必须是文字")
+        encoded_context = json.dumps(context, ensure_ascii=False, allow_nan=False,
+                                     sort_keys=True)
+        digest = hashlib.sha256(rendered_prompt.encode("utf-8")).hexdigest()
+        if rendered_prompt_hash is not None and rendered_prompt_hash != digest:
+            raise ValueError("上下文提示 hash 不匹配")
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            previous = conn.execute(
+                "SELECT * FROM activity_context_snapshots WHERE activity_id=? AND run_id=? AND call_index=?",
+                (activity_id, run_id, call_index)).fetchone()
+            if previous:
+                if (previous["context_json"] != encoded_context or
+                        previous["rendered_prompt"] != rendered_prompt or
+                        previous["activity_revision"] != activity_revision):
+                    raise ActivityConflict("同一调用序号不能用于不同上下文")
+                return self._decode_context(previous)
+            ident = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO activity_context_snapshots "
+                "(id, activity_id, run_id, call_index, activity_revision, context_json, "
+                "rendered_prompt, rendered_prompt_hash, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (ident, activity_id, run_id, call_index, activity_revision, encoded_context,
+                 rendered_prompt, digest, datetime.now(timezone.utc).isoformat()))
+            created = conn.execute("SELECT * FROM activity_context_snapshots WHERE id=?",
+                                  (ident,)).fetchone()
+        return self._decode_context(created)
+
+    def get_context_snapshot(self, snapshot_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM activity_context_snapshots WHERE id=?",
+                               (snapshot_id,)).fetchone()
+        return self._decode_context(row) if row else None
+
+    def list_context_snapshots(self, activity_id: str, *, run_id: str | None = None,
+                               limit: int = 100) -> list[dict[str, Any]]:
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise ValueError("快照数量必须在 1 至 500 之间")
+        with self._connect() as conn:
+            if run_id is None:
+                rows = conn.execute(
+                    "SELECT * FROM activity_context_snapshots WHERE activity_id=? "
+                    "ORDER BY created_at, call_index LIMIT ?", (activity_id, limit)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM activity_context_snapshots WHERE activity_id=? AND run_id=? "
+                    "ORDER BY call_index LIMIT ?", (activity_id, run_id, limit)).fetchall()
+        return [self._decode_context(row) for row in rows]
+
+    @staticmethod
     def _decode_move(row: sqlite3.Row) -> dict[str, Any]:
         return {"id": row["id"], "activity_id": row["activity_id"], "request_id": row["request_id"],
                 "proposer": row["proposer"], "basis_revision": row["basis_revision"],
+                "proposer_participant_id": row["proposer_participant_id"],
                 "intent": row["intent"], "execution": json.loads(row["execution_json"]),
                 "state": json.loads(row["state_json"]), "created_at": row["created_at"],
                 "occurrence_id": row["occurrence_id"]}
 
     def create_move(self, activity_id: str, request_id: str, *, proposer: str,
+                    proposer_participant_id: str | None = None,
                     basis_revision: int, intent: str, execution: list[dict[str, Any]],
                     occurrence_id: str | None = None) -> tuple[dict[str, Any], bool]:
         """幂等创建 Move：同一 request_id 只创建一次，重试不重复执行。"""
@@ -204,9 +297,13 @@ class ActivityStore:
                 return self._decode_move(previous), False
             ident = uuid.uuid4().hex
             state = {"status": "proposed", "results": []}
-            conn.execute("INSERT INTO activity_moves VALUES (?,?,?,?,?,?,?,?,?,?)", (
-                ident, activity_id, request_id, proposer, basis_revision, intent, encoded_execution,
-                json.dumps(state, ensure_ascii=False), datetime.now(timezone.utc).isoformat(), occurrence_id))
+            conn.execute("""INSERT INTO activity_moves
+                (id, activity_id, request_id, proposer, proposer_participant_id, basis_revision,
+                 intent, execution_json, state_json, created_at, occurrence_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
+                ident, activity_id, request_id, proposer, proposer_participant_id, basis_revision,
+                intent, encoded_execution, json.dumps(state, ensure_ascii=False),
+                datetime.now(timezone.utc).isoformat(), occurrence_id))
             created = conn.execute("SELECT * FROM activity_moves WHERE id=?", (ident,)).fetchone()
         return self._decode_move(created), True
 
@@ -314,6 +411,8 @@ class ActivityStore:
                                   "excerpt": _text(ref.get("excerpt", ""), "引用片段", limit=10_000),
                                   "note": _text(ref.get("note", ""), "引用说明", limit=2_000)})
             state["situation"] = {"text": text, "refs": validated}
+            if operation.get("formation_projection") is True:
+                state["situation"]["formation_projection"] = True
         elif action == "set_focus":
             state["focus"] = _text(operation.get("text", ""), "当前关注", limit=10_000)
         elif action == "rename":

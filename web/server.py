@@ -34,12 +34,19 @@ from history import AppendOnlyHistory, HistoryCorruptionError
 from handoff.envelope import build_envelope, write_envelope
 from org_api import create_org_router
 from org_store import OrgStore
+from project_api import create_project_router
 from inquiry_api import create_inquiry_router
 from inquiry_store import InquiryStore
 from activity_api import create_activity_router
 from activity_service import ActivityService
 from activity_store import ActivityStore
-from search_provider import SearchUnavailableError, format_search_material, web_search
+from runtime_profile import build_runtime_profile
+from search_provider import (
+    SearchUnavailableError,
+    enrich_search_sources,
+    format_search_material,
+    web_search,
+)
 from situation import (
     build_attempt_prompt,
     build_situation,
@@ -96,6 +103,7 @@ class Participant:
             "model_name": self.model_name,
             "thread_id": self.get_thread_id(),
             "description": self.description,
+            "runtime_profile": build_runtime_profile(self.runtime, display_name=self.model_name),
         }
 
 
@@ -132,6 +140,12 @@ class HandoffCreateRequest(BaseModel):
     source_refs: List[str] = Field(
         default_factory=list,
         description="可选的额外来源引用；兼容旧客户端：无 occurrence_refs 时视为 occurrence ID",
+    )
+    project_id: str | None = Field(
+        default=None, description="可选的所属项目；用于把交接与其结果投影到项目时间线"
+    )
+    work_item_id: str | None = Field(
+        default=None, description="可选的工作项 ID；交接与结果会回写该工作项的事件"
     )
 
 
@@ -195,6 +209,7 @@ class ConversationService:
         target: str | None = None,
         quoted_occurrence_id: str | None = None,
         project_id: str | None = None,
+        conversation_id: str | None = None,
         search: bool = False,
         search_query: str | None = None,
     ) -> dict[str, Any]:
@@ -213,8 +228,15 @@ class ConversationService:
         if quoted_occurrence_id:
             quoted_record = self.history.get_by_id(quoted_occurrence_id)
 
+        recent_occurrences = self._recent_occurrences(
+            participant, project_id, conversation_id, quoted_occurrence_id
+        )
         situation = self._make_situation(
-            participant, target_content or content, quoted_record, project_id
+            participant,
+            target_content or content,
+            quoted_record,
+            project_id,
+            recent_occurrences=recent_occurrences,
         )
         actual_input = build_situation_prompt(situation)
 
@@ -222,6 +244,7 @@ class ConversationService:
         search_sources: list[dict[str, str]] | None = None
         search_error: str | None = None
         effective_query: str | None = None
+        search_material: str | None = None
         if search:
             effective_query = (
                 search_query.strip()
@@ -230,9 +253,11 @@ class ConversationService:
             )
             try:
                 search_sources = await self.search_fn(effective_query)
+                if os.environ.get("SEARCH_FETCH_CONTENT", "0").lower() in {"1", "true", "yes"}:
+                    search_sources = await enrich_search_sources(search_sources)
                 if search_sources:
-                    material = format_search_material(search_sources)
-                    actual_input = f"{material}\n\n{actual_input}"
+                    search_material = format_search_material(search_sources)
+                    actual_input = f"{search_material}\n\n{actual_input}"
             except Exception as exc:  # 检索失败不阻断沟通，留痕并照常发送
                 search_error = f"{type(exc).__name__}: {exc}"
 
@@ -244,8 +269,11 @@ class ConversationService:
                 target_participant_id=participant.id,
                 quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
                 project_id=project_id,
+                conversation_id=conversation_id,
                 search_query=effective_query,
                 search_error=search_error,
+                search_sources=search_sources,
+                search_material=search_material,
             )
             # 发送给指定参与者的独立运行时，保持该参与者自己的连续性
             reply = await participant.runtime.send(actual_input)
@@ -282,6 +310,7 @@ class ConversationService:
                 in_reply_to=user_record["id"],
                 quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
                 project_id=project_id,
+                conversation_id=conversation_id,
                 runtime_ref=runtime_ref,
                 situation_ref=situation["situation_id"],
                 situation_hash=situation["situation_hash"],
@@ -321,6 +350,7 @@ class ConversationService:
         project_id: str | None,
         inquiry: dict[str, Any] | None = None,
         previous_attempts: list[dict[str, Any]] | None = None,
+        recent_occurrences: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """机械构造处境投影（不冻结成 Space schema），并落盘为投影文件。"""
 
@@ -364,6 +394,7 @@ class ConversationService:
             },
             inquiry=inquiry,
             previous_attempts=previous_attempts,
+            recent_occurrences=recent_occurrences,
         )
         if self.situation_dir is not None:
             try:
@@ -371,6 +402,48 @@ class ConversationService:
             except OSError:
                 pass
         return situation
+
+    def _recent_occurrences(
+        self,
+        participant: Participant,
+        project_id: str | None,
+        conversation_id: str | None = None,
+        quoted_occurrence_id: str | None = None,
+        *,
+        limit: int = 16,
+    ) -> list[dict[str, Any]]:
+        """把场内最近发生作为材料接进处境：同会话 > 同项目 > 该参与者自己的发生。
+
+        只读取既有 raw occurrence，不回写、不总结；每条带 id / 作者 / 时间，可被引用。
+        这是触发式能力：参与者真实出现“东西都在但接不上”时才进入。
+        """
+
+        try:
+            records = self.history.read_all()
+        except (HistoryCorruptionError, RuntimeError):
+            return []
+
+        seen: set[str] = set()
+        picked: list[dict[str, Any]] = []
+
+        def add(record: dict[str, Any]) -> None:
+            record_id = record.get("id")
+            if not record_id or record_id in seen or record_id == quoted_occurrence_id:
+                return
+            seen.add(record_id)
+            picked.append(record)
+
+        if conversation_id:
+            for record in [r for r in records if r.get("conversation_id") == conversation_id][-10:]:
+                add(record)
+        if project_id:
+            for record in [r for r in records if r.get("project_id") == project_id][-10:]:
+                add(record)
+        for record in [r for r in records if r.get("author_participant_id") == participant.id][-5:]:
+            add(record)
+
+        picked.sort(key=lambda item: item.get("occurred_at") or "")
+        return picked[-limit:]
 
     async def send_attempt(
         self,
@@ -404,6 +477,9 @@ class ConversationService:
             project_id,
             inquiry=inquiry,
             previous_attempts=previous_attempts,
+            recent_occurrences=self._recent_occurrences(
+                participant, project_id, None, quoted_occurrence_id
+            ),
         )
         actual_input = build_attempt_prompt(situation)
 
@@ -736,6 +812,9 @@ def create_app(
         )
     )
     app.include_router(
+        create_project_router(store=org_store, service=service, history=history)
+    )
+    app.include_router(
         create_inquiry_router(
             store=inquiry_store,
             service=service,
@@ -770,6 +849,7 @@ def create_app(
                     "id": p.id,
                     "name": p.name,
                     "requested_model": getattr(p.runtime, "model", None) or p.model_name,
+                    "runtime_profile": build_runtime_profile(p.runtime, display_name=p.model_name),
                 }
                 for p in registry.values()
             ],
@@ -871,6 +951,8 @@ def create_app(
                 author="小林",
                 content=request.instruction,
                 target=request.target_agent,
+                project_id=request.project_id,
+                work_item_id=request.work_item_id,
                 handoff_request={
                     "target_agent": request.target_agent,
                     "working_directory": working_directory,
@@ -878,8 +960,25 @@ def create_app(
                     "source_refs": request.source_refs,
                     "executor_hint": "dsh-headless",
                     "executor_kind": "dsh-headless",
+                    "project_id": request.project_id,
+                    "work_item_id": request.work_item_id,
                 },
             )
+
+            # 工作项交接：记录事件；未开始的工作项进入 in_progress（状态仍可人工改回）
+            if request.work_item_id:
+                item = org_store.get_work_item(request.work_item_id)
+                if item is not None:
+                    org_store.add_work_item_event(
+                        request.work_item_id,
+                        "handoff",
+                        record["id"],
+                        actor="小林",
+                    )
+                    if item["status"] == "open":
+                        org_store.update_work_item(
+                            request.work_item_id, status="in_progress", actor="Cognos"
+                        )
 
             # E1：追加发生后再落 envelope；envelope 是 projection/cache，不是真相源。
             handoff_dir = config.handoff_dir or (config.thread_state_dir / "handoffs")
@@ -918,6 +1017,8 @@ def create_app(
                 author=request.agent_name,
                 content=request.agent_response,
                 in_reply_to=request.handoff_id,
+                project_id=handoff_record.get("project_id"),
+                work_item_id=handoff_record.get("work_item_id"),
                 handoff_result={
                     "handoff_id": request.handoff_id,
                     "related_occurrence_ids": request.related_occurrence_ids,
@@ -929,6 +1030,16 @@ def create_app(
                     "errors": request.errors,
                 },
             )
+
+            # 工作项交接结果回流：同一工作项留下事件，供时间线看到。
+            work_item_id = handoff_record.get("work_item_id")
+            if work_item_id and org_store.get_work_item(work_item_id) is not None:
+                org_store.add_work_item_event(
+                    work_item_id,
+                    "result",
+                    record["id"],
+                    actor=request.agent_name,
+                )
             return {"status": "ok", "record": record}
         except HTTPException:
             raise
