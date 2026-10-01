@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cognos · 共同展开</title>
+  <link rel="stylesheet" href="/assets/activity.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand">COGNOS <span>共同展开</span></a>
+    <a href="/">返回项目</a>
+  </header>
+  <main>
+    <section class="activity-toolbar" aria-label="活动入口">
+      <div><p class="eyebrow" id="project-title">学习与创作 · 界面检查</p><h1>从材料继续，让理解有地方改变。</h1></div>
+      <div class="inline"><label for="activities">活动</label><select id="activities"><option value="ee59dab51b6943e98cbd7e48e00d39cf">回来继续的真实活动</option></select><button id="rename-activity">改名</button><button id="new-activity">新建活动</button></div>
+    </section>
+    <div class="notice" id="notice" role="status" hidden=""></div>
+    <div class="empty" id="no-activity" hidden="">新建一个活动，放入材料或直接开始。无需先想好问题。</div>
+    <section class="activity-grid" id="activity-workspace">
+      <aside class="panel materials">
+        <div class="section-head"><h2>材料与正在写的内容</h2><button id="add-document">添加</button></div>
+        <div id="documents" class="document-list"></div>
+        <button id="import-occurrence">引入已有结果或发言</button>
+        <button id="browse-experience">看看过去活动里实际用过什么</button>
+        <button id="import-activity-material">从另一活动带入材料或构造</button>
+        <p class="hint">材料的原文保留。解释、草稿和组织方式可以另起版本。</p>
+        <details><summary>形成与修改</summary><ol id="revision-history" class="revision-list"><li><button>修订 2 · 小林</button></li><li><button>修订 1 · 小林</button></li></ol></details>
+      </aside>
+      <section class="panel working">
+        <section class="situation-section">
+          <div class="section-head"><h2>正在形成 <span id="situation-revision" class="badge">第 2 版</span></h2><button id="toggle-situation-edit">写下自己的理解</button></div>
+          <p class="hint">多个读法可以并存。暂缓不等于判错，修订也不自动代表进步。</p>
+          <div id="formation-active"><article class="formation-card"><p class="hint">界面检查替身（无推理） · 暂定读法</p><pre class="situation-text">可能是重复</pre><details><summary>形成与修订记录（1）</summary><p class="formation-revision" title="输入快照：5d6a8e3092e54b34acd2a6b30a71dd2f">界面检查替身（无推理） · 第 1 次调用 · 记录或修订
+可能是重复</p></details><div class="inline"><button>暂缓</button><button>修订文字</button></div></article><article class="formation-card"><p class="hint">界面检查替身（无推理） · 暂定读法</p><pre class="situation-text">可能是停顿</pre><details><summary>形成与修订记录（1）</summary><p class="formation-revision" title="输入快照：5d6a8e3092e54b34acd2a6b30a71dd2f">界面检查替身（无推理） · 第 1 次调用 · 记录或修订
+可能是停顿</p></details><div class="inline"><button>暂缓</button><button>修订文字</button></div></article></div>
+          <details id="formation-dormant-details" hidden=""><summary id="formation-dormant-summary">暂缓的读法（0）</summary><div id="formation-dormant"></div></details>
+          <p class="hint" id="situation-label">也可以写下你自己的理解。</p>
+          <pre id="situation-text" class="situation-text">（尚未写下理解；可以从材料、问题或没有问题的片段开始。）</pre>
+          <div id="situation-refs" class="refs"></div>
+          <div id="situation-edit" hidden="">
+            <label for="situation-editor">此刻正在形成什么（自由文字，可以留空或写“尚不清楚”）</label>
+            <textarea id="situation-editor" rows="5" maxlength="50000"></textarea>
+            <label for="situation-refs-editor">引用材料（可选，每行一条：材料ID 或 材料ID@版本，行尾可用 # 写一句说明）</label>
+            <textarea id="situation-refs-editor" rows="3" maxlength="10000"></textarea>
+            <div class="inline"><button id="save-situation">保存理解</button><button id="cancel-situation">取消</button></div>
+          </div>
+        </section>
+        <section class="moves-section">
+          <div class="section-head"><h2>准备做什么 · 实际得到什么</h2></div>
+          <div id="moves">还没有活动提议。邀请参与者后，它会写下准备做什么；服务实际执行并回真实结果。</div>
+          <div id="waiting-box" hidden="">
+            <p id="waiting-text" class="hint"></p>
+            <textarea id="answer-input" rows="3" maxlength="100000" placeholder="写下真实回答；也可以不回答，先去继续别的。"></textarea>
+            <div class="inline"><button id="submit-answer">提交回答</button></div>
+          </div>
+        </section>
+        <section class="focus-section">
+          <label for="focus">此刻关注 <span class="hint">可以留空，也可以改变</span></label>
+          <div class="inline"><input id="focus" maxlength="10000"><button id="save-focus">保存</button></div>
+        </section>
+        <section id="editor-section" hidden="">
+          <div class="section-head"><h2 id="document-title"></h2><span id="document-status" class="badge"></span></div>
+          <p id="document-description" class="hint"></p>
+          <textarea id="document-editor" aria-label="文档内容" rows="10"></textarea>
+          <details id="definition-details" hidden=""><summary>查看或编辑结构化内容</summary><textarea id="json-editor" aria-label="结构化内容" rows="12" spellcheck="false"></textarea></details>
+          <pre id="structured-summary" hidden=""></pre>
+          <div class="inline editor-actions"><button id="save-document">保存新版本</button><button id="adopt-document">采用这一版组织</button><button id="adopt-source-document">采用这一版取材方式</button><button id="copy-document">另起可改写内容</button><button id="publish-document" hidden="">返回项目（需确认）</button></div>
+        </section>
+        <section class="organization-section">
+          <div class="section-head"><h2>当前怎样取得新材料</h2><button id="release-source" disabled="">停用取材方式</button></div>
+          <p id="source-description" class="hint">尚未采用取材方式。已有材料仍可继续使用。</p>
+          <details id="source-builder"><summary>从当前项目的发言与结果取材</summary>
+            <label for="source-contains">包含的文字（留空不按文字筛选）</label><input id="source-contains" maxlength="1000">
+            <label for="source-author">原作者（可留空）</label><input id="source-author" maxlength="1000">
+            <label for="source-kind">内容范围</label><select id="source-kind"><option value="any">发言与执行结果</option><option value="message">发言</option><option value="handoff_result">执行结果</option></select>
+            <button id="save-source">采用这次取材方式</button>
+          </details>
+          <pre id="source-preview"></pre><button id="acquire-material" disabled="">按当前方式取得材料</button>
+        </section>
+        <section class="organization-section context-section">
+          <div class="section-head"><h2>本轮实际上下文</h2><span class="hint">记录参与者真正看到的材料与能力</span></div>
+          <details id="context-details">
+            <summary>查看最近调用</summary>
+            <div id="context-snapshots" class="context-list"><details class="context-card"><summary>第 1 次调用 · ui-fixture-no-inference · 材料 0 · 正在形成 0 · 未安顿 0 · 最近遭遇 0</summary><p class="hint">快照 5d6a8e3092e54b34acd2a6b30a71dd2f · 439d5e4f8cc3c909d1269e7956d181ec1d8f5480ae14b4a340251c0e28cb3d47</p><p class="hint">此快照只记录活动提交的提示；运行时可能附带其他历史。</p><pre class="context-json">{
+  "acquisition": null,
+  "active_materials": {
+    "acquisition": null,
+    "adopted": null,
+    "adopted_definition": null,
+    "catalog": [],
+    "compiled": {
+      "program_versions": {},
+      "reads": [],
+      "status": "ok",
+      "steps": 1,
+      "text": "",
+      "value": ""
+    },
+    "entries": [],
+    "selection": {
+      "body_policy": "all_materials",
+      "mode": "compiled_activity",
+      "note": "采用组合后，依赖目录不额外注入全文；原文可按版本回读。近期结果和用户输入仍独立进入。",
+      "reads": []
+    }
+  },
+  "activity_id": "ee59dab51b6943e98cbd7e48e00d39cf",
+  "activity_view": {
+    "formation_history": [],
+    "formations": {
+      "active": [],
+      "dormant": []
+    },
+    "independent_situation": null,
+    "projection": {
+      "formation_event_count": 0,
+      "policy": "latest_explicit_id_update",
+      "situation_is_compatibility_mirror": false,
+      "tension_event_count": 0
+    },
+    "schema_version": 1,
+    "tension_history": [],
+    "tensions": {
+      "open": [],
+      "resolved": []
+    }
+  },
+  "adopted": null,
+  "adopted_definition": null,
+  "affordances": [
+    {
+      "requires_arguments": true,
+      "type": "read"
+    },
+    {
+      "notes": "按当前项目原始发生 ID 和字符区间回读；不按当前理解筛选；可依 next_start 继续",
+      "requires_arguments": true,
+      "type": "read_occurrence"
+    },
+    {
+      "requires_arguments": false,
+      "type": "inspect_activities"
+    },
+    {
+      "notes": "不按当前取材条件过滤，分页浏览项目原话；节选可回读全文",
+      "requires_arguments": false,
+      "type": "browse_history"
+    },
+    {
+      "notes": "从同项目另一活动的明确版本带入材料或构造依赖；不自动采用",
+      "requires_arguments": true,
+      "type": "import_activity"
+    },
+    {
+      "requires_arguments": true,
+      "type": "evaluate"
+    },
+    {
+      "requires_arguments": true,
+      "type": "change"
+    },
+    {
+      "requires_arguments": true,
+      "type": "create"
+    },
+    {
+      "requires_arguments": false,
+      "type": "acquire"
+    },
+    {
+      "notes": "可提交一至八个查询候选；结果作为外部材料进入下一轮",
+      "requires_arguments": true,
+      "type": "retrieve"
+    },
+    {
+      "requires_arguments": true,
+      "type": "ask_user"
+    }
+  ],
+  "assembly": {
+    "reasons": [
+      "legacy_activity_context",
+      "named_context_buckets"
+    ],
+    "source_refs": []
+  },
+  "cognitive_conditions": {
+    "condition_fingerprint": "4907db92e2efb85476525051e7eaca650a9ae8fa3db9c61fb5c1ca513dedce25",
+    "formations": [],
+    "recent_moves": [],
+    "reopening_channels": [
+      {
+        "reason": "原始材料可以重新进入，不由当前形成删改",
+        "type": "raw_material"
+      },
+      {
+        "reason": "参与者的新表达可以改变当前组织",
+        "type": "user_or_participant"
+      },
+      {
+        "reason": "外部读取、检索和执行结果可以制造新差异",
+        "type": "external_world"
+      },
+      {
+        "reason": "模型或程序构造出的中间材料可以被再次面对",
+        "type": "construction"
+      },
+      {
+        "reason": "多个未统一的形成可以并存",
+        "type": "alternate_formation"
+      }
+    ],
+    "rule": "形成可以组织下一轮，但不能穷尽下一轮；遭遇不自动等于已被理解",
+    "schema_version": 1,
+    "tensions": [],
+    "unassimilated_candidates": []
+  },
+  "compiled": {
+    "program_versions": {},
+    "reads": [],
+    "status": "ok",
+    "steps": 1,
+    "text": "",
+    "value": ""
+  },
+  "dormant_formations": [],
+  "environment": {
+    "activity_id": "ee59dab51b6943e98cbd7e48e00d39cf",
+    "activity_revision": 2,
+    "project": {
+      "created_at": "2026-09-23T17:20:48.994180+00:00",
+      "description": "临时数据",
+      "id": "bb2b026a-0525-4640-8f6f-fd42bc253409",
+      "org_id": "73243e7f-285b-4ccc-ac35-9f323d7eaf9d",
+      "status": "active",
+      "title": "学习与创作 · 界面检查",
+      "updated_at": "2026-09-23T17:20:48.994180+00:00"
+    }
+  },
+  "excluded_history": {
+    "omitted_counts": {},
+    "policy": "explicit_retrieval_only"
+  },
+  "focus": "继续昨天还没想完的东西",
+  "formation_projection": {
+    "event_count": 0,
+    "note": "停用不等于判假；历史版本仍保留在活动事件中",
+    "policy": "latest_explicit_id_update"
+  },
+  "formations": [],
+  "frame_material": [],
+  "material_catalog": [],
+  "moves": [],
+  "operation_results": [],
+  "participant": {
+    "name": "界面检查替身（无推理）",
+    "participant_id": "fixture"
+  },
+  "project": {
+    "created_at": "2026-09-23T17:20:48.994180+00:00",
+    "description": "临时数据",
+    "id": "bb2b026a-0525-4640-8f6f-fd42bc253409",
+    "org_id": "73243e7f-285b-4ccc-ac35-9f323d7eaf9d",
+    "status": "active",
+    "title": "学习与创作 · 界面检查",
+    "updated_at": "2026-09-23T17:20:48.994180+00:00"
+  },
+  "recent_activity": [
+    {
+      "author": "小林",
+      "author_participant_id": null,
+      "content": "修改活动内容与组织。",
+      "id": "fb5d4247-8f81-4754-8175-8d368359643a",
+      "occurred_at": "2026-09-23T17:21:14.989667+00:00",
+      "target": null
+    },
+    {
+      "author": "小林",
+      "author_participant_id": null,
+      "content": "验证并存读法",
+      "id": "51bbf466-c472-4d13-899a-856d0270495e",
+      "occurred_at": "2026-09-23T17:21:15.025369+00:00",
+      "target": "界面检查替身（无推理）"
+    }
+  ],
+  "recent_encounters": [],
+  "resolved_tensions": [],
+  "retrieved_history": {
+    "frame_material": [],
+    "recent_activity": [
+      {
+        "author": "小林",
+        "author_participant_id": null,
+        "content": "修改活动内容与组织。",
+        "id": "fb5d4247-8f81-4754-8175-8d368359643a",
+        "occurred_at": "2026-09-23T17:21:14.989667+00:00",
+        "target": null
+      },
+      {
+        "author": "小林",
+        "author_participant_id": null,
+        "content": "验证并存读法",
+        "id": "51bbf466-c472-4d13-899a-856d0270495e",
+        "occurred_at": "2026-09-23T17:21:15.025369+00:00",
+        "target": "界面检查替身（无推理）"
+      }
+    ]
+  },
+  "revision": 2,
+  "runtime": {
+    "activity_input_scope": "runtime_managed_history_not_captured",
+    "actual_model": null,
+    "adapter": "FixtureRuntime",
+    "capabilities": [
+      "conversation"
+    ],
+    "connection": "local_or_managed",
+    "display_name": "界面检查替身（无推理）",
+    "endpoint": null,
+    "fallback_policy": null,
+    "input_scope": "runtime_managed_history_not_captured",
+    "model": "ui-fixture-no-inference",
+    "provider": "FixtureRuntime",
+    "reasoning_effort": null,
+    "requested_model": "ui-fixture-no-inference",
+    "runtime_thread_id": null
+  },
+  "schema_version": 1,
+  "situation": null,
+  "tensions": [],
+  "user_input": {
+    "content": "验证并存读法",
+    "initiator": "小林",
+    "occurrence_id": "51bbf466-c472-4d13-899a-856d0270495e"
+  },
+  "user_message": "验证并存读法"
+}</pre><button type="button">查看发送内容</button></details></div>
+          </details>
+        </section>
+        <section class="organization-section">
+          <div class="section-head"><h2>当前怎样展开材料</h2><button id="release" disabled="">停用当前组织</button></div>
+          <p id="adopted-description" class="hint">尚未采用特定组织，当前展开全部材料。</p>
+          <details id="arrangement-builder"><summary>选择材料，调整并置顺序</summary><div id="arrangement-list"></div><button id="adopt-arrangement">采用这次编排</button></details>
+          <details open=""><summary>本次实际展开的内容</summary><pre id="preview">还没有材料，可以直接开始。</pre><button id="save-preview" disabled="">把这份结果另存为草稿</button></details>
+        </section>
+      </section>
+      <section class="panel conversation">
+        <div class="section-head"><h2>共同继续</h2><label for="participant" class="sr-only">参与者</label><select id="participant"><option value="fixture">界面检查替身（无推理）</option></select></div>
+        <section id="return-point" class="return-point" aria-live="polite">
+          <div class="section-head"><h3>上次停在这里</h3><span class="hint">可以直接继续，不必重新交代背景</span></div>
+          <div id="return-summary" class="return-summary"><p><strong>正在形成：</strong>可能是停顿</p><p><strong>此刻关注：</strong>继续昨天还没想完的东西</p></div>
+        </section>
+        <p class="hint">参与者可修改当前活动的可编辑内容与组织；原始材料继续保留。</p>
+        <div id="messages" class="messages" aria-live="polite"><article class="message"><strong>小林</strong><p>验证并存读法</p></article><article class="message"><strong>界面检查替身（无推理）</strong><p>提出了活动操作，执行情况已保留。</p></article></div>
+        <p id="run-status" class="hint" role="status">本次已暂停，可以继续展开。</p>
+        <form id="continue-form"><label class="sr-only" for="message">要继续的内容</label><textarea id="message" placeholder="写下此刻想继续的东西，也可以留空承接…" rows="4" maxlength="100000"></textarea><button type="submit" id="continue-button">共同继续</button></form>
+      </section>
+    </section>
+  </main>
+  <dialog id="transfer-dialog">
+    <form id="transfer-form"><h2>从另一活动继续</h2>
+      <label for="transfer-activity">来源活动</label><select id="transfer-activity"></select>
+      <label for="transfer-document">材料或构造</label><select id="transfer-document"></select>
+      <label for="transfer-kind">怎样带入</label><select id="transfer-kind"><option value="material">保留为材料快照</option><option value="construction">带入可修改的构造及其依赖</option></select>
+      <label for="transfer-note">适用条件、未解决之处或这次使用的想法（可空）</label><textarea id="transfer-note" maxlength="4000"></textarea>
+      <p class="hint" id="transfer-source-note">来源版本会保留；带入后不会自动采用，也不表示已验证适用性。</p>
+      <div class="inline"><button type="submit" id="transfer-submit">带入当前活动</button><button type="button" id="transfer-cancel">取消</button></div>
+    </form>
+  </dialog>
+  <dialog id="add-dialog">
+    <form id="add-form"><h2>放入活动</h2><label for="new-title">名称</label><input id="new-title" maxlength="200">
+      <label for="new-kind">怎样保留</label><select id="new-kind"><option value="source">材料原文</option><option value="draft">可改写内容</option></select>
+      <label for="new-body">内容</label><textarea id="new-body" rows="10" required="" maxlength="200000"></textarea>
+      <details><summary>结构化材料</summary><label><input type="checkbox" id="new-json"> 内容是 JSON</label></details>
+      <div class="inline"><button type="button" id="cancel-add">取消</button><button type="submit">加入活动</button></div>
+    </form>
+  </dialog>
+  <dialog id="history-dialog"><h2 id="history-title"></h2><pre id="history-preview"></pre><button id="close-history">关闭</button></dialog>
+  <dialog id="rename-dialog"><form id="rename-form"><h2>活动名称</h2><label for="activity-title">名称</label><input id="activity-title" maxlength="200"><div class="inline"><button type="button" id="cancel-rename">取消</button><button type="submit">保存名称</button></div></form></dialog>
+  <dialog id="import-dialog"><form id="import-form"><h2>引入已有结果或发言</h2><p class="hint">这里不按当前取材条件过滤。命中不等于相关，未命中也不等于无用。</p><p id="import-coverage" class="hint"></p><div class="inline"><button type="button" id="import-latest">回到最新</button><button type="button" id="import-older">查看更早内容</button></div><label for="import-selection">当前项目中已留下的内容</label><select id="import-selection"></select><pre id="import-preview"></pre><div class="inline"><button type="button" id="cancel-import">取消</button><button type="submit" id="confirm-import">保留完整原文与来源</button></div></form></dialog>
+  <dialog id="publish-dialog"><form id="publish-form"><h2>把活动内容返回项目</h2><p class="hint">这一步需要你的明确确认；模型生成的内容不会自动成为项目事实。</p><label for="publish-kind">返回为</label><select id="publish-kind"><option value="message">项目消息</option><option value="work_item">开放工作项</option><option value="decision">提议中的决定</option></select><label for="publish-title">标题（工作项可用）</label><input id="publish-title" maxlength="200"><label for="publish-content">正文</label><textarea id="publish-content" rows="10" maxlength="100000"></textarea><div class="inline"><button type="button" id="cancel-publish">取消</button><button type="submit">确认返回项目</button></div></form></dialog>
+  <script src="/assets/activity.js" defer=""></script>
+
+
+</body></html>

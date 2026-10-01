@@ -1,0 +1,229 @@
+{
+  "trial": "Gemini isolated cognitive runtime",
+  "requested_model": "gemini-3.7-flash",
+  "production_data_written": false,
+  "runs": [
+    {
+      "id": "007a70ad484d4d1f8644351b6181e65b",
+      "request_id": "one",
+      "status": "paused",
+      "error": null,
+      "events": [
+        {
+          "input_revision": 2,
+          "status": "executed",
+          "transport_wrapped": true,
+          "formation_updates": [
+            {
+              "text": "",
+              "refs": [],
+              "id": "formation_unformed_situation"
+            }
+          ],
+          "tension_updates": [
+            {
+              "text": "‘想要实现理想’与‘数学是否为眼下要务’之间的不确定感与犹豫。",
+              "refs": [],
+              "status": "open",
+              "id": "tension_math_and_priority"
+            }
+          ],
+          "move": {
+            "text": "沉淀初始理解，留出处境空间",
+            "refs": [],
+            "formation_refs": [],
+            "tension_refs": [],
+            "operations": [
+              {
+                "type": "change",
+                "reason": "更新当前对处境的理解，不急于收敛问题",
+                "operations": [
+                  {
+                    "action": "set_situation",
+                    "text": "面对理想与当下着力点（如学数学）的关系感到困惑，具体情境尚未充分展开，当前重点在于贴近实际处境而非制定计划。",
+                    "refs": [
+                      {
+                        "document": "source",
+                        "version": 1,
+                        "excerpt": "我不知道如何实现自己的理想。我想学习数学，但不知道这是不是现在最重要的事。",
+                        "note": "表达了理想与眼前行动选择之间的悬置与不确定"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "refs_verified": true
+          },
+          "results": [
+            {
+              "index": 0,
+              "status": "ok",
+              "revision": 4,
+              "catalog": [
+                {
+                  "id": "source",
+                  "title": "原始表达",
+                  "format": "text",
+                  "version": 1,
+                  "immutable": true,
+                  "source_author": null,
+                  "occurrence_id": "4e9e5af2-67f4-4523-a541-690654aa3514"
+                }
+              ],
+              "adopted": null,
+              "result_occurrence_id": "92c11ed7-00ee-4283-8383-a73852d5e4dc"
+            }
+          ],
+          "runtime": {
+            "provider": "GeminiRuntimeAdapter",
+            "adapter": "GeminiRuntimeAdapter",
+            "endpoint": null,
+            "model": "gemini-3.7-flash",
+            "reasoning_effort": null,
+            "capabilities": [
+              "conversation"
+            ],
+            "fallback_policy": null,
+            "display_name": "Gemini Trial",
+            "connection": "configured",
+            "requested_model": "gemini-3.7-flash",
+            "actual_model": "gemini-3.7-flash",
+            "runtime_thread_id": "gemini_f835a331-521e-448b-af23-cc4c0ec3118c",
+            "runtime_turn_id": "turn_c9e6fee3-fa49-4454-8c54-7aaeac22580e"
+          },
+          "context_snapshot_id": "f320ca3419a8499593395300fb6a09cf"
+        },
+        {
+          "input_revision": 4,
+          "status": "returned",
+          "transport_wrapped": true,
+          "formation_updates": [],
+          "tension_updates": [],
+          "results": [],
+          "runtime": {
+            "provider": "GeminiRuntimeAdapter",
+            "adapter": "GeminiRuntimeAdapter",
+            "endpoint": null,
+            "model": "gemini-3.7-flash",
+            "reasoning_effort": null,
+            "capabilities": [
+              "conversation"
+            ],
+            "fallback_policy": null,
+            "display_name": "Gemini Trial",
+            "connection": "configured",
+            "requested_model": "gemini-3.7-flash",
+            "actual_model": "gemini-3.7-flash",
+            "runtime_thread_id": "gemini_f835a331-521e-448b-af23-cc4c0ec3118c",
+            "runtime_turn_id": "turn_27a96ec2-ed8c-4da2-b864-5e25ae1f1e10"
+          },
+          "context_snapshot_id": "0584117e48d84a3abdce8188f591d3aa"
+        }
+      ]
+    },
+    {
+      "id": "95f5d10ab2bf4b12935af9f6e00bda65",
+      "request_id": "two",
+      "status": "failed",
+      "error": "活动未完成：RuntimeUnavailableError",
+      "events": [
+        {
+          "input_revision": 4,
+          "status": "failed",
+          "results": [],
+          "context_snapshot_id": "43d7f3f4f8af42c69fc774926dc36414"
+        }
+      ]
+    }
+  ],
+  "snapshots": [
+    {
+      "id": "f320ca3419a8499593395300fb6a09cf",
+      "call_index": 0,
+      "activity_revision": 2,
+      "prompt_hash": "09c5e13a8b5e19c8364ebbab8f4157befb863d7bbdd5843ec80255148fca46c8",
+      "formation_texts": [],
+      "tensions": [],
+      "condition_fingerprint": "4907db92e2efb85476525051e7eaca650a9ae8fa3db9c61fb5c1ca513dedce25",
+      "condition_tensions": []
+    },
+    {
+      "id": "0584117e48d84a3abdce8188f591d3aa",
+      "call_index": 1,
+      "activity_revision": 4,
+      "prompt_hash": "7d76ea8e15915f798b8028d5b74d5a82aeb070f9dfd49c570bb86aeb096fdcfd",
+      "formation_texts": [
+        "",
+        "面对理想与当下着力点（如学数学）的关系感到困惑，具体情境尚未充分展开，当前重点在于贴近实际处境而非制定计划。"
+      ],
+      "tensions": [
+        {
+          "call_index": 0,
+          "id": "007a70ad484d4d1f8644351b6181e65b:0:tension:0",
+          "refs": [],
+          "run_id": "007a70ad484d4d1f8644351b6181e65b",
+          "source": "activity_event",
+          "status": "open",
+          "text": "‘想要实现理想’与‘数学是否为眼下要务’之间的不确定感与犹豫。"
+        }
+      ],
+      "condition_fingerprint": "c43b3bc53ab67d41352874169e95af0dbdb6d3a9ccbef2b97aaafac458c59540",
+      "condition_tensions": [
+        {
+          "call_index": 0,
+          "id": "007a70ad484d4d1f8644351b6181e65b:0:tension:0",
+          "refs": [],
+          "run_id": "007a70ad484d4d1f8644351b6181e65b",
+          "source": "activity_event",
+          "status": "open",
+          "text": "‘想要实现理想’与‘数学是否为眼下要务’之间的不确定感与犹豫。"
+        }
+      ]
+    },
+    {
+      "id": "43d7f3f4f8af42c69fc774926dc36414",
+      "call_index": 0,
+      "activity_revision": 4,
+      "prompt_hash": "ac140345210179d75c01e06368ece1a6c9bee0d75acd08fac2c7ee90ac055692",
+      "formation_texts": [
+        "",
+        "面对理想与当下着力点（如学数学）的关系感到困惑，具体情境尚未充分展开，当前重点在于贴近实际处境而非制定计划。"
+      ],
+      "tensions": [
+        {
+          "call_index": 0,
+          "id": "007a70ad484d4d1f8644351b6181e65b:0:tension:0",
+          "refs": [],
+          "run_id": "007a70ad484d4d1f8644351b6181e65b",
+          "source": "activity_event",
+          "status": "open",
+          "text": "‘想要实现理想’与‘数学是否为眼下要务’之间的不确定感与犹豫。"
+        }
+      ],
+      "condition_fingerprint": "c16d4063a2b232f3450bf6fc7280eda583a4f1e41d84bcea3c937f9f741bad6a",
+      "condition_tensions": [
+        {
+          "call_index": 0,
+          "id": "007a70ad484d4d1f8644351b6181e65b:0:tension:0",
+          "refs": [],
+          "run_id": "007a70ad484d4d1f8644351b6181e65b",
+          "source": "activity_event",
+          "status": "open",
+          "text": "‘想要实现理想’与‘数学是否为眼下要务’之间的不确定感与犹豫。"
+        }
+      ]
+    }
+  ],
+  "interpretation": {
+    "supports": [
+      "fenced JSON transport can preserve an open activity response",
+      "an open tension can persist into the next Context Snapshot"
+    ],
+    "fails_or_unproven": [
+      "one later runtime call failed and was preserved",
+      "no claim yet that the runtime creates capability beyond the base model"
+    ],
+    "failure_boundary": "protocol/runtime failure is recorded without fabricating a formation or result"
+  }
+}

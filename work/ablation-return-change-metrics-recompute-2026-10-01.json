@@ -1,0 +1,52 @@
+{
+  "work\\ablation-return-change-baseline-codex-2026-09-24.json": {
+    "condition": "baseline",
+    "runtime": "CodexRuntimeAdapter",
+    "changed": {
+      "mentions_timer_mechanism": {
+        "saved": false,
+        "recomputed": true
+      },
+      "move_tests_alternative_mechanism": {
+        "saved": null,
+        "recomputed": true
+      },
+      "still_treats_presence_as_supported": {
+        "saved": true,
+        "recomputed": false
+      }
+    }
+  },
+  "work\\ablation-return-change-full-codex-2026-09-24.json": {
+    "condition": "full",
+    "runtime": "CodexRuntimeAdapter",
+    "changed": {}
+  },
+  "work\\ablation-return-change-full-deepseek-2026-09-24.json": {
+    "condition": "full",
+    "runtime": "openai-compatible",
+    "changed": {
+      "mentions_timer_mechanism": {
+        "saved": null,
+        "recomputed": false
+      },
+      "move_checks_timer_schedule": {
+        "saved": null,
+        "recomputed": false
+      },
+      "move_tests_alternative_mechanism": {
+        "saved": null,
+        "recomputed": false
+      },
+      "still_treats_presence_as_supported": {
+        "saved": null,
+        "recomputed": false
+      }
+    }
+  },
+  "work\\ablation-return-change-minimal-codex-2026-09-24.json": {
+    "condition": "minimal",
+    "runtime": "CodexRuntimeAdapter",
+    "changed": {}
+  }
+}

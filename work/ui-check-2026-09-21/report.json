@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "model": "scripted fixture, no real model inference",
+  "checks": [
+    "material without a question",
+    "activity rename",
+    "existing result import with original author",
+    "adopted query acquires actual project records",
+    "acquisition retry without duplicate material",
+    "release acquisition",
+    "immutable original",
+    "editing and independent focus change",
+    "adopt versus revise",
+    "actual transformed preview",
+    "restart continuity",
+    "model commands and returned result",
+    "network retry without replay",
+    "release preserves materials",
+    "mobile layout",
+    "no page errors"
+  ]
+}

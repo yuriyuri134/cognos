@@ -1,0 +1,1270 @@
+{
+  "condition": "minimal",
+  "scenario": "return-change",
+  "runtime": {
+    "kind": "codex",
+    "provider": "CodexRuntimeAdapter",
+    "model": null,
+    "model_name": null,
+    "reasoning_effort": null,
+    "endpoint": null,
+    "credential_source": "codex_managed_login"
+  },
+  "fixture": {
+    "seed_formation_id": "seed-formation",
+    "seed_tension_id": "seed-tension",
+    "neutral_prior_document": "prior-reading",
+    "neutral_prior_text": {
+      "formation": "窗还亮着，暂时推测屋内有人。",
+      "tension": "还没有排除灯会自动开启这一可能。"
+    },
+    "second_visit_fact": "无人值守的定时灯；当晚屋内没有人"
+  },
+  "metrics": {
+    "model_calls": 1,
+    "seed_formation_revisions": 0,
+    "seed_formation_suspended": false,
+    "seed_tension_revisions": 0,
+    "seed_tension_resolved": false,
+    "moves_proposed": 1,
+    "move_refs_seed_formation": false,
+    "move_refs_seed_tension": false,
+    "move_texts": [
+      "根据新增的可验证事实，撤回“窗亮着→屋内有人”的暂定推测；保留“昨晚窗还亮着”这一观察事实，并把灯亮解释更新为与无人值守定时灯相符。下一步记录这一修订，使旧读法保留为历史而不再作为当前判断。"
+    ],
+    "mentions_timer_mechanism": true,
+    "move_checks_timer_schedule": false,
+    "move_tests_alternative_mechanism": true,
+    "still_treats_presence_as_supported": false
+  },
+  "response": {
+    "run": {
+      "id": "0c4945c18b694cbf94670fcf05deb4dc",
+      "activity_id": "0e5e010b43ed40a9a1f2298378647398",
+      "request_id": "ablation-return-change-minimal",
+      "status": "budget_reached",
+      "events": [
+        {
+          "input_revision": 2,
+          "context": {
+            "activity_id": "0e5e010b43ed40a9a1f2298378647398",
+            "revision": 2,
+            "user_message": "新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。",
+            "focus": "",
+            "project": {
+              "id": "83137049-a22e-4214-9514-91acf7029933",
+              "org_id": "9e6af7fb-d1b5-4757-969c-8de84976b03a",
+              "title": "Cognos ablation project",
+              "description": "",
+              "status": "active",
+              "created_at": "2026-09-23T17:54:00.583713+00:00",
+              "updated_at": "2026-09-23T17:54:00.583713+00:00"
+            },
+            "material_catalog": [
+              {
+                "id": "initial-observation",
+                "title": "第一次看到的事实",
+                "format": "text",
+                "version": 1,
+                "immutable": true,
+                "source_author": null,
+                "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504"
+              },
+              {
+                "id": "prior-reading",
+                "title": "上次留下的暂定读法（中性记录）",
+                "format": "text",
+                "version": 1,
+                "immutable": true,
+                "source_author": null,
+                "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504"
+              }
+            ],
+            "adopted": null,
+            "adopted_definition": null,
+            "compiled": {
+              "value": "第一次看到的事实\n昨晚窗还亮着。\n\n上次留下的暂定读法（中性记录）\n过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。",
+              "text": "第一次看到的事实\n昨晚窗还亮着。\n\n上次留下的暂定读法（中性记录）\n过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。",
+              "reads": [
+                {
+                  "document": "initial-observation",
+                  "version": 1
+                },
+                {
+                  "document": "prior-reading",
+                  "version": 1
+                }
+              ],
+              "steps": 7,
+              "program_versions": {},
+              "status": "ok"
+            },
+            "acquisition": null,
+            "situation": null,
+            "moves": [],
+            "operation_results": [
+              {
+                "previous_run": "4c25938011924b04887aa055c8f5bff0",
+                "results": [],
+                "note": "过去实际结果，不重放过去命令"
+              }
+            ],
+            "frame_material": [],
+            "recent_activity": [
+              {
+                "id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                "author": "小林",
+                "author_participant_id": null,
+                "target": null,
+                "occurred_at": "2026-09-23T17:54:00.633614+00:00",
+                "content": "修改活动内容与组织。"
+              },
+              {
+                "id": "09a3e1fa-3962-4ee5-b101-9c15f94ebb3e",
+                "author": "小林",
+                "author_participant_id": null,
+                "target": "Ablation participant",
+                "occurred_at": "2026-09-23T17:54:00.699602+00:00",
+                "content": "新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。"
+              }
+            ],
+            "schema_version": 1,
+            "active_materials": {
+              "catalog": [
+                {
+                  "id": "initial-observation",
+                  "title": "第一次看到的事实",
+                  "format": "text",
+                  "version": 1,
+                  "immutable": true,
+                  "source_author": null,
+                  "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504"
+                },
+                {
+                  "id": "prior-reading",
+                  "title": "上次留下的暂定读法（中性记录）",
+                  "format": "text",
+                  "version": 1,
+                  "immutable": true,
+                  "source_author": null,
+                  "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504"
+                }
+              ],
+              "entries": [
+                {
+                  "id": "initial-observation",
+                  "title": "第一次看到的事实",
+                  "format": "text",
+                  "version": 1,
+                  "immutable": true,
+                  "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                  "source_author": null,
+                  "included_by": "compiled_activity",
+                  "body": "昨晚窗还亮着。"
+                },
+                {
+                  "id": "prior-reading",
+                  "title": "上次留下的暂定读法（中性记录）",
+                  "format": "text",
+                  "version": 1,
+                  "immutable": true,
+                  "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                  "source_author": null,
+                  "included_by": "compiled_activity",
+                  "body": "过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。"
+                }
+              ],
+              "selection": {
+                "mode": "compiled_activity",
+                "reads": [
+                  {
+                    "document": "initial-observation",
+                    "version": 1
+                  },
+                  {
+                    "document": "prior-reading",
+                    "version": 1
+                  }
+                ],
+                "body_policy": "all_materials",
+                "note": "采用组合后，依赖目录不额外注入全文；原文可按版本回读。近期结果和用户输入仍独立进入。"
+              },
+              "adopted": null,
+              "adopted_definition": null,
+              "compiled": {
+                "value": "第一次看到的事实\n昨晚窗还亮着。\n\n上次留下的暂定读法（中性记录）\n过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。",
+                "text": "第一次看到的事实\n昨晚窗还亮着。\n\n上次留下的暂定读法（中性记录）\n过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。",
+                "reads": [
+                  {
+                    "document": "initial-observation",
+                    "version": 1
+                  },
+                  {
+                    "document": "prior-reading",
+                    "version": 1
+                  }
+                ],
+                "steps": 7,
+                "program_versions": {},
+                "status": "ok"
+              },
+              "acquisition": null
+            },
+            "formations": [
+              {
+                "text": "窗还亮着，暂时推测屋内有人。",
+                "refs": [],
+                "status": "active",
+                "id": "seed-formation",
+                "run_id": "4c25938011924b04887aa055c8f5bff0",
+                "call_index": 0,
+                "source": "activity_event",
+                "participant": {
+                  "id": "seed",
+                  "name": "实验前态",
+                  "kind": "synthetic"
+                },
+                "occurrence_id": null,
+                "context_snapshot_id": null,
+                "event_id": "4c25938011924b04887aa055c8f5bff0:0:0",
+                "revision_event_ids": [
+                  "4c25938011924b04887aa055c8f5bff0:0:0"
+                ]
+              }
+            ],
+            "dormant_formations": [],
+            "formation_projection": {
+              "policy": "latest_explicit_id_update",
+              "event_count": 1,
+              "note": "停用不等于判假；历史版本仍保留在活动事件中"
+            },
+            "tensions": [
+              {
+                "text": "还没有排除灯会自动开启这一可能。",
+                "refs": [],
+                "status": "open",
+                "id": "seed-tension",
+                "run_id": "4c25938011924b04887aa055c8f5bff0",
+                "call_index": 0,
+                "source": "activity_event",
+                "participant": {
+                  "id": "seed",
+                  "name": "实验前态",
+                  "kind": "synthetic"
+                },
+                "occurrence_id": null,
+                "context_snapshot_id": null,
+                "event_id": "4c25938011924b04887aa055c8f5bff0:0:tension:0",
+                "revision_event_ids": [
+                  "4c25938011924b04887aa055c8f5bff0:0:tension:0"
+                ]
+              }
+            ],
+            "resolved_tensions": [],
+            "activity_view": {
+              "schema_version": 1,
+              "formation_history": [
+                {
+                  "id": "seed-formation",
+                  "text": "窗还亮着，暂时推测屋内有人。",
+                  "run_id": "4c25938011924b04887aa055c8f5bff0",
+                  "call_index": 0,
+                  "source": "activity_event",
+                  "participant": {
+                    "id": "seed",
+                    "name": "实验前态",
+                    "kind": "synthetic"
+                  },
+                  "occurrence_id": null,
+                  "context_snapshot_id": null,
+                  "event_id": "4c25938011924b04887aa055c8f5bff0:0:0"
+                }
+              ],
+              "formations": {
+                "active": [
+                  {
+                    "text": "窗还亮着，暂时推测屋内有人。",
+                    "refs": [],
+                    "status": "active",
+                    "id": "seed-formation",
+                    "run_id": "4c25938011924b04887aa055c8f5bff0",
+                    "call_index": 0,
+                    "source": "activity_event",
+                    "participant": {
+                      "id": "seed",
+                      "name": "实验前态",
+                      "kind": "synthetic"
+                    },
+                    "occurrence_id": null,
+                    "context_snapshot_id": null,
+                    "event_id": "4c25938011924b04887aa055c8f5bff0:0:0",
+                    "revision_event_ids": [
+                      "4c25938011924b04887aa055c8f5bff0:0:0"
+                    ]
+                  }
+                ],
+                "dormant": []
+              },
+              "tension_history": [
+                {
+                  "id": "seed-tension",
+                  "text": "还没有排除灯会自动开启这一可能。",
+                  "status": "open",
+                  "run_id": "4c25938011924b04887aa055c8f5bff0",
+                  "call_index": 0,
+                  "source": "activity_event",
+                  "participant": {
+                    "id": "seed",
+                    "name": "实验前态",
+                    "kind": "synthetic"
+                  },
+                  "occurrence_id": null,
+                  "context_snapshot_id": null,
+                  "event_id": "4c25938011924b04887aa055c8f5bff0:0:tension:0"
+                }
+              ],
+              "tensions": {
+                "open": [
+                  {
+                    "text": "还没有排除灯会自动开启这一可能。",
+                    "refs": [],
+                    "status": "open",
+                    "id": "seed-tension",
+                    "run_id": "4c25938011924b04887aa055c8f5bff0",
+                    "call_index": 0,
+                    "source": "activity_event",
+                    "participant": {
+                      "id": "seed",
+                      "name": "实验前态",
+                      "kind": "synthetic"
+                    },
+                    "occurrence_id": null,
+                    "context_snapshot_id": null,
+                    "event_id": "4c25938011924b04887aa055c8f5bff0:0:tension:0",
+                    "revision_event_ids": [
+                      "4c25938011924b04887aa055c8f5bff0:0:tension:0"
+                    ]
+                  }
+                ],
+                "resolved": []
+              },
+              "independent_situation": null,
+              "projection": {
+                "policy": "latest_explicit_id_update",
+                "formation_event_count": 1,
+                "tension_event_count": 1,
+                "situation_is_compatibility_mirror": false
+              }
+            },
+            "cognitive_conditions": {
+              "schema_version": 1,
+              "formations": [
+                {
+                  "text": "窗还亮着，暂时推测屋内有人。",
+                  "refs": [],
+                  "status": "active",
+                  "id": "seed-formation",
+                  "run_id": "4c25938011924b04887aa055c8f5bff0",
+                  "call_index": 0,
+                  "source": "activity_event",
+                  "participant": {
+                    "id": "seed",
+                    "name": "实验前态",
+                    "kind": "synthetic"
+                  },
+                  "occurrence_id": null,
+                  "context_snapshot_id": null,
+                  "event_id": "4c25938011924b04887aa055c8f5bff0:0:0",
+                  "revision_event_ids": [
+                    "4c25938011924b04887aa055c8f5bff0:0:0"
+                  ]
+                }
+              ],
+              "tensions": [
+                {
+                  "text": "还没有排除灯会自动开启这一可能。",
+                  "refs": [],
+                  "status": "open",
+                  "id": "seed-tension",
+                  "run_id": "4c25938011924b04887aa055c8f5bff0",
+                  "call_index": 0,
+                  "source": "activity_event",
+                  "participant": {
+                    "id": "seed",
+                    "name": "实验前态",
+                    "kind": "synthetic"
+                  },
+                  "occurrence_id": null,
+                  "context_snapshot_id": null,
+                  "event_id": "4c25938011924b04887aa055c8f5bff0:0:tension:0",
+                  "revision_event_ids": [
+                    "4c25938011924b04887aa055c8f5bff0:0:tension:0"
+                  ]
+                }
+              ],
+              "unassimilated_candidates": [
+                {
+                  "index": 0,
+                  "encounter": {
+                    "previous_run": "4c25938011924b04887aa055c8f5bff0",
+                    "results": [],
+                    "note": "过去实际结果，不重放过去命令"
+                  }
+                }
+              ],
+              "recent_moves": [],
+              "reopening_channels": [
+                {
+                  "type": "raw_material",
+                  "reason": "原始材料可以重新进入，不由当前形成删改"
+                },
+                {
+                  "type": "user_or_participant",
+                  "reason": "参与者的新表达可以改变当前组织"
+                },
+                {
+                  "type": "external_world",
+                  "reason": "外部读取、检索和执行结果可以制造新差异"
+                },
+                {
+                  "type": "construction",
+                  "reason": "模型或程序构造出的中间材料可以被再次面对"
+                },
+                {
+                  "type": "alternate_formation",
+                  "reason": "多个未统一的形成可以并存"
+                }
+              ],
+              "rule": "形成可以组织下一轮，但不能穷尽下一轮；遭遇不自动等于已被理解",
+              "condition_fingerprint": "f7f1ee82a3361df44bca5496576c06bfb2eb404f9fda4b4be6cab9d64738870e"
+            },
+            "recent_encounters": [
+              {
+                "previous_run": "4c25938011924b04887aa055c8f5bff0",
+                "results": [],
+                "note": "过去实际结果，不重放过去命令"
+              }
+            ],
+            "retrieved_history": {
+              "frame_material": [],
+              "recent_activity": [
+                {
+                  "id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                  "author": "小林",
+                  "author_participant_id": null,
+                  "target": null,
+                  "occurred_at": "2026-09-23T17:54:00.633614+00:00",
+                  "content": "修改活动内容与组织。"
+                },
+                {
+                  "id": "09a3e1fa-3962-4ee5-b101-9c15f94ebb3e",
+                  "author": "小林",
+                  "author_participant_id": null,
+                  "target": "Ablation participant",
+                  "occurred_at": "2026-09-23T17:54:00.699602+00:00",
+                  "content": "新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。"
+                }
+              ]
+            },
+            "affordances": [
+              {
+                "type": "read",
+                "requires_arguments": true
+              },
+              {
+                "type": "read_occurrence",
+                "requires_arguments": true,
+                "notes": "按当前项目原始发生 ID 和字符区间回读；不按当前理解筛选；可依 next_start 继续"
+              },
+              {
+                "type": "inspect_activities",
+                "requires_arguments": false
+              },
+              {
+                "type": "browse_history",
+                "requires_arguments": false,
+                "notes": "不按当前取材条件过滤，分页浏览项目原话；节选可回读全文"
+              },
+              {
+                "type": "import_activity",
+                "requires_arguments": true,
+                "notes": "从同项目另一活动的明确版本带入材料或构造依赖；不自动采用"
+              },
+              {
+                "type": "evaluate",
+                "requires_arguments": true
+              },
+              {
+                "type": "change",
+                "requires_arguments": true
+              },
+              {
+                "type": "create",
+                "requires_arguments": true
+              },
+              {
+                "type": "acquire",
+                "requires_arguments": false
+              },
+              {
+                "type": "retrieve",
+                "requires_arguments": true,
+                "notes": "可提交一至八个查询候选；结果作为外部材料进入下一轮"
+              },
+              {
+                "type": "ask_user",
+                "requires_arguments": true
+              }
+            ],
+            "user_input": {
+              "content": "新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。",
+              "occurrence_id": "09a3e1fa-3962-4ee5-b101-9c15f94ebb3e",
+              "initiator": "小林"
+            },
+            "environment": {
+              "activity_id": "0e5e010b43ed40a9a1f2298378647398",
+              "activity_revision": 2,
+              "project": {
+                "id": "83137049-a22e-4214-9514-91acf7029933",
+                "org_id": "9e6af7fb-d1b5-4757-969c-8de84976b03a",
+                "title": "Cognos ablation project",
+                "description": "",
+                "status": "active",
+                "created_at": "2026-09-23T17:54:00.583713+00:00",
+                "updated_at": "2026-09-23T17:54:00.583713+00:00"
+              }
+            },
+            "participant": {
+              "participant_id": "ablation",
+              "name": "Ablation participant"
+            },
+            "runtime": {
+              "provider": "CodexRuntimeAdapter",
+              "adapter": "CodexRuntimeAdapter",
+              "endpoint": null,
+              "model": "Ablation participant",
+              "reasoning_effort": null,
+              "capabilities": [
+                "conversation"
+              ],
+              "activity_input_scope": "fresh_thread_runtime_context_not_captured",
+              "fallback_policy": null,
+              "display_name": "Ablation participant",
+              "connection": "local_or_managed",
+              "requested_model": "Codex App-Server",
+              "actual_model": null,
+              "runtime_thread_id": null,
+              "input_scope": "fresh_thread_runtime_context_not_captured"
+            },
+            "excluded_history": {
+              "policy": "explicit_retrieval_only",
+              "omitted_counts": {}
+            },
+            "assembly": {
+              "reasons": [
+                "legacy_activity_context",
+                "named_context_buckets"
+              ],
+              "source_refs": [
+                {
+                  "document": "initial-observation",
+                  "version": 1
+                },
+                {
+                  "document": "prior-reading",
+                  "version": 1
+                }
+              ]
+            }
+          },
+          "prompt_profile": "minimal",
+          "status": "executed",
+          "results": [
+            {
+              "index": 0,
+              "status": "ok",
+              "revision": 3,
+              "document": "1541238d72ab43e6bd3aaa599da9c280",
+              "result_occurrence_id": "8b1b00f2-2ecf-4daa-979a-2c27d72517e1"
+            }
+          ],
+          "context_snapshot_id": "fa815429faf3446d967c14e49069a70d",
+          "context_prompt_hash": "0598c2b6cc555fc6fe33fb959275031157738caf12b53c46cce519e9bf5c766d",
+          "runtime_requests": [
+            {
+              "history_scope": "fresh_thread_runtime_context_not_captured",
+              "operation": "thread_start",
+              "payload": {
+                "cwd": "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-ablation-minimal-return-change-m5aoi8yo",
+                "developer_instructions": "只处理传入的隔离活动；不要读取工作区外材料补全实验事实。",
+                "ephemeral": true,
+                "sandbox": "read-only"
+              },
+              "protocol": "codex_sdk",
+              "request_hash": "d251d0e4a2deed7b2ff46d772a80f3c4cd6af358669206c72f88dfb5119594d6",
+              "boundary": "sdk_arguments_only_runtime_context_not_captured"
+            },
+            {
+              "history_scope": "fresh_thread_runtime_context_not_captured",
+              "operation": "turn_run",
+              "payload": {
+                "input": "你在继续一项活动。请处理当前材料与用户输入；不要假设未读取的历史内容，也不要把过去使用过的内容自动当成现在适用。\n输出必须是一个 JSON 对象，可以使用 message、move、pause；至少提供其中一种。move 形如 {\"text\":\"准备做什么\",\"operations\":[步骤]}。没有必要行动时可以 pause。\n实际执行结果只能在服务返回以后判断，不得预写成已经发生。\n可用 operation：\n- {\"type\":\"read\",\"document\":\"材料ID\",\"version\":1}\n- {\"type\":\"evaluate\",\"expression\":组合表达式}\n- {\"type\":\"change\",\"reason\":\"缘由\",\"operations\":[修改操作]}\n- {\"type\":\"create\",\"title\":\"...\",\"body\":\"...\",\"format\":\"text|json\"}\n- {\"type\":\"acquire\"}\n- {\"type\":\"retrieve\",\"queries\":[{\"query\":\"...\",\"purpose\":\"可选\",\"axis\":\"可选\"}],\"fetch_content\":true}\n- {\"type\":\"ask_user\",\"question\":\"真实问题\"}\n- {\"type\":\"read_occurrence\",\"occurrence_id\":\"原始发生ID\",\"start\":0,\"length\":6000}\n- {\"type\":\"inspect_activities\",\"activity_id\":\"可选同项目活动ID\"}\n- {\"type\":\"import_activity\",\"source_activity\":\"ID\",\"source_revision\":1,\"document\":\"ID\",\"version\":1,\"kind\":\"material|construction\",\"note\":\"可选\"}\n- {\"type\":\"browse_history\",\"before\":\"可选上一页 next_before\",\"limit\":20}\n- {\"type\":\"browse_experience\",\"limit\":20}\n所有可达来源和工具只提供候选证据；是否相关、是否适用需要根据当前任务重新判断。\n\n\n本次处境（内容材料）：\n{\"activity_id\": \"0e5e010b43ed40a9a1f2298378647398\", \"revision\": 2, \"user_message\": \"新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。\", \"focus\": \"\", \"project\": {\"id\": \"83137049-a22e-4214-9514-91acf7029933\", \"org_id\": \"9e6af7fb-d1b5-4757-969c-8de84976b03a\", \"title\": \"Cognos ablation project\", \"description\": \"\", \"status\": \"active\", \"created_at\": \"2026-09-23T17:54:00.583713+00:00\", \"updated_at\": \"2026-09-23T17:54:00.583713+00:00\"}, \"material_catalog\": [{\"id\": \"initial-observation\", \"title\": \"第一次看到的事实\", \"format\": \"text\", \"version\": 1, \"immutable\": true, \"source_author\": null, \"occurrence_id\": \"6136e2f1-1528-4b33-829d-6503a565f504\"}, {\"id\": \"prior-reading\", \"title\": \"上次留下的暂定读法（中性记录）\", \"format\": \"text\", \"version\": 1, \"immutable\": true, \"source_author\": null, \"occurrence_id\": \"6136e2f1-1528-4b33-829d-6503a565f504\"}], \"adopted\": null, \"adopted_definition\": null, \"compiled\": {\"value\": \"第一次看到的事实\\n昨晚窗还亮着。\\n\\n上次留下的暂定读法（中性记录）\\n过去暂定读法：窗还亮着，暂时推测屋内有人。\\n过去未决问题：还没有排除灯会自动开启这一可能。\", \"text\": \"第一次看到的事实\\n昨晚窗还亮着。\\n\\n上次留下的暂定读法（中性记录）\\n过去暂定读法：窗还亮着，暂时推测屋内有人。\\n过去未决问题：还没有排除灯会自动开启这一可能。\", \"reads\": [{\"document\": \"initial-observation\", \"version\": 1}, {\"document\": \"prior-reading\", \"version\": 1}], \"steps\": 7, \"program_versions\": {}, \"status\": \"ok\"}, \"acquisition\": null, \"situation\": null, \"moves\": [], \"operation_results\": [{\"previous_run\": \"4c25938011924b04887aa055c8f5bff0\", \"results\": [], \"note\": \"过去实际结果，不重放过去命令\"}], \"frame_material\": [], \"recent_activity\": [{\"id\": \"6136e2f1-1528-4b33-829d-6503a565f504\", \"author\": \"小林\", \"author_participant_id\": null, \"target\": null, \"occurred_at\": \"2026-09-23T17:54:00.633614+00:00\", \"content\": \"修改活动内容与组织。\"}, {\"id\": \"09a3e1fa-3962-4ee5-b101-9c15f94ebb3e\", \"author\": \"小林\", \"author_participant_id\": null, \"target\": \"Ablation participant\", \"occurred_at\": \"2026-09-23T17:54:00.699602+00:00\", \"content\": \"新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。\"}], \"schema_version\": 1, \"active_materials\": {\"catalog\": [{\"id\": \"initial-observation\", \"title\": \"第一次看到的事实\", \"format\": \"text\", \"version\": 1, \"immutable\": true, \"source_author\": null, \"occurrence_id\": \"6136e2f1-1528-4b33-829d-6503a565f504\"}, {\"id\": \"prior-reading\", \"title\": \"上次留下的暂定读法（中性记录）\", \"format\": \"text\", \"version\": 1, \"immutable\": true, \"source_author\": null, \"occurrence_id\": \"6136e2f1-1528-4b33-829d-6503a565f504\"}], \"entries\": [{\"id\": \"initial-observation\", \"title\": \"第一次看到的事实\", \"format\": \"text\", \"version\": 1, \"immutable\": true, \"occurrence_id\": \"6136e2f1-1528-4b33-829d-6503a565f504\", \"source_author\": null, \"included_by\": \"compiled_activity\", \"body\": \"昨晚窗还亮着。\"}, {\"id\": \"prior-reading\", \"title\": \"上次留下的暂定读法（中性记录）\", \"format\": \"text\", \"version\": 1, \"immutable\": true, \"occurrence_id\": \"6136e2f1-1528-4b33-829d-6503a565f504\", \"source_author\": null, \"included_by\": \"compiled_activity\", \"body\": \"过去暂定读法：窗还亮着，暂时推测屋内有人。\\n过去未决问题：还没有排除灯会自动开启这一可能。\"}], \"selection\": {\"mode\": \"compiled_activity\", \"reads\": [{\"document\": \"initial-observation\", \"version\": 1}, {\"document\": \"prior-reading\", \"version\": 1}], \"body_policy\": \"all_materials\", \"note\": \"采用组合后，依赖目录不额外注入全文；原文可按版本回读。近期结果和用户输入仍独立进入。\"}, \"adopted\": null, \"adopted_definition\": null, \"compiled\": {\"value\": \"第一次看到的事实\\n昨晚窗还亮着。\\n\\n上次留下的暂定读法（中性记录）\\n过去暂定读法：窗还亮着，暂时推测屋内有人。\\n过去未决问题：还没有排除灯会自动开启这一可能。\", \"text\": \"第一次看到的事实\\n昨晚窗还亮着。\\n\\n上次留下的暂定读法（中性记录）\\n过去暂定读法：窗还亮着，暂时推测屋内有人。\\n过去未决问题：还没有排除灯会自动开启这一可能。\", \"reads\": [{\"document\": \"initial-observation\", \"version\": 1}, {\"document\": \"prior-reading\", \"version\": 1}], \"steps\": 7, \"program_versions\": {}, \"status\": \"ok\"}, \"acquisition\": null}, \"recent_encounters\": [{\"previous_run\": \"4c25938011924b04887aa055c8f5bff0\", \"results\": [], \"note\": \"过去实际结果，不重放过去命令\"}], \"retrieved_history\": {\"frame_material\": [], \"recent_activity\": [{\"id\": \"6136e2f1-1528-4b33-829d-6503a565f504\", \"author\": \"小林\", \"author_participant_id\": null, \"target\": null, \"occurred_at\": \"2026-09-23T17:54:00.633614+00:00\", \"content\": \"修改活动内容与组织。\"}, {\"id\": \"09a3e1fa-3962-4ee5-b101-9c15f94ebb3e\", \"author\": \"小林\", \"author_participant_id\": null, \"target\": \"Ablation participant\", \"occurred_at\": \"2026-09-23T17:54:00.699602+00:00\", \"content\": \"新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。\"}]}, \"affordances\": [{\"type\": \"read\", \"requires_arguments\": true}, {\"type\": \"read_occurrence\", \"requires_arguments\": true, \"notes\": \"按当前项目原始发生 ID 和字符区间回读；不按当前理解筛选；可依 next_start 继续\"}, {\"type\": \"inspect_activities\", \"requires_arguments\": false}, {\"type\": \"browse_history\", \"requires_arguments\": false, \"notes\": \"不按当前取材条件过滤，分页浏览项目原话；节选可回读全文\"}, {\"type\": \"import_activity\", \"requires_arguments\": true, \"notes\": \"从同项目另一活动的明确版本带入材料或构造依赖；不自动采用\"}, {\"type\": \"evaluate\", \"requires_arguments\": true}, {\"type\": \"change\", \"requires_arguments\": true}, {\"type\": \"create\", \"requires_arguments\": true}, {\"type\": \"acquire\", \"requires_arguments\": false}, {\"type\": \"retrieve\", \"requires_arguments\": true, \"notes\": \"可提交一至八个查询候选；结果作为外部材料进入下一轮\"}, {\"type\": \"ask_user\", \"requires_arguments\": true}], \"user_input\": {\"content\": \"新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。\", \"occurrence_id\": \"09a3e1fa-3962-4ee5-b101-9c15f94ebb3e\", \"initiator\": \"小林\"}, \"environment\": {\"activity_id\": \"0e5e010b43ed40a9a1f2298378647398\", \"activity_revision\": 2, \"project\": {\"id\": \"83137049-a22e-4214-9514-91acf7029933\", \"org_id\": \"9e6af7fb-d1b5-4757-969c-8de84976b03a\", \"title\": \"Cognos ablation project\", \"description\": \"\", \"status\": \"active\", \"created_at\": \"2026-09-23T17:54:00.583713+00:00\", \"updated_at\": \"2026-09-23T17:54:00.583713+00:00\"}}, \"participant\": {\"participant_id\": \"ablation\", \"name\": \"Ablation participant\"}, \"runtime\": {\"provider\": \"CodexRuntimeAdapter\", \"adapter\": \"CodexRuntimeAdapter\", \"endpoint\": null, \"model\": \"Ablation participant\", \"reasoning_effort\": null, \"capabilities\": [\"conversation\"], \"activity_input_scope\": \"fresh_thread_runtime_context_not_captured\", \"fallback_policy\": null, \"display_name\": \"Ablation participant\", \"connection\": \"local_or_managed\", \"requested_model\": \"Codex App-Server\", \"actual_model\": null, \"runtime_thread_id\": null, \"input_scope\": \"fresh_thread_runtime_context_not_captured\"}, \"excluded_history\": {\"policy\": \"explicit_retrieval_only\", \"omitted_counts\": {}}, \"assembly\": {\"reasons\": [\"legacy_activity_context\", \"named_context_buckets\"], \"source_refs\": [{\"document\": \"initial-observation\", \"version\": 1}, {\"document\": \"prior-reading\", \"version\": 1}]}}",
+                "thread_id": "01a0cf67-36ae-7b92-8829-9766a9effe09"
+              },
+              "protocol": "codex_sdk",
+              "request_hash": "cf86dcecadd5002a913947d3b608947ab85d34c81c18e66f9d968a2127b678e0",
+              "boundary": "sdk_arguments_only_runtime_context_not_captured"
+            }
+          ],
+          "runtime": {
+            "provider": "CodexRuntimeAdapter",
+            "adapter": "CodexRuntimeAdapter",
+            "endpoint": null,
+            "model": "Ablation participant",
+            "reasoning_effort": null,
+            "capabilities": [
+              "conversation"
+            ],
+            "activity_input_scope": "fresh_thread_runtime_context_not_captured",
+            "fallback_policy": null,
+            "display_name": "Ablation participant",
+            "connection": "local_or_managed",
+            "requested_model": "Codex App-Server",
+            "actual_model": null,
+            "runtime_thread_id": "01a0cf67-36ae-7b92-8829-9766a9effe09",
+            "input_scope": "fresh_thread_runtime_context_not_captured",
+            "runtime_turn_id": "01a0cf67-3aba-7371-9217-de5234179e39"
+          },
+          "occurrence_id": "65b1d80d-711d-4c99-9240-945ba38b9dcc",
+          "transport_wrapped": false,
+          "transport_repairs": [
+            "markdown_escaped_square_brackets"
+          ],
+          "formation_updates": [],
+          "tension_updates": [],
+          "formation_ref_errors": [],
+          "tension_ref_errors": [],
+          "situation_revision": 2,
+          "move_id": "4f22cf637fbc426e97d952e056ff7aa8",
+          "move": {
+            "text": "根据新增的可验证事实，撤回“窗亮着→屋内有人”的暂定推测；保留“昨晚窗还亮着”这一观察事实，并把灯亮解释更新为与无人值守定时灯相符。下一步记录这一修订，使旧读法保留为历史而不再作为当前判断。",
+            "refs": [],
+            "formation_refs": [],
+            "tension_refs": [],
+            "operations": [
+              {
+                "type": "create",
+                "title": "修订后的当前判断",
+                "body": "已知观察：昨晚窗还亮着。\\n新增可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。\\n修订：过去“窗还亮着，因此暂时推测屋内有人”的判断不再成立；灯亮不能作为当晚屋内有人的证据。原先未排除的“灯会自动开启”可能现已由新增事实确认。",
+                "format": "text"
+              }
+            ],
+            "refs_verified": true
+          },
+          "result_occurrence_id": "8b1b00f2-2ecf-4daa-979a-2c27d72517e1"
+        }
+      ],
+      "input_revision": 2,
+      "user_occurrence_id": "09a3e1fa-3962-4ee5-b101-9c15f94ebb3e",
+      "output_revision": 3
+    },
+    "activity": {
+      "id": "0e5e010b43ed40a9a1f2298378647398",
+      "revision": 3,
+      "project_id": "83137049-a22e-4214-9514-91acf7029933",
+      "state": {
+        "title": "第二次进入 · 条件变化",
+        "focus": "",
+        "documents": {
+          "initial-observation": {
+            "title": "第一次看到的事实",
+            "format": "text",
+            "immutable": true,
+            "versions": [
+              {
+                "body": "昨晚窗还亮着。",
+                "actor": "小林",
+                "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                "source_author": null
+              }
+            ]
+          },
+          "prior-reading": {
+            "title": "上次留下的暂定读法（中性记录）",
+            "format": "text",
+            "immutable": true,
+            "versions": [
+              {
+                "body": "过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。",
+                "actor": "小林",
+                "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                "source_author": null
+              }
+            ]
+          },
+          "1541238d72ab43e6bd3aaa599da9c280": {
+            "title": "修订后的当前判断",
+            "format": "text",
+            "immutable": false,
+            "versions": [
+              {
+                "body": "已知观察：昨晚窗还亮着。\\n新增可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。\\n修订：过去“窗还亮着，因此暂时推测屋内有人”的判断不再成立；灯亮不能作为当晚屋内有人的证据。原先未排除的“灯会自动开启”可能现已由新增事实确认。",
+                "actor": "Ablation participant",
+                "occurrence_id": "65b1d80d-711d-4c99-9240-945ba38b9dcc",
+                "source_author": "模型生成 · Ablation participant"
+              }
+            ]
+          }
+        },
+        "adopted": null
+      },
+      "actor": "Ablation participant",
+      "reason": "模型生成内容进入活动",
+      "created_at": "2026-09-23T17:54:46.138199+00:00"
+    }
+  },
+  "contexts": {
+    "snapshots": [
+      {
+        "id": "fa815429faf3446d967c14e49069a70d",
+        "activity_id": "0e5e010b43ed40a9a1f2298378647398",
+        "run_id": "0c4945c18b694cbf94670fcf05deb4dc",
+        "call_index": 0,
+        "activity_revision": 2,
+        "context": {
+          "acquisition": null,
+          "active_materials": {
+            "acquisition": null,
+            "adopted": null,
+            "adopted_definition": null,
+            "catalog": [
+              {
+                "format": "text",
+                "id": "initial-observation",
+                "immutable": true,
+                "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                "source_author": null,
+                "title": "第一次看到的事实",
+                "version": 1
+              },
+              {
+                "format": "text",
+                "id": "prior-reading",
+                "immutable": true,
+                "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                "source_author": null,
+                "title": "上次留下的暂定读法（中性记录）",
+                "version": 1
+              }
+            ],
+            "compiled": {
+              "program_versions": {},
+              "reads": [
+                {
+                  "document": "initial-observation",
+                  "version": 1
+                },
+                {
+                  "document": "prior-reading",
+                  "version": 1
+                }
+              ],
+              "status": "ok",
+              "steps": 7,
+              "text": "第一次看到的事实\n昨晚窗还亮着。\n\n上次留下的暂定读法（中性记录）\n过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。",
+              "value": "第一次看到的事实\n昨晚窗还亮着。\n\n上次留下的暂定读法（中性记录）\n过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。"
+            },
+            "entries": [
+              {
+                "body": "昨晚窗还亮着。",
+                "format": "text",
+                "id": "initial-observation",
+                "immutable": true,
+                "included_by": "compiled_activity",
+                "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                "source_author": null,
+                "title": "第一次看到的事实",
+                "version": 1
+              },
+              {
+                "body": "过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。",
+                "format": "text",
+                "id": "prior-reading",
+                "immutable": true,
+                "included_by": "compiled_activity",
+                "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                "source_author": null,
+                "title": "上次留下的暂定读法（中性记录）",
+                "version": 1
+              }
+            ],
+            "selection": {
+              "body_policy": "all_materials",
+              "mode": "compiled_activity",
+              "note": "采用组合后，依赖目录不额外注入全文；原文可按版本回读。近期结果和用户输入仍独立进入。",
+              "reads": [
+                {
+                  "document": "initial-observation",
+                  "version": 1
+                },
+                {
+                  "document": "prior-reading",
+                  "version": 1
+                }
+              ]
+            }
+          },
+          "activity_id": "0e5e010b43ed40a9a1f2298378647398",
+          "activity_view": {
+            "formation_history": [
+              {
+                "call_index": 0,
+                "context_snapshot_id": null,
+                "event_id": "4c25938011924b04887aa055c8f5bff0:0:0",
+                "id": "seed-formation",
+                "occurrence_id": null,
+                "participant": {
+                  "id": "seed",
+                  "kind": "synthetic",
+                  "name": "实验前态"
+                },
+                "run_id": "4c25938011924b04887aa055c8f5bff0",
+                "source": "activity_event",
+                "text": "窗还亮着，暂时推测屋内有人。"
+              }
+            ],
+            "formations": {
+              "active": [
+                {
+                  "call_index": 0,
+                  "context_snapshot_id": null,
+                  "event_id": "4c25938011924b04887aa055c8f5bff0:0:0",
+                  "id": "seed-formation",
+                  "occurrence_id": null,
+                  "participant": {
+                    "id": "seed",
+                    "kind": "synthetic",
+                    "name": "实验前态"
+                  },
+                  "refs": [],
+                  "revision_event_ids": [
+                    "4c25938011924b04887aa055c8f5bff0:0:0"
+                  ],
+                  "run_id": "4c25938011924b04887aa055c8f5bff0",
+                  "source": "activity_event",
+                  "status": "active",
+                  "text": "窗还亮着，暂时推测屋内有人。"
+                }
+              ],
+              "dormant": []
+            },
+            "independent_situation": null,
+            "projection": {
+              "formation_event_count": 1,
+              "policy": "latest_explicit_id_update",
+              "situation_is_compatibility_mirror": false,
+              "tension_event_count": 1
+            },
+            "schema_version": 1,
+            "tension_history": [
+              {
+                "call_index": 0,
+                "context_snapshot_id": null,
+                "event_id": "4c25938011924b04887aa055c8f5bff0:0:tension:0",
+                "id": "seed-tension",
+                "occurrence_id": null,
+                "participant": {
+                  "id": "seed",
+                  "kind": "synthetic",
+                  "name": "实验前态"
+                },
+                "run_id": "4c25938011924b04887aa055c8f5bff0",
+                "source": "activity_event",
+                "status": "open",
+                "text": "还没有排除灯会自动开启这一可能。"
+              }
+            ],
+            "tensions": {
+              "open": [
+                {
+                  "call_index": 0,
+                  "context_snapshot_id": null,
+                  "event_id": "4c25938011924b04887aa055c8f5bff0:0:tension:0",
+                  "id": "seed-tension",
+                  "occurrence_id": null,
+                  "participant": {
+                    "id": "seed",
+                    "kind": "synthetic",
+                    "name": "实验前态"
+                  },
+                  "refs": [],
+                  "revision_event_ids": [
+                    "4c25938011924b04887aa055c8f5bff0:0:tension:0"
+                  ],
+                  "run_id": "4c25938011924b04887aa055c8f5bff0",
+                  "source": "activity_event",
+                  "status": "open",
+                  "text": "还没有排除灯会自动开启这一可能。"
+                }
+              ],
+              "resolved": []
+            }
+          },
+          "adopted": null,
+          "adopted_definition": null,
+          "affordances": [
+            {
+              "requires_arguments": true,
+              "type": "read"
+            },
+            {
+              "notes": "按当前项目原始发生 ID 和字符区间回读；不按当前理解筛选；可依 next_start 继续",
+              "requires_arguments": true,
+              "type": "read_occurrence"
+            },
+            {
+              "requires_arguments": false,
+              "type": "inspect_activities"
+            },
+            {
+              "notes": "不按当前取材条件过滤，分页浏览项目原话；节选可回读全文",
+              "requires_arguments": false,
+              "type": "browse_history"
+            },
+            {
+              "notes": "从同项目另一活动的明确版本带入材料或构造依赖；不自动采用",
+              "requires_arguments": true,
+              "type": "import_activity"
+            },
+            {
+              "requires_arguments": true,
+              "type": "evaluate"
+            },
+            {
+              "requires_arguments": true,
+              "type": "change"
+            },
+            {
+              "requires_arguments": true,
+              "type": "create"
+            },
+            {
+              "requires_arguments": false,
+              "type": "acquire"
+            },
+            {
+              "notes": "可提交一至八个查询候选；结果作为外部材料进入下一轮",
+              "requires_arguments": true,
+              "type": "retrieve"
+            },
+            {
+              "requires_arguments": true,
+              "type": "ask_user"
+            }
+          ],
+          "assembly": {
+            "reasons": [
+              "legacy_activity_context",
+              "named_context_buckets"
+            ],
+            "source_refs": [
+              {
+                "document": "initial-observation",
+                "version": 1
+              },
+              {
+                "document": "prior-reading",
+                "version": 1
+              }
+            ]
+          },
+          "cognitive_conditions": {
+            "condition_fingerprint": "f7f1ee82a3361df44bca5496576c06bfb2eb404f9fda4b4be6cab9d64738870e",
+            "formations": [
+              {
+                "call_index": 0,
+                "context_snapshot_id": null,
+                "event_id": "4c25938011924b04887aa055c8f5bff0:0:0",
+                "id": "seed-formation",
+                "occurrence_id": null,
+                "participant": {
+                  "id": "seed",
+                  "kind": "synthetic",
+                  "name": "实验前态"
+                },
+                "refs": [],
+                "revision_event_ids": [
+                  "4c25938011924b04887aa055c8f5bff0:0:0"
+                ],
+                "run_id": "4c25938011924b04887aa055c8f5bff0",
+                "source": "activity_event",
+                "status": "active",
+                "text": "窗还亮着，暂时推测屋内有人。"
+              }
+            ],
+            "recent_moves": [],
+            "reopening_channels": [
+              {
+                "reason": "原始材料可以重新进入，不由当前形成删改",
+                "type": "raw_material"
+              },
+              {
+                "reason": "参与者的新表达可以改变当前组织",
+                "type": "user_or_participant"
+              },
+              {
+                "reason": "外部读取、检索和执行结果可以制造新差异",
+                "type": "external_world"
+              },
+              {
+                "reason": "模型或程序构造出的中间材料可以被再次面对",
+                "type": "construction"
+              },
+              {
+                "reason": "多个未统一的形成可以并存",
+                "type": "alternate_formation"
+              }
+            ],
+            "rule": "形成可以组织下一轮，但不能穷尽下一轮；遭遇不自动等于已被理解",
+            "schema_version": 1,
+            "tensions": [
+              {
+                "call_index": 0,
+                "context_snapshot_id": null,
+                "event_id": "4c25938011924b04887aa055c8f5bff0:0:tension:0",
+                "id": "seed-tension",
+                "occurrence_id": null,
+                "participant": {
+                  "id": "seed",
+                  "kind": "synthetic",
+                  "name": "实验前态"
+                },
+                "refs": [],
+                "revision_event_ids": [
+                  "4c25938011924b04887aa055c8f5bff0:0:tension:0"
+                ],
+                "run_id": "4c25938011924b04887aa055c8f5bff0",
+                "source": "activity_event",
+                "status": "open",
+                "text": "还没有排除灯会自动开启这一可能。"
+              }
+            ],
+            "unassimilated_candidates": [
+              {
+                "encounter": {
+                  "note": "过去实际结果，不重放过去命令",
+                  "previous_run": "4c25938011924b04887aa055c8f5bff0",
+                  "results": []
+                },
+                "index": 0
+              }
+            ]
+          },
+          "compiled": {
+            "program_versions": {},
+            "reads": [
+              {
+                "document": "initial-observation",
+                "version": 1
+              },
+              {
+                "document": "prior-reading",
+                "version": 1
+              }
+            ],
+            "status": "ok",
+            "steps": 7,
+            "text": "第一次看到的事实\n昨晚窗还亮着。\n\n上次留下的暂定读法（中性记录）\n过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。",
+            "value": "第一次看到的事实\n昨晚窗还亮着。\n\n上次留下的暂定读法（中性记录）\n过去暂定读法：窗还亮着，暂时推测屋内有人。\n过去未决问题：还没有排除灯会自动开启这一可能。"
+          },
+          "dormant_formations": [],
+          "environment": {
+            "activity_id": "0e5e010b43ed40a9a1f2298378647398",
+            "activity_revision": 2,
+            "project": {
+              "created_at": "2026-09-23T17:54:00.583713+00:00",
+              "description": "",
+              "id": "83137049-a22e-4214-9514-91acf7029933",
+              "org_id": "9e6af7fb-d1b5-4757-969c-8de84976b03a",
+              "status": "active",
+              "title": "Cognos ablation project",
+              "updated_at": "2026-09-23T17:54:00.583713+00:00"
+            }
+          },
+          "excluded_history": {
+            "omitted_counts": {},
+            "policy": "explicit_retrieval_only"
+          },
+          "focus": "",
+          "formation_projection": {
+            "event_count": 1,
+            "note": "停用不等于判假；历史版本仍保留在活动事件中",
+            "policy": "latest_explicit_id_update"
+          },
+          "formations": [
+            {
+              "call_index": 0,
+              "context_snapshot_id": null,
+              "event_id": "4c25938011924b04887aa055c8f5bff0:0:0",
+              "id": "seed-formation",
+              "occurrence_id": null,
+              "participant": {
+                "id": "seed",
+                "kind": "synthetic",
+                "name": "实验前态"
+              },
+              "refs": [],
+              "revision_event_ids": [
+                "4c25938011924b04887aa055c8f5bff0:0:0"
+              ],
+              "run_id": "4c25938011924b04887aa055c8f5bff0",
+              "source": "activity_event",
+              "status": "active",
+              "text": "窗还亮着，暂时推测屋内有人。"
+            }
+          ],
+          "frame_material": [],
+          "material_catalog": [
+            {
+              "format": "text",
+              "id": "initial-observation",
+              "immutable": true,
+              "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+              "source_author": null,
+              "title": "第一次看到的事实",
+              "version": 1
+            },
+            {
+              "format": "text",
+              "id": "prior-reading",
+              "immutable": true,
+              "occurrence_id": "6136e2f1-1528-4b33-829d-6503a565f504",
+              "source_author": null,
+              "title": "上次留下的暂定读法（中性记录）",
+              "version": 1
+            }
+          ],
+          "moves": [],
+          "operation_results": [
+            {
+              "note": "过去实际结果，不重放过去命令",
+              "previous_run": "4c25938011924b04887aa055c8f5bff0",
+              "results": []
+            }
+          ],
+          "participant": {
+            "name": "Ablation participant",
+            "participant_id": "ablation"
+          },
+          "project": {
+            "created_at": "2026-09-23T17:54:00.583713+00:00",
+            "description": "",
+            "id": "83137049-a22e-4214-9514-91acf7029933",
+            "org_id": "9e6af7fb-d1b5-4757-969c-8de84976b03a",
+            "status": "active",
+            "title": "Cognos ablation project",
+            "updated_at": "2026-09-23T17:54:00.583713+00:00"
+          },
+          "recent_activity": [
+            {
+              "author": "小林",
+              "author_participant_id": null,
+              "content": "修改活动内容与组织。",
+              "id": "6136e2f1-1528-4b33-829d-6503a565f504",
+              "occurred_at": "2026-09-23T17:54:00.633614+00:00",
+              "target": null
+            },
+            {
+              "author": "小林",
+              "author_participant_id": null,
+              "content": "新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。",
+              "id": "09a3e1fa-3962-4ee5-b101-9c15f94ebb3e",
+              "occurred_at": "2026-09-23T17:54:00.699602+00:00",
+              "target": "Ablation participant"
+            }
+          ],
+          "recent_encounters": [
+            {
+              "note": "过去实际结果，不重放过去命令",
+              "previous_run": "4c25938011924b04887aa055c8f5bff0",
+              "results": []
+            }
+          ],
+          "resolved_tensions": [],
+          "retrieved_history": {
+            "frame_material": [],
+            "recent_activity": [
+              {
+                "author": "小林",
+                "author_participant_id": null,
+                "content": "修改活动内容与组织。",
+                "id": "6136e2f1-1528-4b33-829d-6503a565f504",
+                "occurred_at": "2026-09-23T17:54:00.633614+00:00",
+                "target": null
+              },
+              {
+                "author": "小林",
+                "author_participant_id": null,
+                "content": "新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。",
+                "id": "09a3e1fa-3962-4ee5-b101-9c15f94ebb3e",
+                "occurred_at": "2026-09-23T17:54:00.699602+00:00",
+                "target": "Ablation participant"
+              }
+            ]
+          },
+          "revision": 2,
+          "runtime": {
+            "activity_input_scope": "fresh_thread_runtime_context_not_captured",
+            "actual_model": null,
+            "adapter": "CodexRuntimeAdapter",
+            "capabilities": [
+              "conversation"
+            ],
+            "connection": "local_or_managed",
+            "display_name": "Ablation participant",
+            "endpoint": null,
+            "fallback_policy": null,
+            "input_scope": "fresh_thread_runtime_context_not_captured",
+            "model": "Ablation participant",
+            "provider": "CodexRuntimeAdapter",
+            "reasoning_effort": null,
+            "requested_model": "Codex App-Server",
+            "runtime_thread_id": null
+          },
+          "schema_version": 1,
+          "situation": null,
+          "tensions": [
+            {
+              "call_index": 0,
+              "context_snapshot_id": null,
+              "event_id": "4c25938011924b04887aa055c8f5bff0:0:tension:0",
+              "id": "seed-tension",
+              "occurrence_id": null,
+              "participant": {
+                "id": "seed",
+                "kind": "synthetic",
+                "name": "实验前态"
+              },
+              "refs": [],
+              "revision_event_ids": [
+                "4c25938011924b04887aa055c8f5bff0:0:tension:0"
+              ],
+              "run_id": "4c25938011924b04887aa055c8f5bff0",
+              "source": "activity_event",
+              "status": "open",
+              "text": "还没有排除灯会自动开启这一可能。"
+            }
+          ],
+          "user_input": {
+            "content": "新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。",
+            "initiator": "小林",
+            "occurrence_id": "09a3e1fa-3962-4ee5-b101-9c15f94ebb3e"
+          },
+          "user_message": "新的可验证事实：这盏灯是无人值守的定时灯，当晚屋内没有人。请根据当前真正可得的状态修订必要的既有判断，并提出下一步；不要假装看到了没有提供给你的内容。"
+        },
+        "rendered_prompt_hash": "0598c2b6cc555fc6fe33fb959275031157738caf12b53c46cce519e9bf5c766d",
+        "created_at": "2026-09-23T17:54:00.725269+00:00"
+      }
+    ]
+  }
+}
