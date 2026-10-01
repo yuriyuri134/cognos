@@ -16,6 +16,12 @@ web/.state/
 # 实验输出（含递归快照副本，禁止扫描/入库）
 pilot_experiment_output/
 
+# 实验隔离临时目录快照（含 runtime db 与隔离 vault 副本；结果 JSON 保留入库）
+work/return-change-live-state*/
+work/*-live-state*/
+work/*.out.log
+work/*.err.log
+
 # OS
 Thumbs.db
 Desktop.ini
