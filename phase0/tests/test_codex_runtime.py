@@ -108,6 +108,64 @@ class CodexRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(("run", "thread-existing", "继续"), FakeAsyncCodex.calls[1])
 
+    async def test_activity_uses_ephemeral_thread_and_preserves_chat_binding(self) -> None:
+        store = JsonThreadStore(self.state_path)
+        store.save("thread-existing")
+        original = self.state_path.read_bytes()
+        adapter = CodexRuntimeAdapter(cwd=self.root, state_store=store,
+            developer_instructions="固定参与说明", sdk_loader=fake_sdk_loader)
+        records = []
+        def record(request):
+            expected = "start" if request["operation"] == "thread_start" else "run"
+            # The corresponding SDK operation has not happened yet.
+            self.assertFalse(any(call[0] == expected for call in FakeAsyncCodex.calls))
+            records.append(request)
+        reply = await adapter.send_activity("仅本轮活动", on_request=record)
+        self.assertNotEqual("thread-existing", reply.thread_id)
+        self.assertEqual(original, self.state_path.read_bytes())
+        self.assertEqual(["start", "run"], [c[0] for c in FakeAsyncCodex.calls])
+        self.assertTrue(FakeAsyncCodex.calls[0][1]["ephemeral"])
+        self.assertEqual("固定参与说明", records[0]["payload"]["developer_instructions"])
+        self.assertEqual("仅本轮活动", records[1]["payload"]["input"])
+        FakeAsyncCodex.calls = []
+        await adapter.send("普通聊天接续")
+        self.assertEqual(("resume", "thread-existing"), FakeAsyncCodex.calls[0][:2])
+
+    async def test_activity_never_loads_even_a_corrupt_chat_binding(self) -> None:
+        self.state_path.parent.mkdir(parents=True)
+        self.state_path.write_text("invalid chat state", encoding="utf-8")
+        adapter = CodexRuntimeAdapter(cwd=self.root, state_store=JsonThreadStore(self.state_path),
+                                     sdk_loader=fake_sdk_loader)
+        await adapter.send_activity("独立活动", on_request=lambda _: None)
+        self.assertEqual("invalid chat state", self.state_path.read_text(encoding="utf-8"))
+
+    async def test_activity_snapshot_failure_prevents_thread_creation(self) -> None:
+        adapter = CodexRuntimeAdapter(cwd=self.root, state_store=JsonThreadStore(self.state_path),
+                                     sdk_loader=fake_sdk_loader)
+        def reject(_):
+            raise OSError("snapshot failed")
+        with self.assertRaises(RuntimeError):
+            await adapter.send_activity("独立活动", on_request=reject)
+        self.assertEqual([], FakeAsyncCodex.calls)
+        self.assertFalse(self.state_path.exists())
+
+    async def test_activity_turn_failure_preserves_chat_binding(self) -> None:
+        store = JsonThreadStore(self.state_path)
+        store.save("original-chat")
+        class BrokenThread(FakeThread):
+            async def run(self, message):
+                raise ConnectionError("lost transport")
+        class BrokenCodex(FakeAsyncCodex):
+            async def thread_start(self, **options):
+                return BrokenThread("new-thread", self.calls)
+        adapter = CodexRuntimeAdapter(cwd=self.root, state_store=store,
+            sdk_loader=lambda: (BrokenCodex, FakeSandbox))
+        records = []
+        with self.assertRaises(RuntimeError):
+            await adapter.send_activity("独立活动", on_request=records.append)
+        self.assertEqual("original-chat", store.load())
+        self.assertEqual(["thread_start", "turn_run"], [r["operation"] for r in records])
+
     def test_rejects_corrupted_state(self) -> None:
         self.state_path.parent.mkdir(parents=True)
         self.state_path.write_text("not-json", encoding="utf-8")

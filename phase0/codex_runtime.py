@@ -92,6 +92,8 @@ def load_official_sdk() -> tuple[Any, Any]:
 class CodexRuntimeAdapter:
     """通过官方 Python SDK 控制本地 Codex app-server。"""
 
+    activity_input_scope = "fresh_thread_runtime_context_not_captured"
+
     def __init__(
         self,
         *,
@@ -108,13 +110,25 @@ class CodexRuntimeAdapter:
         self._sdk_loader = sdk_loader
 
     async def send(self, message: str) -> RuntimeReply:
+        return await self._send(message)
+
+    async def send_activity(self, message: str, *, on_request: Callable[[dict[str, Any]], None]) -> RuntimeReply:
+        """Fresh ephemeral thread; ordinary chat state remains untouched.
+
+        SDK arguments are observable, but app-server instructions and tool reads
+        are not a complete model context. Advertise that distinction explicitly.
+        """
+        return await self._send(message, isolated=True, on_request=on_request)
+
+    async def _send(self, message: str, *, isolated: bool = False,
+                    on_request: Callable[[dict[str, Any]], None] | None = None) -> RuntimeReply:
         if not message.strip():
             raise ValueError("消息不能为空")
         if not self.cwd.exists():
             raise RuntimeUnavailableError(f"Codex 工作目录不存在：{self.cwd}")
 
         AsyncCodex, Sandbox = self._sdk_loader()
-        stored_thread_id = self.state_store.load()
+        stored_thread_id = None if isolated else self.state_store.load()
 
         try:
             async with AsyncCodex() as client:
@@ -141,15 +155,27 @@ class CodexRuntimeAdapter:
                         start_options["model"] = self.model
                     if self.developer_instructions:
                         start_options["developer_instructions"] = self.developer_instructions
+                    if isolated:
+                        start_options["ephemeral"] = True
+                    if on_request:
+                        on_request({"protocol": "codex_sdk", "operation": "thread_start",
+                                    "history_scope": self.activity_input_scope,
+                                    "payload": {**start_options, "sandbox": "read-only"}})
                     thread = await client.thread_start(**start_options)
 
+                if on_request:
+                    on_request({"protocol": "codex_sdk", "operation": "turn_run",
+                                "history_scope": self.activity_input_scope,
+                                "payload": {"thread_id": self._thread_id(thread, None), "input": message}})
                 result = await thread.run(message)
                 thread_id = self._thread_id(thread, stored_thread_id)
-                self.state_store.save(thread_id)
+                if not isolated:
+                    self.state_store.save(thread_id)
                 return RuntimeReply(
                     thread_id=thread_id,
                     turn_id=self._turn_id(result),
                     text=self._response_text(result),
+                    requested_model=self.model,
                 )
         except RuntimeUnavailableError:
             raise

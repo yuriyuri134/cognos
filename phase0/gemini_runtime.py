@@ -12,7 +12,7 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -100,12 +100,21 @@ class GeminiRuntimeAdapter:
             return await client.post(url, json=payload)
 
     async def send(self, message: str) -> RuntimeReply:
+        return await self._send(message)
+
+    async def send_activity(self, message: str, *, on_request: Callable[[dict[str, Any]], None]) -> RuntimeReply:
+        """Activity history is explicit; leave the participant's chat store intact."""
+        return await self._send(message, isolated=True, on_request=on_request)
+
+    async def _send(self, message: str, *, isolated: bool = False,
+                    on_request: Callable[[dict[str, Any]], None] | None = None) -> RuntimeReply:
         if not message.strip():
             raise ValueError("消息不能为空")
         if not self.api_key:
             raise RuntimeUnavailableError("未配置 Gemini API Key")
 
-        state = self._get_or_create_state()
+        state = (GeminiConversationState(thread_id=f"activity_{uuid.uuid4()}")
+                 if isolated else self._get_or_create_state())
 
         # 构建并追加当前用户轮次
         user_turn = {"role": "user", "parts": [{"text": message}]}
@@ -131,6 +140,10 @@ class GeminiRuntimeAdapter:
         model_used: str | None = None
         for current_model in models_to_try:
             for attempt in range(2):
+                if on_request:
+                    on_request({"protocol": "generate_content", "model": current_model,
+                                "attempt": attempt + 1, "history_scope": "assembled_activity_only",
+                                "payload": json.loads(json.dumps(payload))})
                 try:
                     response = await self._post_generate(current_model, payload)
                     if response.status_code == 200:
@@ -195,9 +208,10 @@ class GeminiRuntimeAdapter:
 
         # 更新并持久化状态
         model_turn = {"role": "model", "parts": [{"text": reply_text}]}
-        state.contents.append(user_turn)
-        state.contents.append(model_turn)
-        self.state_store.save(state)
+        if not isolated:
+            state.contents.append(user_turn)
+            state.contents.append(model_turn)
+            self.state_store.save(state)
 
         return RuntimeReply(
             thread_id=state.thread_id,

@@ -58,6 +58,7 @@ class DeepSeekRuntimeAdapterTest(unittest.IsolatedAsyncioTestCase):
             status_code=200,
             text=json.dumps(
                 {
+                    "model": "deepseek-v4-flash",
                     "choices": [
                         {"message": {"role": "assistant", "content": text}}
                     ]

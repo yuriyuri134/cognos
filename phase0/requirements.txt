@@ -1,1 +1,1 @@
-openai-codex==0.144.4
+openai-codex==0.155.1

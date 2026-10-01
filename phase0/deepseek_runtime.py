@@ -21,7 +21,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -193,6 +193,11 @@ class DeepSeekRuntimeAdapter:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.model_name = model_name
+        # The historical class name is retained for compatibility, but the
+        # wire protocol is OpenAI-compatible and may serve any model.
+        self.provider = os.environ.get("COGNOS_RUNTIME_PROVIDER", "openai-compatible").strip() or "openai-compatible"
+        self.capabilities = ["conversation"]
+        self.reasoning_effort = os.environ.get("DEEPSEEK_REASONING_EFFORT", "").strip() or None
         self.developer_instructions = developer_instructions
         self.timeout = float(os.environ.get("DEEPSEEK_TIMEOUT", str(timeout)))
         self._cached_state: DeepSeekConversationState | None = None
@@ -208,6 +213,14 @@ class DeepSeekRuntimeAdapter:
         return self._cached_state
 
     async def send(self, message: str) -> RuntimeReply:
+        return await self._send(message)
+
+    async def send_activity(self, message: str, *, on_request: Callable[[dict[str, Any]], None]) -> RuntimeReply:
+        """Use assembled activity context without reading/writing chat continuity."""
+        return await self._send(message, isolated=True, on_request=on_request)
+
+    async def _send(self, message: str, *, isolated: bool = False,
+                    on_request: Callable[[dict[str, Any]], None] | None = None) -> RuntimeReply:
         if not message.strip():
             raise ValueError("消息不能为空")
         if not self.api_key:
@@ -216,7 +229,8 @@ class DeepSeekRuntimeAdapter:
         # 先保存用户原文，避免被下面解析响应的局部变量覆盖（历史 bug）
         user_text = message
 
-        state = self._get_or_create_state()
+        state = (DeepSeekConversationState(thread_id=f"activity_{uuid.uuid4()}")
+                 if isolated else self._get_or_create_state())
 
         payload: dict[str, Any] = {
             "model": self.model,
@@ -230,7 +244,7 @@ class DeepSeekRuntimeAdapter:
         payload["messages"].extend(list(state.contents))
         payload["messages"].append({"role": "user", "content": user_text})
 
-        reasoning_effort = os.environ.get("DEEPSEEK_REASONING_EFFORT", "").strip()
+        reasoning_effort = self.reasoning_effort
         if reasoning_effort:
             payload["reasoning_effort"] = reasoning_effort
         max_tokens = os.environ.get("DEEPSEEK_MAX_TOKENS", "").strip()
@@ -250,6 +264,10 @@ class DeepSeekRuntimeAdapter:
         response: httpx.Response | None = None
         last_error: Exception | None = None
         for attempt in range(2):
+            if on_request:
+                on_request({"protocol": "chat_completions", "model": self.model,
+                            "attempt": attempt + 1, "history_scope": "assembled_activity_only",
+                            "payload": json.loads(json.dumps(payload))})
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.post(url, json=payload, headers=headers)
@@ -295,14 +313,15 @@ class DeepSeekRuntimeAdapter:
 
         turn_id = f"turn_{uuid.uuid4()}"
 
-        state.contents.append({"role": "user", "content": user_text})
-        state.contents.append({"role": "assistant", "content": reply_text})
-        self.state_store.save(state)
+        if not isolated:
+            state.contents.append({"role": "user", "content": user_text})
+            state.contents.append({"role": "assistant", "content": reply_text})
+            self.state_store.save(state)
 
         return RuntimeReply(
             thread_id=state.thread_id,
             turn_id=turn_id,
             text=reply_text,
-            model_used=self.model,
+            model_used=data.get("model"),
             requested_model=self.model,
         )

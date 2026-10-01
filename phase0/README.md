@@ -93,3 +93,13 @@ codex login status
 
 系统 PATH 上的旧版 Codex CLI 与 SDK 自带的固定版本可能报告不同登录状态。
 本探针以 SDK `0.144.4` 的真实往返结果为验收依据。
+
+## 2026-09-20 Activity 调用与运行版本
+
+当前依赖锁定 `openai-codex==0.155.1`，配套 `openai-codex-cli-bin==0.155.1`。
+Python SDK 使用配套运行程序，不一定使用系统 PATH 中的 Codex。
+旧 0.144.4 配套程序在本机默认模型调用时返回需要更新 Codex 的错误；更新配套依赖后真实活动成功。
+
+普通 `send` 保留原有会话；`send_activity` 每次新建 ephemeral 会话，不读取或覆盖普通聊天的 thread 标识。
+调用前保存 SDK 入参。新会话不等于完整模型输入可见：额外运行指令、配置和工具读取仍超出记录边界。
+创作试用证据见 `../work/codex-activity-scope-trial-2026-09-20-v2.json`。
