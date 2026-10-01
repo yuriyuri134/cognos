@@ -40,6 +40,7 @@ const viewTitle = document.querySelector("#view-title");
 const viewNote = document.querySelector("#view-note");
 const scopeBar = document.querySelector("#scope-bar");
 const scopeLabel = document.querySelector("#scope-label");
+const projectTabs = document.querySelector("#project-tabs");
 const emptyTitle = document.querySelector("#empty-title");
 const emptySub = document.querySelector("#empty-sub");
 const mentionPopup = document.querySelector("#mention-popup");
@@ -54,8 +55,12 @@ const inquiryPage = document.querySelector("#inquiry-page");
 const inquiryPageBody = document.querySelector("#inquiry-page-body");
 const inquiryBack = document.querySelector("#inquiry-back");
 const inquiryRetry = document.querySelector("#inquiry-retry");
-document.querySelector("#activity-open-btn")?.addEventListener("click", () => {
-  if (currentView.projectId) window.location.href = `/activities?project=${encodeURIComponent(currentView.projectId)}`;
+const activityOpenBtn = document.querySelector("#activity-open-btn");
+let latestActivityId = null;
+activityOpenBtn?.addEventListener("click", () => {
+  if (!currentView.projectId) return;
+  const activityPart = latestActivityId ? `&activity=${encodeURIComponent(latestActivityId)}` : "";
+  window.location.href = `/activities?project=${encodeURIComponent(currentView.projectId)}${activityPart}`;
 });
 
 let sending = false;
@@ -69,6 +74,8 @@ let orgData = null;
 let currentView = { type: "field" };
 let previousView = { type: "field" };
 let currentMembers = [];
+let projectChannels = [];
+let projectChannelsProjectId = null;
 let mentionOpen = false;
 let mentionItems = [];
 let mentionIndex = 0;
@@ -107,6 +114,24 @@ function formatTime(value) {
       day: "2-digit",
     }).format(date);
     return `${monthDay} ${timeStr}`;
+  }
+}
+
+async function refreshActivityEntry(projectId) {
+  if (!activityOpenBtn) return;
+  latestActivityId = null;
+  activityOpenBtn.textContent = "共同展开 · 新活动";
+  activityOpenBtn.title = "进入这个项目的活动工作台";
+  try {
+    const payload = await requestJson(`/api/projects/${projectId}/activities`);
+    const latest = (payload.activities || [])[0];
+    if (!latest) return;
+    latestActivityId = latest.id;
+    const title = latest.title.length > 22 ? `${latest.title.slice(0, 22)}…` : latest.title;
+    activityOpenBtn.textContent = `继续活动 · ${title}`;
+    activityOpenBtn.title = `最近活动更新于 ${formatTime(latest.created_at)}；直接回到上次继续点`;
+  } catch (error) {
+    console.warn("活动入口加载失败", error);
   }
 }
 
@@ -324,6 +349,27 @@ function createMessage(record, { pending = false } = {}) {
       quoteBtn.hidden = true;
     } else {
       quoteBtn.addEventListener("click", () => stageQuote(record));
+    }
+  }
+
+  const activityBtn = node.querySelector(".activity-button");
+  if (activityBtn) {
+    if (pending || !record.id || !currentView.projectId) {
+      activityBtn.hidden = true;
+    } else {
+      activityBtn.addEventListener("click", async () => {
+        activityBtn.disabled = true;
+        try {
+          const created = await requestJson(`/api/projects/${encodeURIComponent(currentView.projectId)}/activities/from-occurrence`, {
+            method: "POST",
+            body: JSON.stringify({ occurrence_id: record.id, title: `从「${(record.content || "").slice(0, 24)}」开始` }),
+          });
+          window.location.href = `/activities?project=${encodeURIComponent(currentView.projectId)}&activity=${encodeURIComponent(created.activity.id)}`;
+        } catch (error) {
+          activityBtn.disabled = false;
+          showError(error.message || "无法从这条发生开始活动");
+        }
+      });
     }
   }
 
@@ -688,6 +734,117 @@ async function loadOrgData() {
   }
 }
 
+function setProjectTabsVisible(visible, activeTab) {
+  if (!projectTabs) return;
+  projectTabs.hidden = !visible;
+  if (activeTab) setActiveTab(activeTab);
+}
+
+function setActiveTab(tab) {
+  if (!projectTabs) return;
+  projectTabs.querySelectorAll(".view-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  });
+}
+
+async function loadProjectChannels(projectId) {
+  try {
+    const payload = await requestJson(`/api/projects/${projectId}/conversations`);
+    projectChannels = payload.conversations || [];
+    projectChannelsProjectId = projectId;
+  } catch (error) {
+    projectChannels = [];
+    projectChannelsProjectId = null;
+    console.warn("频道加载失败", error);
+  }
+  renderOrgNav();
+}
+
+function buildChannelList(org, project) {
+  const wrap = document.createElement("div");
+  wrap.className = "project-channels";
+  projectChannels.forEach((channel) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "channel-item";
+    const isActive =
+      (currentView.type === "conversation" && currentView.conversationId === channel.id) ||
+      (channel.is_default && currentView.type === "project" && currentView.projectId === project.id);
+    if (isActive) btn.classList.add("active");
+    const glyph = document.createElement("span");
+    glyph.className = "channel-glyph";
+    glyph.textContent = "#";
+    const title = document.createElement("span");
+    title.textContent = channel.title;
+    btn.append(glyph, title);
+    btn.title = channel.is_default ? "项目默认频道" : channel.title;
+    btn.addEventListener("click", () => {
+      if (channel.is_default) {
+        switchToProject(org.id, project.id);
+      } else {
+        openConversation(org.id, project.id, channel);
+      }
+    });
+    wrap.append(btn);
+  });
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "channel-add";
+  addBtn.textContent = "＋ 新频道";
+  addBtn.addEventListener("click", () => createChannelFor(org, project));
+  wrap.append(addBtn);
+  return wrap;
+}
+
+async function createChannelFor(org, project) {
+  const title = window.prompt(`在「${project.title}」中新建频道，名称：`);
+  if (!title || !title.trim()) return;
+  try {
+    const res = await requestJson(`/api/projects/${project.id}/conversations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim(), kind: "channel" }),
+    });
+    await loadProjectChannels(project.id);
+    await openConversation(org.id, project.id, res.conversation);
+  } catch (error) {
+    showError(error.message || "创建频道失败");
+  }
+}
+
+async function openConversation(orgId, projectId, conversation) {
+  currentView = { type: "conversation", orgId, projectId, conversationId: conversation.id, title: conversation.title };
+  setFieldActive(false);
+  showConversationPane();
+  setProjectTabsVisible(true, "discussion");
+  if (inquirySection) inquirySection.hidden = false;
+  try {
+    const [projectPayload, payload] = await Promise.all([
+      requestJson(`/api/projects/${projectId}/messages`),
+      requestJson(`/api/conversations/${conversation.id}/messages`),
+    ]);
+    const projectTitle = projectPayload.project ? projectPayload.project.title : "";
+    if (viewTitle) viewTitle.textContent = `${projectTitle} · #${conversation.title}`;
+    if (viewNote) viewNote.textContent = `${payload.messages.length} 条发生 · 频道内沟通`;
+    setScope(`正在发生于：项目「${projectTitle}」· 频道 #${conversation.title}`);
+    setEmptyState("这个频道还没有消息。", "在这里发出第一条，它将写入该频道。");
+    if (payload.quoted) {
+      Object.values(payload.quoted).forEach((record) => {
+        if (record.id) messagesMap.set(record.id, record);
+      });
+    }
+    renderMessages(payload.messages || []);
+    renderState(projectPayload);
+    renderMembers(projectPayload.members || []);
+    renderOrgNav();
+    document.querySelector("#runtime-status").textContent = "频道沟通就绪";
+  } catch (error) {
+    showError(error.message || "无法读取频道发生");
+    switchToProject(orgId, projectId);
+  }
+}
+
 function setScope(text) {
   if (scopeLabel) scopeLabel.textContent = text || "";
 }
@@ -755,13 +912,16 @@ function renderOrgNav() {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "project-item";
-      if (currentView.type === "project" && currentView.projectId === project.id) {
+      if (currentView.projectId === project.id) {
         btn.classList.add("active");
       }
       btn.innerHTML = `<span class="project-glyph">◌</span><span class="project-title">${project.title}</span>`;
       btn.title = project.description || project.title;
       btn.addEventListener("click", () => switchToProject(org.id, project.id));
       group.append(btn);
+      if (currentView.projectId === project.id && projectChannelsProjectId === project.id) {
+        group.append(buildChannelList(org, project));
+      }
     });
     orgNav.append(group);
   });
@@ -770,6 +930,9 @@ function renderOrgNav() {
 async function switchToField() {
   currentView = { type: "field" };
   setFieldActive(true);
+  setProjectTabsVisible(false);
+  projectChannels = [];
+  projectChannelsProjectId = null;
   if (viewTitle) viewTitle.textContent = "第一发生场";
   if (viewNote) viewNote.textContent = "同一发生场内多参与者共在；原文保存在本地 Vault";
   if (membersBlock) membersBlock.hidden = true;
@@ -777,6 +940,7 @@ async function switchToField() {
   setScope("正在发生于：第一发生场（全局）");
   setEmptyState("从正在牵引你的地方开始。", "无需选择类型，也无需先把它整理成任务。");
   showConversationPane();
+  document.dispatchEvent(new CustomEvent("cognos:scope-field"));
   await loadOrgData();
   await bootstrap();
 }
@@ -842,6 +1006,7 @@ async function openInquiry(inquiryId) {
     if (stream) stream.hidden = true;
     if (composer) composer.hidden = false;
     if (scopeBar) scopeBar.hidden = false;
+    setProjectTabsVisible(false);
     setScope(`探究中：${payload.inquiry.question.slice(0, 40)} · 每次发送都是一次尝试`);
     if (memberPage) memberPage.hidden = true;
     if (inquiryPage) inquiryPage.hidden = false;
@@ -972,6 +1137,7 @@ async function openMember(memberId) {
     if (stream) stream.hidden = true;
     if (composer) composer.hidden = true;
     if (scopeBar) scopeBar.hidden = true;
+    setProjectTabsVisible(false);
     if (memberPage) memberPage.hidden = false;
     const member = payload.member;
     if (viewTitle) viewTitle.textContent = `成员：${member.name}`;
@@ -1171,9 +1337,15 @@ async function switchToProject(orgId, projectId) {
     renderMessages(payload.messages || []);
     renderState(payload);
     renderMembers(payload.members || []);
+    setProjectTabsVisible(true, "discussion");
+    await refreshActivityEntry(projectId);
+    await loadProjectChannels(projectId);
     renderOrgNav();
     await loadInquiries(projectId);
     document.querySelector("#runtime-status").textContent = "项目沟通就绪";
+    document.dispatchEvent(new CustomEvent("cognos:project-changed", {
+      detail: { orgId, projectId, project: payload.project, members: payload.members || [] },
+    }));
   } catch (error) {
     showError(error.message || "无法读取项目发生");
     switchToField();
@@ -1256,6 +1428,9 @@ async function bootstrap() {
 function currentMessagesUrl() {
   if (currentView.type === "project") {
     return `/api/projects/${currentView.projectId}/messages`;
+  }
+  if (currentView.type === "conversation") {
+    return `/api/conversations/${currentView.conversationId}/messages`;
   }
   if (currentView.type === "inquiry") {
     return `/api/inquiries/${currentView.inquiryId}/attempts`;
@@ -1343,6 +1518,8 @@ async function sendCurrentMessage(forcedContent) {
     }
     if (currentView.type === "project") {
       await switchToProject(currentView.orgId, currentView.projectId);
+    } else if (currentView.type === "conversation") {
+      await openConversation(currentView.orgId, currentView.projectId, { id: currentView.conversationId, title: currentView.title });
     } else if (currentView.type === "inquiry") {
       await openInquiry(currentView.inquiryId);
     } else {
@@ -1352,6 +1529,8 @@ async function sendCurrentMessage(forcedContent) {
     showError(error.message || "消息没有完成送达");
     if (currentView.type === "project") {
       await switchToProject(currentView.orgId, currentView.projectId);
+    } else if (currentView.type === "conversation") {
+      await openConversation(currentView.orgId, currentView.projectId, { id: currentView.conversationId, title: currentView.title });
     } else if (currentView.type === "inquiry") {
       await openInquiry(currentView.inquiryId);
     } else {
@@ -1368,6 +1547,33 @@ composer.addEventListener("submit", (event) => {
   event.preventDefault();
   sendCurrentMessage();
 });
+
+if (projectTabs) {
+  projectTabs.addEventListener("click", (event) => {
+    const btn = event.target.closest(".view-tab");
+    if (!btn) return;
+    const tab = btn.dataset.tab;
+    if (tab === "discussion") {
+      setActiveTab("discussion");
+      document.dispatchEvent(new CustomEvent("cognos:show-discussion"));
+      if (currentView.type === "conversation") {
+        openConversation(currentView.orgId, currentView.projectId, {
+          id: currentView.conversationId,
+          title: currentView.title,
+        });
+      } else if (currentView.type === "project") {
+        switchToProject(currentView.orgId, currentView.projectId);
+      } else {
+        showConversationPane();
+      }
+    } else {
+      setActiveTab(tab);
+      document.dispatchEvent(new CustomEvent("cognos:workbench-tab", { detail: { tab } }));
+    }
+  });
+}
+
+document.addEventListener("cognos:discussion-tab", () => setActiveTab("discussion"));
 
 input.addEventListener("input", resizeInput);
 input.addEventListener("input", updateMention);

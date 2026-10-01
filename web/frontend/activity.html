@@ -23,16 +23,22 @@
         <div class="section-head"><h2>材料与正在写的内容</h2><button id="add-document">添加</button></div>
         <div id="documents" class="document-list"></div>
         <button id="import-occurrence">引入已有结果或发言</button>
+        <button id="browse-experience">看看过去活动里实际用过什么</button>
+        <button id="import-activity-material">从另一活动带入材料或构造</button>
         <p class="hint">材料的原文保留。解释、草稿和组织方式可以另起版本。</p>
         <details><summary>形成与修改</summary><ol id="revision-history" class="revision-list"></ol></details>
       </aside>
       <section class="panel working">
         <section class="situation-section">
-          <div class="section-head"><h2>当前理解 <span id="situation-revision" class="badge"></span></h2><button id="toggle-situation-edit">修订理解</button></div>
+          <div class="section-head"><h2>正在形成 <span id="situation-revision" class="badge"></span></h2><button id="toggle-situation-edit">写下自己的理解</button></div>
+          <p class="hint">多个读法可以并存。暂缓不等于判错，修订也不自动代表进步。</p>
+          <div id="formation-active"></div>
+          <details id="formation-dormant-details" hidden><summary id="formation-dormant-summary">暂缓的读法</summary><div id="formation-dormant"></div></details>
+          <p class="hint" id="situation-label"></p>
           <pre id="situation-text" class="situation-text"></pre>
           <div id="situation-refs" class="refs"></div>
           <div id="situation-edit" hidden>
-            <label for="situation-editor">此刻怎样理解（自由文字，可以留空或写“尚不清楚”）</label>
+            <label for="situation-editor">此刻正在形成什么（自由文字，可以留空或写“尚不清楚”）</label>
             <textarea id="situation-editor" rows="5" maxlength="50000"></textarea>
             <label for="situation-refs-editor">引用材料（可选，每行一条：材料ID 或 材料ID@版本，行尾可用 # 写一句说明）</label>
             <textarea id="situation-refs-editor" rows="3" maxlength="10000"></textarea>
@@ -58,7 +64,7 @@
           <textarea id="document-editor" aria-label="文档内容" rows="10"></textarea>
           <details id="definition-details" hidden><summary>查看或编辑结构化内容</summary><textarea id="json-editor" aria-label="结构化内容" rows="12" spellcheck="false"></textarea></details>
           <pre id="structured-summary" hidden></pre>
-          <div class="inline editor-actions"><button id="save-document">保存新版本</button><button id="adopt-document">采用这一版组织</button><button id="adopt-source-document">采用这一版取材方式</button><button id="copy-document">另起可改写内容</button></div>
+          <div class="inline editor-actions"><button id="save-document">保存新版本</button><button id="adopt-document">采用这一版组织</button><button id="adopt-source-document">采用这一版取材方式</button><button id="copy-document">另起可改写内容</button><button id="publish-document" hidden>返回项目（需确认）</button></div>
         </section>
         <section class="organization-section">
           <div class="section-head"><h2>当前怎样取得新材料</h2><button id="release-source">停用取材方式</button></div>
@@ -71,6 +77,13 @@
           </details>
           <pre id="source-preview"></pre><button id="acquire-material">按当前方式取得材料</button>
         </section>
+        <section class="organization-section context-section">
+          <div class="section-head"><h2>本轮实际上下文</h2><span class="hint">记录参与者真正看到的材料与能力</span></div>
+          <details id="context-details">
+            <summary>查看最近调用</summary>
+            <div id="context-snapshots" class="context-list"><p class="hint">尚未有模型调用。</p></div>
+          </details>
+        </section>
         <section class="organization-section">
           <div class="section-head"><h2>当前怎样展开材料</h2><button id="release">停用当前组织</button></div>
           <p id="adopted-description" class="hint"></p>
@@ -80,6 +93,10 @@
       </section>
       <section class="panel conversation">
         <div class="section-head"><h2>共同继续</h2><label for="participant" class="sr-only">参与者</label><select id="participant"></select></div>
+        <section id="return-point" class="return-point" hidden aria-live="polite">
+          <div class="section-head"><h3>上次停在这里</h3><span class="hint">可以直接继续，不必重新交代背景</span></div>
+          <div id="return-summary" class="return-summary"></div>
+        </section>
         <p class="hint">参与者可修改当前活动的可编辑内容与组织；原始材料继续保留。</p>
         <div id="messages" class="messages" aria-live="polite"></div>
         <p id="run-status" class="hint" role="status"></p>
@@ -87,6 +104,16 @@
       </section>
     </section>
   </main>
+  <dialog id="transfer-dialog">
+    <form id="transfer-form"><h2>从另一活动继续</h2>
+      <label for="transfer-activity">来源活动</label><select id="transfer-activity"></select>
+      <label for="transfer-document">材料或构造</label><select id="transfer-document"></select>
+      <label for="transfer-kind">怎样带入</label><select id="transfer-kind"><option value="material">保留为材料快照</option><option value="construction">带入可修改的构造及其依赖</option></select>
+      <label for="transfer-note">适用条件、未解决之处或这次使用的想法（可空）</label><textarea id="transfer-note" maxlength="4000"></textarea>
+      <p class="hint" id="transfer-source-note">来源版本会保留；带入后不会自动采用，也不表示已验证适用性。</p>
+      <div class="inline"><button type="submit" id="transfer-submit">带入当前活动</button><button type="button" id="transfer-cancel">取消</button></div>
+    </form>
+  </dialog>
   <dialog id="add-dialog">
     <form id="add-form"><h2>放入活动</h2><label for="new-title">名称</label><input id="new-title" maxlength="200" />
       <label for="new-kind">怎样保留</label><select id="new-kind"><option value="source">材料原文</option><option value="draft">可改写内容</option></select>
@@ -97,7 +124,8 @@
   </dialog>
   <dialog id="history-dialog"><h2 id="history-title"></h2><pre id="history-preview"></pre><button id="close-history">关闭</button></dialog>
   <dialog id="rename-dialog"><form id="rename-form"><h2>活动名称</h2><label for="activity-title">名称</label><input id="activity-title" maxlength="200" /><div class="inline"><button type="button" id="cancel-rename">取消</button><button type="submit">保存名称</button></div></form></dialog>
-  <dialog id="import-dialog"><form id="import-form"><h2>引入已有结果或发言</h2><label for="import-selection">当前项目中已留下的内容</label><select id="import-selection"></select><pre id="import-preview"></pre><div class="inline"><button type="button" id="cancel-import">取消</button><button type="submit" id="confirm-import">保留原文与来源</button></div></form></dialog>
+  <dialog id="import-dialog"><form id="import-form"><h2>引入已有结果或发言</h2><p class="hint">这里不按当前取材条件过滤。命中不等于相关，未命中也不等于无用。</p><p id="import-coverage" class="hint"></p><div class="inline"><button type="button" id="import-latest">回到最新</button><button type="button" id="import-older">查看更早内容</button></div><label for="import-selection">当前项目中已留下的内容</label><select id="import-selection"></select><pre id="import-preview"></pre><div class="inline"><button type="button" id="cancel-import">取消</button><button type="submit" id="confirm-import">保留完整原文与来源</button></div></form></dialog>
+  <dialog id="publish-dialog"><form id="publish-form"><h2>把活动内容返回项目</h2><p class="hint">这一步需要你的明确确认；模型生成的内容不会自动成为项目事实。</p><label for="publish-kind">返回为</label><select id="publish-kind"><option value="message">项目消息</option><option value="work_item">开放工作项</option><option value="decision">提议中的决定</option></select><label for="publish-title">标题（工作项可用）</label><input id="publish-title" maxlength="200" /><label for="publish-content">正文</label><textarea id="publish-content" rows="10" maxlength="100000"></textarea><div class="inline"><button type="button" id="cancel-publish">取消</button><button type="submit">确认返回项目</button></div></form></dialog>
   <script src="/assets/activity.js" defer></script>
 </body>
 </html>

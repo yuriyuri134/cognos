@@ -6,6 +6,7 @@
     <meta name="color-scheme" content="dark" />
     <title>Cognos · 第一发生场</title>
     <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/workbench.css" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -83,6 +84,13 @@
             <p class="head-note" id="view-note">同一发生场内多参与者共在；原文保存在本地 Vault</p>
           </header>
 
+          <nav class="view-tabs" id="project-tabs" hidden>
+            <button type="button" class="view-tab active" data-tab="discussion">讨论</button>
+            <button type="button" class="view-tab" data-tab="work_items">工作项</button>
+            <button type="button" class="view-tab" data-tab="decisions">决定</button>
+            <button type="button" class="view-tab" data-tab="timeline">时间线</button>
+          </nav>
+
           <div class="message-stream" id="message-stream" aria-live="polite">
             <div class="empty-state" id="empty-state">
               <div class="empty-orbit" aria-hidden="true"><span></span></div>
@@ -107,6 +115,15 @@
               <span class="eyebrow">探究</span>
             </div>
             <div class="member-page-body" id="inquiry-page-body"></div>
+          </section>
+
+          <section class="member-page" id="project-page" hidden>
+            <div class="member-page-head">
+              <button class="nav-mini-btn" id="project-back" type="button">← 返回</button>
+              <span class="eyebrow">项目工作台 · 闭环</span>
+              <button class="nav-mini-btn" id="workbench-refresh" type="button">刷新</button>
+            </div>
+            <div class="member-page-body" id="project-page-body"></div>
           </section>
 
           <div class="error-banner" id="error-banner" role="alert" hidden></div>
@@ -223,7 +240,9 @@
         <div class="handoff-request-preview" hidden></div>
         <div class="handoff-result-preview" hidden></div>
         <div class="message-foot">
+          <button class="decision-button" type="button" title="把这条发生记为项目决定">决定</button>
           <button class="quote-button" type="button" title="以此发生作为引用，邀请其他参与者面对">引用</button>
+          <button class="activity-button" type="button" title="保留这条发生，并从它开始一次活动">从此开始活动</button>
           <button class="handoff-button" type="button" title="以此发生为上下文，交接给外部 Agent (Antigravity)">交接</button>
           <button class="trace-button" type="button" hidden></button>
           <button class="situation-button" type="button" title="查看这次回答时 Participant 实际所处的处境投影" hidden>处境</button>
@@ -258,5 +277,6 @@
     <script src="/assets/vendor/marked.min.js"></script>
     <script src="/assets/vendor/purify.min.js"></script>
     <script src="/assets/app.js" defer></script>
+    <script src="/assets/workbench.js" defer></script>
   </body>
 </html>

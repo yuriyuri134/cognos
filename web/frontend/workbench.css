@@ -1,0 +1,419 @@
+/* 项目可见形态：顶部标签页（讨论 / 工作项 / 决定 / 时间线） */
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.view-tab {
+  border: 1px solid var(--line);
+  border-bottom: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 6px 14px;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+}
+
+.view-tab:hover {
+  color: var(--text);
+}
+
+.view-tab.active {
+  color: var(--green);
+  background: var(--panel);
+  border-color: var(--line-bright);
+}
+
+/* 左栏项目下的频道列表 */
+.project-channels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px 18px;
+}
+
+.channel-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.channel-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.channel-item.active {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.channel-glyph {
+  opacity: 0.6;
+}
+
+.channel-add {
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 3px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.channel-add:hover {
+  color: var(--accent, #8ab4ff);
+}
+
+/* 项目工作台（Organization Slice 1）：普通软件层样式，复用主视觉变量。 */
+
+#project-page .member-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.wb-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+}
+
+.wb-summary strong {
+  font-size: 1.05rem;
+}
+
+.wb-summary .wb-count {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.wb-section {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 14px 16px 16px;
+}
+
+.wb-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.wb-section-head h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+.wb-section-head .wb-hint {
+  color: var(--dim);
+  font-size: 0.78rem;
+}
+
+.wb-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.wb-form input,
+.wb-form textarea,
+.wb-form select,
+.wb-item input,
+.wb-item select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.wb-form textarea {
+  resize: vertical;
+  min-height: 44px;
+}
+
+.wb-row {
+  display: flex;
+  gap: 8px;
+}
+
+.wb-row > * {
+  flex: 1;
+}
+
+.wb-primary,
+.wb-action {
+  border: 1px solid var(--line-bright);
+  border-radius: 10px;
+  background: var(--green-soft);
+  color: var(--green);
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.wb-primary {
+  align-self: flex-start;
+}
+
+.wb-primary:hover,
+.wb-action:hover {
+  background: rgba(131, 217, 174, 0.2);
+}
+
+.wb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.wb-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wb-item-title {
+  font-size: 0.92rem;
+}
+
+.wb-item-meta {
+  color: var(--dim);
+  font-size: 0.76rem;
+}
+
+.wb-item-desc {
+  color: var(--muted);
+  font-size: 0.84rem;
+  margin: 6px 0;
+  white-space: pre-wrap;
+}
+
+.wb-item-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.wb-item-controls select {
+  flex: 1;
+  min-width: 110px;
+}
+
+.wb-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  border: 1px solid var(--line-bright);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.wb-status.open { color: var(--amber); border-color: rgba(226, 186, 121, 0.4); }
+.wb-status.in_progress { color: var(--green); border-color: rgba(131, 217, 174, 0.4); }
+.wb-status.blocked { color: var(--danger); border-color: rgba(240, 163, 154, 0.4); }
+.wb-status.done { color: var(--muted); }
+
+.wb-empty {
+  color: var(--dim);
+  font-size: 0.82rem;
+  margin: 4px 0;
+}
+
+.wb-event {
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 0.84rem;
+  align-items: baseline;
+}
+
+.wb-event:last-child {
+  border-bottom: none;
+}
+
+.wb-event time {
+  color: var(--dim);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.wb-event-kind {
+  display: inline-block;
+  min-width: 54px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-bright);
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.wb-event-kind.decision { color: var(--amber); border-color: rgba(226, 186, 121, 0.4); }
+.wb-event-kind.result { color: var(--green); border-color: rgba(131, 217, 174, 0.4); }
+.wb-event-kind.handoff { color: var(--danger); border-color: rgba(240, 163, 154, 0.4); }
+.wb-event-kind.work_item { color: var(--text); }
+
+.wb-event-text {
+  color: var(--muted);
+  flex: 1;
+}
+
+.wb-notice {
+  border: 1px solid rgba(131, 217, 174, 0.35);
+  background: var(--green-soft);
+  color: var(--green);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  margin-bottom: 10px;
+}
+
+.wb-error {
+  border: 1px solid rgba(240, 163, 154, 0.4);
+  background: rgba(240, 163, 154, 0.08);
+  color: var(--danger);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  margin-bottom: 10px;
+}
+
+/* 消息上的「决定」按钮：只在项目视图显示 */
+.decision-button {
+  display: none;
+  border: 1px solid var(--line-bright);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--amber);
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+body.in-project .decision-button {
+  display: inline-block;
+}
+
+.decision-button:hover {
+  background: rgba(226, 186, 121, 0.12);
+}
+
+/* 决定对话框 */
+.wb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(4, 6, 5, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* 属性 hidden 必须能盖过 display: flex，否则对话框会一直挡住整个页面 */
+.wb-overlay[hidden] {
+  display: none;
+}
+
+.wb-dialog {
+  width: min(560px, 92vw);
+  border: 1px solid var(--line-bright);
+  border-radius: 18px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-dialog h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.wb-dialog label {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.wb-dialog textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.wb-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wb-dialog-foot button {
+  border: 1px solid var(--line-bright);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.wb-dialog-foot button.primary {
+  background: var(--green-soft);
+  color: var(--green);
+}

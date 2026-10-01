@@ -33,6 +33,7 @@ summary { color:var(--accent); cursor:pointer; padding:9px 0; line-height:1.5; }
 pre { white-space:pre-wrap; word-break:break-word; font-family:inherit; font-size:14px; line-height:1.8; max-height:500px; overflow:auto; padding:12px; background:#131c17; border-radius:7px; }
 .editor-actions { margin-top:10px; }#json-editor { font-family:ui-monospace,monospace; font-size:12px; }
 .arrangement-row { display:flex; gap:7px; align-items:center; margin:8px 0; }.arrangement-row label { flex:1; overflow-wrap:anywhere; }.arrangement-row button { padding:4px 7px; }
+.return-point { margin:8px 0 16px; padding:12px 14px; border:1px solid var(--line); border-radius:9px; background:#131c17; }.return-point .section-head { margin-bottom:8px; }.return-point h3 { margin:0; font-size:15px; }.return-summary { display:grid; gap:6px; }.return-summary p { margin:0; line-height:1.55; font-size:13px; }.return-summary strong { color:var(--accent); }
 .messages { min-height:240px; max-height:58vh; overflow:auto; }.message { border-bottom:1px solid var(--line); padding:14px 0; }.message strong { color:var(--accent); font-size:12px; }.message p { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.8; font-size:14px; margin:7px 0; }
 #continue-button { width:100%; margin-top:10px; }.notice { border:1px solid #a89458; color:#eee0a9; background:#332f1e; padding:12px; margin-bottom:16px; border-radius:7px; }
 .empty { padding:60px; text-align:center; color:var(--muted); }.revision-list { padding-left:18px; }.revision-list li { padding:6px 0; font-size:12px; }.revision-list button { padding:4px 8px; }
@@ -43,9 +44,17 @@ dialog { width:min(720px,90vw); background:#202b24; color:inherit; border:1px so
 
 .situation-section { border-bottom:1px solid var(--line); padding-bottom:16px; margin-bottom:20px; }
 .situation-text { white-space:pre-wrap; margin:6px 0 10px; font-size:14px; line-height:1.8; max-height:none; }
+.formation-card { border:1px solid var(--line); border-radius:9px; padding:10px 12px; margin:10px 0; overflow-wrap:anywhere; }
+.formation-card .situation-text, .formation-revision { white-space:pre-wrap; overflow-wrap:anywhere; }
+.formation-revision { border-top:1px solid var(--line); padding-top:8px; font-size:12px; }
 .refs { display:flex; flex-wrap:wrap; gap:6px; }
 .ref-chip { font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--line); background:rgba(255,255,255,.05); overflow-wrap:anywhere; }
 .moves-section { border-top:1px solid var(--line); padding-top:20px; margin-top:20px; }
+.context-list { display:flex; flex-direction:column; gap:8px; }
+.context-card { border:1px solid var(--line); border-radius:8px; padding:0 10px 10px; background:#18211c; }
+.context-card summary { font-size:12px; overflow-wrap:anywhere; }
+.context-card .context-json { max-height:260px; margin:4px 0 8px; font-size:11px; }
+.context-card > button { font-size:12px; padding:5px 9px; }
 #moves:empty { color:var(--muted); font-size:12px; line-height:1.7; }
 .move-card { border:1px solid var(--line); border-radius:9px; padding:10px 12px; margin-bottom:10px; }
 .move-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
