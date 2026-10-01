@@ -382,7 +382,7 @@ class ActivityService:
             context["participant"] = {"participant_id": target_id, "name": participant.name}
             context["runtime"] = {
                 **build_runtime_profile(participant.runtime, display_name=participant.name),
-                "requested_model": getattr(participant.runtime, "model", None) or participant.model_name,
+                "requested_model": build_runtime_profile(participant.runtime, display_name=participant.model_name)["model"],
                 "actual_model": None,
                 "reasoning_effort": getattr(participant.runtime, "reasoning_effort", None),
                 "runtime_thread_id": None,

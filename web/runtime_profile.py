@@ -22,6 +22,8 @@ def _public_endpoint(value: Any) -> str | None:
 def build_runtime_profile(runtime: Any, *, display_name: str = "") -> dict[str, Any]:
     """Describe the binding without exposing credentials or conversation state."""
     model = getattr(runtime, "model", None) or display_name
+    if getattr(runtime, "model_identity_optional", False):
+        model = getattr(runtime, "model", None)
     endpoint = _public_endpoint(getattr(runtime, "base_url", None) or getattr(runtime, "endpoint", None))
     effort = getattr(runtime, "reasoning_effort", None)
     if not effort and runtime.__class__.__name__.lower().startswith("deepseek"):
@@ -32,6 +34,7 @@ def build_runtime_profile(runtime: Any, *, display_name: str = "") -> dict[str, 
     return {
         "provider": getattr(runtime, "provider", None) or runtime.__class__.__name__,
         "adapter": runtime.__class__.__name__,
+        "turn_ref_kind": getattr(runtime, "turn_ref_kind", None),
         "endpoint": endpoint,
         "model": model,
         "reasoning_effort": effort,

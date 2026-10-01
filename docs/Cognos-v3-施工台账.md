@@ -299,3 +299,9 @@
 - 修复后重新从干净隔离状态运行：第一次真实调用 `paused`；第二次通过同一 Activity 输入新事实“这是无人值守的定时灯，当晚屋内没有人”。第二轮 Context 明确包含第一次 Formation/Tension 的稳定事件 ID。真实 Codex 用原 Formation ID 将其修订为“亮灯首先表示定时机制仍在运行，不能再支持屋内有人/某件事未结束”，用原 Tension ID 将其设为 `resolved`，并提出新的无操作 Move：“检查定时灯实际设定时段是否覆盖观察时刻”，Move 同时引用旧 Formation/Tension。用户无需重新解释第一次背景。
 - 这是一条真实、方向性的行为证据：**旧认知状态经过第二次进入重新成为下一次判断的输入，新现实使同一状态发生修订，并改变下一步。**它仍不是因果消融证明：当前只完成 full 协议下一例真实 Codex 运行；`CodexRuntimeAdapter` 没有报告实际模型身份，且 SDK 只能完整记录调用参数，不能声称捕获了运行时内部全部上下文。是否由 Formation/Tension 结构本身带来增益，仍需 baseline/minimal/full 同可达世界下重复比较。
 - `run_activity_live.py` 现在把每轮 `formation_updates / tension_updates / move / pause / transport_repairs` 与最终 `ActivityView` 直接写入试用报告，后续不需要手工翻 SQLite 才能判断连续性行为。最终 `py_compile` 通过，当前工程全量回归 `199 passed, 7 subtests passed in 111.18s`，`git diff --check` 继续作为收尾门。
+
+### Pi 最小异构 runtime 探针（2026-10-01）
+
+- 可选 `pi` participant 默认关闭；RPC 固定禁用工具/扩展，普通 session 仅保存隔离绑定，Activity 使用 `--no-session`。未迁移历史或改写已有 occurrence/参与者 session。
+- 离线 Pi 测试 `21 passed, 11 subtests passed`；runtime/profile `52 passed, 13 subtests passed`；全量回归 `220 passed, 18 subtests passed`，`py_compile` 与 diff 检查通过。配置与验收命令见 `phase0/README.md`、`web/README.md`。
+- 当前 PATH 未找到 Pi，未作真实 CLI/provider 往返验收。本次仅有工程及引用追踪证据，复核后无新的行动层认识需要修订，行动思想保持原样。

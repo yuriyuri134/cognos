@@ -93,4 +93,40 @@ Situated Cognition 的下一个小 delta：让同一问题上的多次展开尝�
 | codex | `CodexRuntimeAdapter` | 本地 ChatGPT OAuth，线程可跨进程恢复 |
 | deepseek | `DeepSeekRuntimeAdapter` | opencode-go / zen go 套餐；凭据在 `~/.dsh/.credentials.yaml` 或 `~/.pi/agent/auth.json`，可被 `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL`/`DEEPSEEK_MODEL`/`DEEPSEEK_TIMEOUT` 覆盖；只做对话，不执行工具 |
 
-所有 AI 回复的 `runtime_ref` 都带 `model` 字段（实际响应模型，可识别降级）。
+能可靠取得实际模型时，AI 回复的 `runtime_ref` 才带 `model` 字段；未知时不猜测。
+
+## 可选 Pi participant
+
+Pi 是暂时的异构 runtime 探针，不代表 Cognos 最终本体。默认不注册；启用后固定
+participant id 为 `pi`、显示名为 `Pi`，capabilities 只有 `conversation`。
+已有默认参与者和默认目标不变，注入自定义 registry/runtime 的测试模式不自动加 Pi。
+
+| 环境变量 | 默认值 / 含义 |
+| --- | --- |
+| `COGNOS_PI_ENABLED` | 未设置；只有 `1` 才注册 |
+| `COGNOS_PI_COMMAND` | `pi`；单个可执行文件名或完整路径，不接受 shell 参数串 |
+| `COGNOS_PI_CWD` | Cognos 仓库根目录；显式传给子进程 |
+| `COGNOS_PI_SESSION_DIR` | `COGNOS_THREAD_STATE_DIR/pi-sessions/`；仅显式配置才允许改位置 |
+| `COGNOS_PI_TIMEOUT` | `120` 秒；正数，RPC 调用时限，另有最多两次 1 秒的退出宽限 |
+| `COGNOS_PI_MODEL` | 未指定；设置时传给 Pi 的 `--model`，不猜测实际响应模型 |
+
+普通绑定文件为 `COGNOS_THREAD_STATE_DIR/pi_thread.json`，仅保存 session id/path。
+默认 `COGNOS_THREAD_STATE_DIR` 是 `web/.state`。session JSONL 由 Pi 自己管理；
+adapter 不读取或写入 `auth.json`，不复用 `~/.pi/agent/sessions`。如明确配置自定义
+session 目录，保存/恢复路径仍限制在该目录内，不自动扫描或导入其他 session。
+Activity 每次 `--no-session`，不读写普通绑定。不存在 Pi 时应用仍可启动，调用返回 502。
+
+示例（从仓库根目录启动，先在 Pi 自身完成配置）：
+
+```powershell
+$env:COGNOS_PI_ENABLED='1'
+$env:COGNOS_PI_CWD=(Get-Location).Path
+# 可选：$env:COGNOS_PI_COMMAND='C:\path\to\pi.cmd'
+# 可选：$env:COGNOS_PI_MODEL='provider/model-id'
+& phase0/.venv/Scripts/python.exe web/run.py
+```
+
+Pi 工具和扩展固定禁用；普通消息无法借此执行代码，真实执行仍走 handoff/DSH。
+模型未知时 profile/Activity 保留 `None`；turn 引用是 adapter 生成的 `turn_<uuid>`。
+请求审计记录协议、命令和正文摘要，不复制凭据与原始 stderr。完整边界、离线回归
+及隔离真实验收命令见 [Phase 0 Pi 说明](../phase0/README.md#可选-pi-rpc-探针)。

@@ -29,6 +29,7 @@ from codex_runtime import (
     RuntimeUnavailableError,
 )
 from gemini_runtime import GeminiRuntimeAdapter, GeminiStateStore
+from pi_runtime import PiRuntimeAdapter, PiStateStore
 from deepseek_runtime import DeepSeekRuntimeAdapter, DeepSeekStateStore, load_deepseek_config, list_opencode_go_models
 from history import AppendOnlyHistory, HistoryCorruptionError
 from handoff.envelope import build_envelope, write_envelope
@@ -734,6 +735,22 @@ def create_app(
                 description="opencode-go / DeepSeek V4 (zen go 套餐)",
             )
 
+        if os.environ.get("COGNOS_PI_ENABLED", "0") == "1":
+            pi_adapter = PiRuntimeAdapter(
+                cwd=Path(os.environ.get("COGNOS_PI_CWD") or PROJECT_DIR),
+                state_store=PiStateStore(config.thread_state_dir / "pi_thread.json"),
+                session_dir=Path(os.environ.get("COGNOS_PI_SESSION_DIR")
+                                 or config.thread_state_dir / "pi-sessions"),
+                command=os.environ.get("COGNOS_PI_COMMAND") or "pi",
+                timeout=float(os.environ.get("COGNOS_PI_TIMEOUT") or "120"),
+                model=os.environ.get("COGNOS_PI_MODEL", "").strip() or None,
+                developer_instructions=instructions,
+            )
+            registry["pi"] = Participant(
+                id="pi", name="Pi", model_name="Pi", runtime=pi_adapter,
+                description="临时异构 Pi RPC 探针 · 仅对话 · 禁用工具",
+            )
+
     # 通用 OpenCode Go runtime binding：Participant 身份与 provider/model 分离。
     # COGNOS_EXTRA_PARTICIPANTS = [{"id":"deepseek-b","name":"DeepSeek-B","model":"deepseek-v4-flash"}, ...]
     # 同一模型可注册多个 Participant，各自 continuity/state 独立。
@@ -848,7 +865,7 @@ def create_app(
                 {
                     "id": p.id,
                     "name": p.name,
-                    "requested_model": getattr(p.runtime, "model", None) or p.model_name,
+                    "requested_model": build_runtime_profile(p.runtime, display_name=p.model_name)["model"],
                     "runtime_profile": build_runtime_profile(p.runtime, display_name=p.model_name),
                 }
                 for p in registry.values()
