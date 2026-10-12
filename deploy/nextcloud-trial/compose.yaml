@@ -1,0 +1,95 @@
+name: cognos-nextcloud-trial
+
+services:
+  db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U nextcloud -d nextcloud"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: nextcloud:35.0.1-apache@sha256:f4e0ee28ac9e54cad6e04e148489d79a609acba86dfbff69c8f666d50f96e414
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8780:80"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_HOST: db
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      NEXTCLOUD_ADMIN_USER: cognos-admin
+      NEXTCLOUD_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      NEXTCLOUD_TRUSTED_DOMAINS: "localhost 127.0.0.1 localhost:8780 127.0.0.1:8780"
+      OVERWRITECLIURL: http://127.0.0.1:8780
+      REDIS_HOST: redis
+      HERMES_API_URL: http://host.docker.internal:8642/v1/chat/completions
+      HERMES_API_MODEL: hermes-cognos
+      HERMES_PARTICIPANT_ROUTE_CODEX: hermes-cognos
+      HERMES_PARTICIPANT_ROUTE_GEMINI: hermes-cognos
+      HERMES_PARTICIPANT_ROUTE_GEMINI_B: hermes-cognos
+      HERMES_PARTICIPANT_ROUTE_DEEPSEEK: hermes-cognos
+      HERMES_PARTICIPANT_ROUTE_PI: hermes-cognos
+      HERMES_API_KEY_FILE: /run/secrets/hermes_api_key
+    secrets:
+      - db_password
+      - admin_password
+      - hermes_api_key
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - html:/var/www/html
+      - ./cognos-app:/var/www/html/custom_apps/cognos:ro
+      - C:/Users/lnp/Documents/Obsidian Vault/10 Projects/ai-conversations/_imports:/mnt/obsidian-import:ro
+
+  cron:
+    image: nextcloud:35.0.1-apache@sha256:f4e0ee28ac9e54cad6e04e148489d79a609acba86dfbff69c8f666d50f96e414
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+    entrypoint: /cron.sh
+    volumes:
+      - html:/var/www/html
+      - ./cognos-app:/var/www/html/custom_apps/cognos:ro
+      - C:/Users/lnp/Documents/Obsidian Vault/10 Projects/ai-conversations/_imports:/mnt/obsidian-import:ro
+
+secrets:
+  db_password:
+    file: ./.secrets/db-password
+  admin_password:
+    file: ./.secrets/admin-password
+  hermes_api_key:
+    file: ./.secrets/hermes-api-key
+
+volumes:
+  db:
+  html:

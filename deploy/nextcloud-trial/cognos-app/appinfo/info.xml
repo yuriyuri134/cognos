@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+  <id>cognos</id>
+  <name>Cognos</name>
+  <summary>Continue Cognos work from Nextcloud projects and tasks</summary>
+  <description>Adds the Cognos Activity continuation layer to Nextcloud Deck, with source snapshots, resumable attempts, and task history.</description>
+  <version>0.15.0</version>
+  <licence>agpl</licence>
+  <author>Cognos contributors</author>
+  <namespace>Cognos</namespace>
+  <category>organization</category>
+  <navigations>
+    <navigation>
+      <name>Cognos</name>
+      <route>cognos.home.index</route>
+      <order>20</order>
+    </navigation>
+    <navigation>
+      <name>材料</name>
+      <route>cognos.notesPage.index</route>
+      <order>21</order>
+    </navigation>
+  </navigations>
+  <commands>
+    <command>OCA\Cognos\Command\ImportObsidian</command>
+  </commands>
+  <dependencies><nextcloud min-version="35" max-version="35"/></dependencies>
+</info>
