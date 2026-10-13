@@ -219,8 +219,8 @@ final class HermesAgentService {
         if ($activity === null) {
             throw new \RuntimeException('Activity not found');
         }
-        $retryParticipantId = trim((string)($activity['participant_id'] ?? ''));
-        $retryRouteModel = trim((string)($this->participantRouteModel($retryParticipantId) ?: ''));
+        $messageParticipantId = trim((string)($message['participant_id'] ?? ''));
+        $retryRouteModel = trim((string)($this->participantRouteModel($messageParticipantId) ?: ''));
         if ($retryRouteModel === '') {
             throw new ParticipantRuntimeUnavailableException('Hermes runtime 未配置。');
         }
@@ -229,7 +229,9 @@ final class HermesAgentService {
             ->set('error_text', $claimed->createNamedParameter(null))
             ->where($claimed->expr()->eq('id', $claimed->createNamedParameter($messageId)))
             ->andWhere($claimed->expr()->eq('state', $claimed->createNamedParameter('failed')));
-        if ($claimed->executeStatement() !== 1) throw new \DomainException('Message is already being retried');
+        if ($claimed->executeStatement() !== 1) {
+            throw new ActivityRequestInProgressException('重试已在进行中。');
+        }
         $requestMessages = [['role'=>'system','content'=>$this->buildSystemPrompt($activity)]];
         foreach ($this->buildConversationHistory($activityId) as $history) {
             if (($history['id'] ?? '') === $messageId) continue;
@@ -238,11 +240,11 @@ final class HermesAgentService {
         }
         $requestMessages[] = ['role'=>'user','content'=>(string)$message['content']];
         $participant = [
-            'id' => (string)$activity['participant_id'],
-            'display_name' => (string)($activity['participant_name'] ?? $activity['participant_id']),
+            'id' => $messageParticipantId,
+            'display_name' => (string)($message['participant_name'] ?? $messageParticipantId),
         ];
         try {
-            $response = $this->callHermes($this->sessionId($activityId, (string)$activity['participant_id']), $requestMessages, $retryRouteModel, (string)$activity['participant_id']);
+            $response = $this->callHermes($this->sessionId($activityId, $messageParticipantId), $requestMessages, $retryRouteModel, $messageParticipantId);
             $this->persistSuccessfulReply($activityId, $user->getUID(), $messageId, $response['content'], $participant);
         } catch (\Throwable $error) {
             $this->markMessageFailed($messageId, $error->getMessage());

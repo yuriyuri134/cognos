@@ -12,12 +12,12 @@
   async function api(path, options = {}) {
     const response = await fetch(apiBase + path, {
       credentials: 'same-origin',
+      ...options,
       headers: {
         Accept: 'application/json',
         requesttoken: window.OC?.requestToken || '',
         ...(options.headers || {}),
       },
-      ...options,
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
