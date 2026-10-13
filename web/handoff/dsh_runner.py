@@ -115,12 +115,15 @@ def _pick_new_session(
         candidates.append((log_path, header))
 
     working_directory = str(Path(working_directory).resolve())
+    matching = []
     for log_path, header in candidates:
         header_cwd = str(Path(str(header.get("cwd", ""))).resolve()) if header.get("cwd") else ""
         if header_cwd == working_directory:
-            return log_path, header
-    if candidates:
-        return candidates[0]
+            matching.append((log_path, header))
+    if len(matching) == 1:
+        return matching[0]
+    # Never guess among multiple new sessions; an incorrect execution
+    # attribution is worse than an explicit unknown result.
     return None
 
 

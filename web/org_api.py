@@ -9,10 +9,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
+
+from auth_middleware import require_login, join_project, require_org_member, require_project_member
+
+from error_utils import runtime_api_detail
 
 from org_store import OrgStore
 
@@ -29,7 +33,8 @@ class ProjectCreateRequest(BaseModel):
 
 class MemberCreateRequest(BaseModel):
     kind: str = Field(..., pattern="^(human|ai)$")
-    name: str = Field(..., min_length=1, max_length=80)
+    name: str = Field(default="", max_length=80)
+    account_id: str | None = None
     participant_id: str | None = None
     org_role: str = ""
 
@@ -47,10 +52,19 @@ class ProjectPositionRequest(BaseModel):
     position: str = ""
 
 
+class InvitationCreateRequest(BaseModel):
+    invitee_account_id: str = Field(..., min_length=1)
+
+
+class InvitationResponseRequest(BaseModel):
+    accept: bool
+
+
 class ProjectMessageRequest(BaseModel):
     content: str = Field(..., max_length=100_000)
     target: str | None = None
     quoted_occurrence_id: str | None = None
+    author: str | None = Field(default=None, max_length=80, description="Legacy field; authenticated session determines the author")
     search: bool = False
     search_query: str | None = None
 
@@ -71,22 +85,29 @@ def create_org_router(
     # ---------- 组织 ----------
 
     @router.get("/api/orgs")
-    def list_orgs() -> dict[str, Any]:
-        organizations = store.list_organizations()
+    def list_orgs(account: Annotated[dict[str, Any], Depends(require_login)]) -> dict[str, Any]:
+        organizations = [org for org in store.list_organizations()
+                         if store.account_member(org["id"], account["id"]) is not None]
         for org in organizations:
             org["projects"] = store.list_projects(org["id"])
         return {"organizations": organizations}
 
     @router.post("/api/orgs")
-    def create_org(request: OrgCreateRequest) -> dict[str, Any]:
+    def create_org(
+        request: OrgCreateRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
         org = store.create_organization(request.name.strip(), request.description.strip())
+        store.ensure_account_member(org["id"], account)
         return {"organization": org}
 
     @router.get("/api/orgs/{org_id}")
-    def get_org(org_id: str) -> dict[str, Any]:
+    def get_org(org_id: str, account: Annotated[dict[str, Any], Depends(require_login)]) -> dict[str, Any]:
         org = store.get_organization(org_id)
         if org is None:
             raise HTTPException(status_code=404, detail="组织不存在")
+        if store.account_member(org_id, account["id"]) is None:
+            raise HTTPException(status_code=403, detail="你不是该组织成员")
         return {
             "organization": org,
             "projects": store.list_projects(org_id),
@@ -94,23 +115,89 @@ def create_org_router(
         }
 
     @router.post("/api/orgs/{org_id}/projects")
-    def create_project(org_id: str, request: ProjectCreateRequest) -> dict[str, Any]:
-        if store.get_organization(org_id) is None:
-            raise HTTPException(status_code=404, detail="组织不存在")
+    def create_project(
+        org_id: str,
+        request: ProjectCreateRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
+        require_org_member(store, org_id, account)
         project = store.create_project(
             org_id, request.title.strip(), request.description.strip()
         )
         # 项目默认频道属于普通软件对象；此处立即建立，避免 UI 与消息写入各自懒创建。
         store.ensure_project_channel(project["id"])
+        join_project(store, project["id"], account)
         return {"project": project}
 
     # ---------- 成员 ----------
 
+    @router.get("/api/invitations")
+    def my_invitations(
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
+        return {"invitations": store.list_invitations_for_account(account["id"])}
+
+    @router.post("/api/orgs/{org_id}/invitations")
+    def invite_member(
+        org_id: str,
+        request: InvitationCreateRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+        http_request: Request,
+    ) -> dict[str, Any]:
+        require_org_member(store, org_id, account)
+        invitee = http_request.app.state.auth_store.get_account(request.invitee_account_id)
+        if invitee is None:
+            raise HTTPException(status_code=404, detail="找不到这个账号")
+        try:
+            invitation = store.create_invitation(org_id, account["id"], invitee["id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"invitation": invitation, "invitee": invitee}
+
+    @router.get("/api/orgs/{org_id}/invitations")
+    def org_invitations(
+        org_id: str,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
+        try:
+            invitations = store.list_org_invitations(org_id, account["id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return {"invitations": invitations}
+
+    @router.post("/api/invitations/{invitation_id}/respond")
+    def respond_invitation(
+        invitation_id: str,
+        request: InvitationResponseRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
+        try:
+            invitation = store.respond_invitation(invitation_id, account, request.accept)
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return {"invitation": invitation}
+
     @router.post("/api/orgs/{org_id}/members")
-    def add_member(org_id: str, request: MemberCreateRequest) -> dict[str, Any]:
-        if store.get_organization(org_id) is None:
-            raise HTTPException(status_code=404, detail="组织不存在")
+    def add_member(
+        org_id: str,
+        request: MemberCreateRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+        http_request: Request,
+    ) -> dict[str, Any]:
+        require_org_member(store, org_id, account)
         kind = request.kind
+        if request.account_id:
+            if kind != "human":
+                raise HTTPException(status_code=422, detail="只有人类成员可关联登录账号")
+            linked = http_request.app.state.auth_store.get_account(request.account_id)
+            if linked is None:
+                raise HTTPException(status_code=422, detail="登录账号不存在")
+            member = store.ensure_account_member(org_id, linked)
+            if request.org_role.strip():
+                member = store.update_org_member(member["id"], org_role=request.org_role.strip())
+            return {"member": member}
+        if not request.name.strip():
+            raise HTTPException(status_code=422, detail="成员名称不能为空")
         if kind == "ai":
             if not request.participant_id:
                 raise HTTPException(status_code=422, detail="AI 成员必须指定 participant_id")
@@ -130,10 +217,10 @@ def create_org_router(
 
     @router.post("/api/projects/{project_id}/members")
     def add_project_member(
-        project_id: str, request: ProjectMemberAddRequest
+        project_id: str, request: ProjectMemberAddRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
     ) -> dict[str, Any]:
-        if store.get_project(project_id) is None:
-            raise HTTPException(status_code=404, detail="项目不存在")
+        require_project_member(store, project_id, account)
         try:
             store.add_project_member(project_id, request.org_member_id)
         except ValueError as exc:
@@ -144,10 +231,13 @@ def create_org_router(
 
     @router.patch("/api/orgs/{org_id}/members/{member_id}")
     def update_member(
-        org_id: str, member_id: str, request: MemberUpdateRequest
+        org_id: str, member_id: str, request: MemberUpdateRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
     ) -> dict[str, Any]:
-        if store.get_organization(org_id) is None:
-            raise HTTPException(status_code=404, detail="组织不存在")
+        require_org_member(store, org_id, account)
+        current = store.get_member(member_id)
+        if current is None or current["org_id"] != org_id:
+            raise HTTPException(status_code=404, detail="成员不存在")
         member = store.update_org_member(
             member_id,
             org_role=request.org_role,
@@ -159,30 +249,36 @@ def create_org_router(
 
     @router.patch("/api/projects/{project_id}/members/{org_member_id}")
     def set_project_position(
-        project_id: str, org_member_id: str, request: ProjectPositionRequest
+        project_id: str, org_member_id: str, request: ProjectPositionRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
     ) -> dict[str, Any]:
-        if store.get_project(project_id) is None:
-            raise HTTPException(status_code=404, detail="项目不存在")
+        require_project_member(store, project_id, account)
+        if not any(m["id"] == org_member_id for m in store.list_project_members(project_id)):
+            raise HTTPException(status_code=404, detail="项目成员不存在")
         store.set_project_member_position(project_id, org_member_id, request.position)
         return {"status": "ok"}
 
     @router.get("/api/members/{member_id}")
-    def member_detail(member_id: str) -> dict[str, Any]:
+    def member_detail(member_id: str, account: Annotated[dict[str, Any], Depends(require_login)]) -> dict[str, Any]:
         """成员主体空间：身份 + 职位/职责 + 所在项目与负责位置 + 它的发生 + 连续性。"""
 
         member = store.get_member(member_id)
         if member is None:
             raise HTTPException(status_code=404, detail="成员不存在")
-
+        if store.account_member(member["org_id"], account["id"]) is None:
+            raise HTTPException(status_code=403, detail="你不是该组织成员")
         records = history.read_all()
         participant_id = member.get("participant_id")
+        account_id = member.get("account_id")
         name = member["name"]
 
         authored = [
             m
             for m in records
             if (participant_id and m.get("author_participant_id") == participant_id)
-            or (not participant_id and m.get("author") == name)
+            or (account_id and m.get("author_account_id") == account_id)
+            or (not participant_id and not account_id and not m.get("author_account_id")
+                and m.get("author") == name)
         ]
         addressed = [m for m in records if m.get("target") == name]
 
@@ -220,10 +316,11 @@ def create_org_router(
         }
 
     @router.get("/api/projects/{project_id}/messages")
-    def project_messages(project_id: str) -> dict[str, Any]:
-        project = store.get_project(project_id)
-        if project is None:
-            raise HTTPException(status_code=404, detail="项目不存在")
+    def project_messages(
+        project_id: str,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
+        project = require_project_member(store, project_id, account)
         messages = [
             m for m in history.read_all() if m.get("project_id") == project_id
         ]
@@ -258,10 +355,10 @@ def create_org_router(
 
     @router.post("/api/projects/{project_id}/messages")
     async def send_project_message(
-        project_id: str, request: ProjectMessageRequest
+        project_id: str, request: ProjectMessageRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
     ) -> dict[str, Any]:
-        if store.get_project(project_id) is None:
-            raise HTTPException(status_code=404, detail="项目不存在")
+        require_project_member(store, project_id, account)
         channel = store.ensure_project_channel(project_id)
         try:
             result = await service.send(
@@ -272,14 +369,13 @@ def create_org_router(
                 conversation_id=channel["id"],
                 search=request.search,
                 search_query=request.search_query,
+                author=account["display_name"],
+                author_account_id=account["id"],
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception as exc:  # RuntimeUnavailableError 等：原文已保存
-            raise HTTPException(
-                status_code=502,
-                detail=f"消息已保存，但目标参与者本次未能返回。错误：{exc}",
-            ) from exc
+            raise HTTPException(status_code=502, detail=runtime_api_detail("消息已保存，但", exc)) from exc
         result["project_id"] = project_id
         return result
 

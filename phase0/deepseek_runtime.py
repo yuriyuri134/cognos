@@ -50,10 +50,14 @@ class DeepSeekStateStore:
             return None
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ThreadStateError(f"DeepSeek thread 状态必须是 JSON 对象：{self.path}")
             thread_id = payload.get("thread_id")
             if not thread_id or not isinstance(thread_id, str):
-                return None
+                raise ThreadStateError(f"DeepSeek thread_id 格式无效：{self.path}")
             contents = payload.get("contents", [])
+            if not isinstance(contents, list):
+                raise ThreadStateError(f"DeepSeek contents 格式无效：{self.path}")
             return DeepSeekConversationState(thread_id=thread_id, contents=contents)
         except (OSError, json.JSONDecodeError) as exc:
             raise ThreadStateError(f"无法读取 DeepSeek thread 状态：{self.path}") from exc

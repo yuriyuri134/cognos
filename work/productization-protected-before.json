@@ -1,0 +1,858 @@
+﻿[
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\activities.db",
+        "hash":  "1417A0D774A6D98B9DC4616608191CE10A865E8056070A792FED3408EB3F2473"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\auth.db",
+        "hash":  "42DFDFFDF6AA38F4EDA83B29406CC8406905399CD4A4B3531FE2555E832F39D9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\codex_thread.json",
+        "hash":  "FE00954EAB8197BED7144F765BB2D1F83C053D774938343C2A851FB937F88B1E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\deepseek_thread.json",
+        "hash":  "18566BA2DC1038806878E170DB233075A8AC375DEEDA02B6B36B5B57A2D3EF07"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\gemini_b_thread.json",
+        "hash":  "4EFF712B676E2BBF476D7017DE513E74D16FE8E9743288502DFF037C6CD9C544"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\gemini_thread.json",
+        "hash":  "EACCF125B1B61E0CADF90719B4FF4C26D35E542E3C5C7579B5A40830D90C313D"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\inquiry.db",
+        "hash":  "A2F77C0356A40CC282C651FB7B5B4B05D9E1E8CD3B138C4E24029D41340AC4E6"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\org.db",
+        "hash":  "9B25D691B0215D3FA49F5EB312AD07B55ECD2D899FBE6730B29EBF10755FE59D"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\test_b.json",
+        "hash":  "44543AD2E1F7EF91873952C6EFA559FEAA1303E20314544F70E1DDF37F0B18B4"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\source_registry.json",
+        "hash":  "732B0205C01CCEE513F0087572F6666AB0524BA9E5F14AE9420202848F605BDB"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-17970db1-50ee-4b77-ba8a-3a16f5ee4f1e.projection.json",
+        "hash":  "7D0B0CE3EDF55662C40378CD2E00FE960EDA79F46446C3CCFDF61687001AE5CA"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-2382480c-f294-4e04-b2de-525c0d62f9f8.projection.json",
+        "hash":  "989CB22904815C796753DCB443ECF0E840F431DA6814172198E1E344D258C577"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-26712d58-1632-44c4-b665-bc606ac54f6c.projection.json",
+        "hash":  "8730E3577CAF9614B647B8686069715255202936AA42F4074EE09174572E1F27"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-39e2d6e2-bd56-4336-afc2-0a4a63a53a7e.projection.json",
+        "hash":  "B6559081256734DC98483D83B1652E824A23431F798EDB58C38719253B18CD6B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-4cd946aa-75d7-4650-b80f-2e706c2dba97.projection.json",
+        "hash":  "7DAFB22FC033F6E38D97A4E4409AFF4A0A4E4AAB36982A16C82A3D20A04AE71B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-4ff81780-20c2-455a-9045-81f223aa6355.projection.json",
+        "hash":  "9B330FE67CCAFB6BE15E612A412DCF562CE7F440F9ECA29EBD58D4D21F349A1F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-5dc082c0-daf0-442b-82f9-94071740d3eb.projection.json",
+        "hash":  "E7F04657014E6572CBEB81D51314C6F9620E117DF018CC97B444894E0E3C1714"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-6ace7e41-1a16-4028-810a-6a664b6337b6.projection.json",
+        "hash":  "740A6286AAA72BB0A32C9C5907CA485476CE0204A7F71DB3C47F88254DDC5CA2"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-7ec58eea-c511-4512-b3f6-e5f361c25e36.projection.json",
+        "hash":  "5D4ED1DEFCFA0B38C2FAC35E432FDB50108833F7A5DE6DB31CEE081F04AA6E9E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-84168bb8-73cc-420d-b160-224a500d97df.projection.json",
+        "hash":  "C429ACC1A2EEC54564BF92021365BD62F487FD833FB6513EA7FD62DD14BB9B39"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-91d76f43-840f-4e2c-8e6c-466d07de276d.projection.json",
+        "hash":  "D4E77727E42F4C8365B08DF08ADCB3B170EEA7B3EA4113199FA0E2EADF1C1539"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-968440c8-deed-4c5c-95c3-195f548e4611.projection.json",
+        "hash":  "2361FC0313D0ACBBF8E6225CA4C9C51988650D7252DFC3F7A74121EB5D2AD148"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-d2cb2523-1fcf-4a08-b077-f2f1da930421.projection.json",
+        "hash":  "17261FB79874436074FCB13C2AFFBF8DF6D4D76C0A9D20EAA85C3126AB831C17"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-db0aec4c-e0b8-4bbe-806b-beccc4a6faa5.projection.json",
+        "hash":  "42E3E8C616A5352843AAFD476BA3A65EBB24AE98A27F33991867B6C777F966C4"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-dd550cef-840e-4dad-a0ed-c41f84746d86.projection.json",
+        "hash":  "AD57F877EE0DB502A1726918EE357E5104794A8D368644A5C16FD50CBE494C39"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-e34e8f98-279b-42cc-8e15-4fb921a35134.projection.json",
+        "hash":  "8AC16DB3D0AA926D9F226B22179FE0A1C7D923CF9E401995653AAC03DCD34217"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-eef17749-8420-400c-97c8-8f448c851a0e.projection.json",
+        "hash":  "2BF99228A8FD80CDB418B154CBE8B9E812C95DB8E207C38D98BFD94279349102"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-f7ea9b30-8245-4f4e-a369-80fa71e33bdc.projection.json",
+        "hash":  "F80BDB967EC5E8C98F269F0E58C0913CA29FC95BC11B2702050DC5030800B297"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\dsh\\sessions\\session-fcb65ac4-c842-4104-985a-51685d48161c.projection.json",
+        "hash":  "34512229EA84847E5B73128F56AB9AA4C4F7EE1A7B1BA61A0EC310D45DE75A55"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\manual\\dsh-handoff\\cef2608003ea04fb\\DSH_NEXT_SESSION_HANDOFF.md",
+        "hash":  "CEF2608003EA04FB6A2EFC26CA7FFFB4DD797E54E4E5BFEB0FBA12F1A4740642"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\boundary\\archive\\manual\\dsh-handoff\\cef2608003ea04fb\\import.json",
+        "hash":  "E8234BB79E668139C8A579BF31BCF1E4A04026FEA81808422EFB85F9F83C8F4E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\blind_ablation_20260909-140425.json",
+        "hash":  "6F9BF667F0B168F63FE969B000A03B500D3A183E28C1FA43738AFA7761D90D49"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\blind_ablation_20260909-140603.json",
+        "hash":  "A28AEAE2FAE27B830EE1AF740BA2A3F23A8DE5EEF7F5848020F18915675BC35F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\blind_ablation_20260909-140801.json",
+        "hash":  "D91308FE1B4C9AE7FC165B4460F5D07C3F2663404258F9BC602EC2658781D512"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\blind_ablation_running.json",
+        "hash":  "E85E81DD2EA682282C9C80D72129CFACFFA97AF6191995E85446A49D6B103D8A"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\frame_ablation_2026-08-20.json",
+        "hash":  "B58C2C2378A726EEB5CE8D398067D0D0D48F80F127C867AB0CD1206942F9B239"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\plasticity_affordance.json",
+        "hash":  "EEF936E942CB5D8AB1A8BB7AB7BB8288FB60A27073B627C7BE5A69555B5231F3"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\plasticity_ep1.json",
+        "hash":  "940D7D3F5F9767CFA2E13646FE828AAFB53B65E36C9A78419D3AE0AC72C9686F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\plasticity_running.json",
+        "hash":  "77A049E52A1C9A41ED367E2E58CF357A782288759A7D9AB33F755D5989C65C1F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\structural_ablation_2026-08-20.json",
+        "hash":  "383DBF6881477D22D9A8DE753BACA077838D79F8C427E70E943ACDE6FF8356E2"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-17-50-assistant-raw.txt",
+        "hash":  "7E70E0A8E952159D7C7C70FAE7B4F3A245AB3938DA30069BFF23B8828080C0D9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-17-50-situation.txt",
+        "hash":  "637384031CF4475998FF258891ED4B46B4748B9396D54E4A81FE616E2741E4A7"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-17-50-user.txt",
+        "hash":  "F770E2BD0ADCA209763B2FF2D22C15A9CE62AE3A9B08912D48FEBB3C6F629F65"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-A-bare.json",
+        "hash":  "D1E97D72D079A73202D0D8A594F0CDB46D09EC3E24AC0DB6EE65DF4631C1955F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-A-bare.md",
+        "hash":  "45A691E9B67A8ABFAE524CCF75EEC1DFB80D8F89087B8E6B825A9674229AABCE"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-A2-bare.json",
+        "hash":  "944BF4BA0FF8E959F572633C9700C33712495C4927E1B8E866778445B00F3541"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-A2-bare.md",
+        "hash":  "3DD273D3E6988F0AACA62BDAB2037B304397873FF5D87B654A3FAFB94F58EB35"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-B-full.md",
+        "hash":  "0849270EEF6472089EA2B3ABC00D16F8F6D6AABF06090F332D017437272DA986"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-B-v4flash.json",
+        "hash":  "FFDA7E57BA16D618F83437C4C79A5E758B383925057F63A04FCE867483BAE847"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-B-v4flash.md",
+        "hash":  "8BDC2036B613D523F550457E04A170019425BF37312808DC033BC76A0E044F2F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-C-minimal.json",
+        "hash":  "4193573882B8BCCF25CFB54E4C10B95A302F50F67CEC51A076F9852D8DCDBE92"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-C-minimal.md",
+        "hash":  "B94F75173228EC8B1D1ADFD280C5191D949A91EA395B2766518A86AC14E9E457"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-C2-minimal.json",
+        "hash":  "B6737EED34D59EF9B929FF53C347CA2CBC21E657C7720A9257C58092189D3EFF"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-ABC-C2-minimal.md",
+        "hash":  "7EA7C2AA0C55B7430FBED1F70BA9208D8BBD5D00742F7D8FF8289AC0560EAA98"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-last-assistant-reply.txt",
+        "hash":  "94565E37A99780C874F3799D910BBEBFB786D04C349024D92CD8D6B3C839FFE7"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-last-user-input.txt",
+        "hash":  "D65F9F69CAF1FF2BA633B362EC5D449802D7C7840DD542725FFDA2802E27290E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-search-replay.json",
+        "hash":  "38E8127479DBD48936DB0C83843845FC721B9CF114245143B904933D63040186"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-thread-snapshot.json",
+        "hash":  "4CEC2BDA4EEFB829E9B759350A0930281283E8960E0FEC371F4FFFC712359A5C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\experiments\\trace-怎么赚钱-完整链路.md",
+        "hash":  "0ECD5A44493BDCFBFD204A757B2A342621A5541A015EFE17C1A3D2C4DAD09A7C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\handoffs\\cdb6f017-304c-41de-b34b-bd29ce82cab9.json",
+        "hash":  "8B44CBDC6CB8FEAF10525B8FD7B82559BD34CB987A91CB5462760B865BFE0BEF"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\handoffs\\d861e2c0-96f0-4b2b-a062-9c90be5c0197.json",
+        "hash":  "D625B71DBD7C5C22EB2949702FA2CA90AA5A8F7EB17A2126E5AA03F9983F1E18"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\handoffs\\f85f83b5-9f7e-43c1-a8fd-6c3297807d0d.json",
+        "hash":  "F85F303E501B4F4879AA5130B6434E1E48CD33B8EFD22D846BE917E1D0EF9920"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\06178ae9-9db2-4f00-8925-6410c3bb94bd.json",
+        "hash":  "768F86D4F136794B249EBCCEBC95F7F09B0362F4E051433376476B7BC3079D89"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\0987f225-46f3-4d04-aebd-aea56a62100b.json",
+        "hash":  "E2796E5EFD8493C48F173F61116DE69A3C3DECB954A0A5AAA3A685267FE71598"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\1cc337ab-7040-4109-9738-5d6b7605412f.json",
+        "hash":  "BA6103035135590D987C393D1CEE90B85E9C48BEAFC03FA697FE08DF42216976"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\25ff92bf-9a93-4486-919c-f7b49e0668b1.json",
+        "hash":  "5B64042451FEF870208DEEB7081A348D50889AF46B40B56A589D4C958CA0F356"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\2be15e68-7a62-449f-a3b9-9bd381e3ad05.json",
+        "hash":  "9225182BDA40D390346C47D249866AEDF44DD7376ED1479D7631233E9892D841"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\32c0d36e-5503-4f40-bd66-0c449c9c14b6.json",
+        "hash":  "F0D70ACA2D209676266C2694FD2801B5128C36C3150C2D69379572578625EE1A"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\36a68996-46fa-4d8b-8694-e294af3265c0.json",
+        "hash":  "CA511B2459CD5E3D74A5DE4C08754024882F0600DEA510264F93E67A6BE8145D"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\38775245-7b3a-4513-8f12-08002d70cab1.json",
+        "hash":  "5AE8C91B79960EFAD7378E8DE10086EDDB98D89A89AE7BECE4876AE45B1107B2"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\40e790ab-f3ce-4cee-adf4-36c03433a842.json",
+        "hash":  "495405CA5B7A5B82EA0EB51AC52950A745F314206F5A8E69727F2F41936EE16A"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\4c9a1cd5-a405-4ab2-91df-e682ed49e0d3.json",
+        "hash":  "1E5B0CB93F91F697CDC02F97D377DEE310A767813B9643256F05A8FBCA36E87D"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\54cfe733-c47c-4b09-9e98-35e6ddbfbe0a.json",
+        "hash":  "D4AD0DB4D4258F3489DBF13D620959BC6DF2E0C073A6883F30A921C7B39E087B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\58302a93-a58d-41e7-bb15-210ed1312b33.json",
+        "hash":  "DD52CFB85DF658C4818656E15945F06EE64535C7CF8C7B7517AAB0981E90A477"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\6b709076-0108-4a4f-90eb-9789c0d62d9f.json",
+        "hash":  "E2BEF383652659A1F5092E143D74E88C449545DA9EAF5C66EBBB7D6F58CE7129"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\78a9fd27-42ea-4f79-a9ce-d4ea63160a10.json",
+        "hash":  "A1C6EC81E4BC5B8E62CB5D631A3E356C9452ABBEE0E9AD945F0800DDC387B388"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\83fd76a2-bacf-4af2-898b-0649ed18f899.json",
+        "hash":  "E68F012E57C560777692C6A3152E0F5EC2672C9569442C0675C67309F6F65497"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\8b551fef-143e-4c4a-8511-a0a9ab59a084.json",
+        "hash":  "8451B2672BDCC937BA74D6C4DC149B59F3277D57DD874757900C53ABBF42E64E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\9472ade8-babf-4115-a08e-7e32e7092455.json",
+        "hash":  "F41C4B147EAB82EB6F8C45C4660914244EB05163424CE3E1A8ACDE4469B8664E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\990849cb-aa73-4a92-87da-7d0e28038302.json",
+        "hash":  "AA45D69F1C2D9EBDA12AE12019267718296976E864986FA1F799C88CB4F83334"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\9d1086ef-e44d-4c54-b8a1-ea8d4ef9da9d.json",
+        "hash":  "E1F62B5D2CA1ED0CEC9DD5BD6F200D63B7F7083886BE648DC10DE3E53662DD95"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\9f4d66a9-2812-4fca-ada4-7d758e8731aa.json",
+        "hash":  "11043CEB0BFCB4B1B3BD079B2403C0E12AAA5313BD57484007D4688424C15356"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\ac6cba93-56ab-4dfa-8312-fe81a07208cc.json",
+        "hash":  "EDDB5A04F515057F3BB1111424B976213C3AFFDA3BDA729917ECE025E10CB9E9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\b0f40145-0b71-492a-bc16-5d5040f472db.json",
+        "hash":  "5A88E5B015DB3A501C73A36F0AA3F8A8034A8A7C058B48CBC8B628F961D437B8"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\b4623be6-f417-4a87-b21c-8079f18c97ce.json",
+        "hash":  "EACB49C80DD74714B6142C0A9FED304D90FD2B258B6B38B45DC993DE491A3354"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\b542a204-fb72-4951-a7b5-0bed988cbd98.json",
+        "hash":  "44B8191CC7219CB4F2188BC98021C04E8D9D1B8704E756A0367470F8E8E0C0E0"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\b5d22387-39a1-485b-972f-7d5ca9ac9640.json",
+        "hash":  "E502EEBBF86FF1C4E0828B5CE9ACAEF3B7506E700EE5FF2D04EE9B12EEDB8A94"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\c38ef035-831c-4ba3-8536-fc536599a243.json",
+        "hash":  "152D12C82C71AC30BAAFE1B0DD80215FF2DB15A5F178E0E876EFC1CB2B214DB0"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\e8f167ad-b92d-4e0a-93ee-a7005dc8b885.json",
+        "hash":  "401E6D0A2F8F854E749B4914FFF68A24B91E7AB00845B252A4DE2E41D9AA1D54"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\e998fbd4-b418-43eb-879a-cab467176d93.json",
+        "hash":  "2907700DE982E6DDE271360B03E06AA2916F8FB1534C3083E4957E63FF9BF536"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\eb51e4f6-f194-4bb7-93bf-3df44ea65e00.json",
+        "hash":  "B838018B735974F00460416CB7CD4B15550D994942667BA227CDBEB4D6F59177"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\situations\\f9686d83-5949-4af1-8a80-d22962e6524c.json",
+        "hash":  "C619A45746269027F00384A3A1A32EBB37C3ED7C1862BCB240130A164876AD5A"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\fixture.log",
+        "hash":  "A7C19B1AE78BF218AF3584C68DC64C83CFF9C1BE0E0A8C7EED2D98B6DA6FEE18"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\package-lock.json",
+        "hash":  "93854E6A38774E1550CABA63605988C5292E7407A11B5BB451D9C53E7A8580C5"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\package.json",
+        "hash":  "BBDB7E1E007782AEE7F5023FCF6B82AB048061FDC858FA1C47807CB210DB129F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\.package-lock.json",
+        "hash":  "B8DCC5A61F44BED9C150F4CBFAF7AD27D2F2A4A45FA85DCF11D8A7570F6755D1"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\.bin\\playwright-core",
+        "hash":  "584CAE79499218FCC26F02060943B348AE924A9FAF170C81B2039E0859F007AA"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\.bin\\playwright-core.cmd",
+        "hash":  "0AB76DD14F55B61E4AFC3948C3D750D5753B81D0939E6DF254CBBF5923EF1477"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\.bin\\playwright-core.ps1",
+        "hash":  "3BF0F558069840DBF93F823DA0886E3F7B01E58F00C26CA9A2A5551BAFD6052B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\browsers.json",
+        "hash":  "545D52F8382C391E605562C330E9C1C534A16045898203037A49BB8BD769A946"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\cli.js",
+        "hash":  "F1C4075AEF116C766092250D7F37B3249A7CEE6465D953207FC38C8F6145BECD"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\index.d.ts",
+        "hash":  "7A8EC10B0834EB7183E4BFCD929838AC77583828E343211BB73676D1E47F6F01"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\index.js",
+        "hash":  "A58FB2CEC4293E7DCF73C58A179898A4F3986666451A19DA4E731FA3AF63265B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\index.mjs",
+        "hash":  "3D36E2132D3C8B62397D23F0BB4177336AAEE503203AE2A2C90FBEB5BF3317DD"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\LICENSE",
+        "hash":  "45873D00A0DD243596DEB4AA23B2493B3D1F0671921BF2538EA431D7380220EB"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\NOTICE",
+        "hash":  "6D602191187B35B9B01D2CFFA01C8469C2C8D9DE8A96F1BF868E0F264F51C81D"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\package.json",
+        "hash":  "F061C58427E47E843E26D201F0A57076C734E57C734ECBBD87D4A23B7A20DB9B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\README.md",
+        "hash":  "D16FF7F8E38FA1FC954F695AD551CDC118D9C9BDD5F3D83203901F4C317D7D7E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\ThirdPartyNotices.txt",
+        "hash":  "A549D329BAD8806FE279F0ECAE0FC0270DEC7E7C2DC8EC10F90E394F7C32B144"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\install_media_pack.ps1",
+        "hash":  "BC20F049BADF021E3A53BDB4156603CAA5EF482C9A9A251F927605E676A44171"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\install_webkit_wsl.ps1",
+        "hash":  "BC61BEDA37A808EEF27D39CE684BAA792F6D17737A25A432B1A84D3B591AB815"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_chrome_beta_linux.sh",
+        "hash":  "DC8C22B9DDE76583CECE2857575B88094299615F3136A3C598149710C45DEE3A"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_chrome_beta_mac.sh",
+        "hash":  "A92EAEB4EBCF5633A4E9C981481E14C80764FC81B6FCBC0565398E50FF319433"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_chrome_beta_win.ps1",
+        "hash":  "B6D9E44742FEAFB98D5EDC56FA20042949973CF30D141A1C5B4FB384096967C5"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_chrome_stable_linux.sh",
+        "hash":  "DC72AB3567A4CE43BD8353D4ECF41F1D9C03E870169367CD3ED9043AABF67DD1"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_chrome_stable_mac.sh",
+        "hash":  "BB43A96C192A6CC81524ADE0264686FFF7809C019A89F7DB0A9849635879C3BE"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_chrome_stable_win.ps1",
+        "hash":  "3D96C4E2F4EBBB3FAD44CF3BA58D9CF90AF1C9FB3073E3B27D45A74CF005515B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_beta_linux.sh",
+        "hash":  "10B26F35DBC2000B94EDF1172D803A29C5873A4EB8D523AFBC687997B642767E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_beta_mac.sh",
+        "hash":  "0036D738BC90D686100D81F328BA0003BF07863F5500B792C8DA391D149750FA"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_beta_win.ps1",
+        "hash":  "B173C378A59F0CC38033CEE702DE1F44F09276C9B2270D1A650EBE66EE312433"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_dev_linux.sh",
+        "hash":  "00E4947E7A4F8339C6DB09C87976D808583C07F9179E4AA7694D88614B82FE95"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_dev_mac.sh",
+        "hash":  "6F899E3B311F742C24CA37FF9E32298E8290514FFC14BF588CC51556A29DA4C0"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_dev_win.ps1",
+        "hash":  "46F7F98C81CB0ABE687D7F4A5AFEA9B897A38D2A6DD6F6662FBD847F7A22BD51"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_stable_linux.sh",
+        "hash":  "EC0A31A5F09C565E108473A1850895A4458AB00C713AC1DE3AA2001912E4668F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_stable_mac.sh",
+        "hash":  "3AF1E893527FF2257AA2DBC3B259A053B92F45C3EADB13E38EBA46E87902655D"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\bin\\reinstall_msedge_stable_win.ps1",
+        "hash":  "40BB5FCBFCEBBBE2CE43C6E736E7C5DEEFC5BE03B6E9C6914423C06EC1F591BE"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\bootstrap.js",
+        "hash":  "4637F4DBFEF9CFC01BAEB5F5D2CB63FA0901522C96915EA2227290558D27123E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\coreBundle.js",
+        "hash":  "549070AF3ACABB3EFCC4F55BFE6210F9F7C2FCF633CF7EAA59BFE60719969171"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\package.js",
+        "hash":  "9F938E1D44A0DD231B1660CA62F7DAE964859B79CBDC370B8542C5D375CA3C05"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\serverRegistry.js",
+        "hash":  "38025F08F335705B099B9F188BF45B5908A56A722825FE895B1E90F56D5595B6"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\serverRegistry.js.LICENSE",
+        "hash":  "3098A6EFCBC11752CBDF6075FA65480F5470F78C8D981FAB9C0796DC9A41CEFE"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\utilsBundle.js",
+        "hash":  "2D1CCC01D21B7D54CA99A6305991D7FB6E072EA4E725D7FEC5EB6184188C52C9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\utilsBundle.js.LICENSE",
+        "hash":  "2495F30BE29620D54B58339821EDA0EBABDFB6EE9B09455F7285A06FD46FB9F3"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\webp_codec.LICENSE",
+        "hash":  "995C7EE35ACEB7666829B7A501CA89C0864E12B493C1174B155774AB1E03D831"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\webp_codec.wasm",
+        "hash":  "164CD9583A3E4D081F767D3B41FF0A730443DC7535FCC5CAFF83561463384B79"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\xdg-open",
+        "hash":  "7D759D54F0D4CE1BEEB34EE62C587985B5042374E8DE237B0DCB8CD47AA698CF"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\entry\\cliDaemon.js",
+        "hash":  "062F256FB29A7BF91793A014B9C3F1F9CF2DC6B12E40A8A2EBBA88A630AE16A0"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\entry\\dashboardApp.js",
+        "hash":  "209962C6EAEEF11629F226D6A2AB33EC7A2480754242B6E19590A9E6EB71D126"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\entry\\mcp.js",
+        "hash":  "CC87DC0020CB41CAEBBF04F50E42BC7835B033A6D80E9C3F0A3D0B3DBDF341C7"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\entry\\oopBrowserDownload.js",
+        "hash":  "87567CDBD67DD2F50BB232D47D3784701ECE7C81E39C0287BB7D1B466B68CF06"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\server\\chromium\\appIcon.png",
+        "hash":  "6BA994F05C5CF18E22D9B6BEF9898FBDEC6AD4D4D77F5187D0609CB42D72D01E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\server\\electron\\loader.js",
+        "hash":  "699FB5564539DA34ED72F49E9821AF28F9FC06940ADB639CAC55DC9C477CFE7C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\cli-client\\channelSessions.js",
+        "hash":  "6B9C613E87340F48AD7182ADDD7495A8FF3FBE55FEB1BBD0CE04F59F1552E126"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\cli-client\\cli.js",
+        "hash":  "DFDE8E9DFDE30C4B3914EB25BA1C5A8524EC64651D866171D75CD7B41A827180"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\cli-client\\help.json",
+        "hash":  "E78D7A22D059196E838D1F076B563EAE185B851E3E36063FA4AE77A8DC1415B1"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\cli-client\\minimist.js",
+        "hash":  "9430489EBC06FD02231DCCFE844516F743E812A9AC4FE8E6748A67718738851C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\cli-client\\output.js",
+        "hash":  "B4C3EBAB965E73D621971CD3C76B60C22CF460A0921F14C5C6C51E46E06F02D2"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\cli-client\\program.js",
+        "hash":  "55A9A10132C680ECDEC25B5000AFB12035745AC9E75DD9CC0EF3E5D5E08D7F3E"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\cli-client\\registry.js",
+        "hash":  "4976CD5B2B3A25572CC1A4B5F055A756DACD4CC1B19D48987EE3253428E759B8"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\cli-client\\session.js",
+        "hash":  "A71E03BA6DC99D6D9CCA4577D534DAA6D0C20C32E50065311823F41CABA29B46"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\dashboard\\appIcon.png",
+        "hash":  "38037BCF18C7F9B950DA2E1A2D8800D38FB27637CCDA293D38368A3704B67F18"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\SKILL.md",
+        "hash":  "1A609C93BFF3EEA9AB99FED93C0334C851FDC39FB6AC5335551BFB87C171D57C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\element-attributes.md",
+        "hash":  "BF19AA4671E0A50A0FEFA9C790F39124E803060EEFE395042B723C29FCB7FAA2"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\playwright-tests.md",
+        "hash":  "C5B0719FEF2CFDFF50BD744051B2F9AFC119775DB4B48E9B2882C1CF3886797C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\request-mocking.md",
+        "hash":  "54E801C9663FC2B6D68CEB058CB1C360724C2499F42ACC7852A68E83E5B5F37C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\running-code.md",
+        "hash":  "D95C539A5990B71D02D8BDF1D9414DF16191EB6CFF95B0063820518B7A13DCB2"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\session-management.md",
+        "hash":  "CD3E261B8763BF952F1E371B876CB78D054379AFEC85482F9250633E1B7E6C44"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\storage-state.md",
+        "hash":  "9AC47F9AE4A1AEDCD2077F8AC9AB1BA6BEE1962CB83FF51ADCD36FB6D83B5EC6"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\test-generation.md",
+        "hash":  "12F54CFA718D9E559BAD918120A4CA4F11C933167713D1B9C5F99872EDDAF749"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\tracing.md",
+        "hash":  "EF73E71BEE792E341DF9CD4F60529C929ADE48B538AC76E033F4F20843E8DBDA"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-cli\\references\\video-recording.md",
+        "hash":  "8555AB5400DF0D90E66318AACC0A8A4418FBF872E7463824D55D5C41615ABD83"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-component-testing\\SKILL.md",
+        "hash":  "60F57B31767D562C30CC5332081418C2945F4D9C998EFA6E09191333654DD429"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-component-testing\\references\\gallery-spec.md",
+        "hash":  "0CA25DDE6112EB379F56EB618585B64DC2DFD13C2F7F956AC7EABBD76A68912B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-component-testing\\references\\migration.md",
+        "hash":  "BC3A336F7970BB7455FA5A38F937E45B35FB0C18D6C3B9F37916A4FF757B7ACC"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-component-testing\\references\\react.md",
+        "hash":  "54AF9CC1CDB6D4CCDB8E811C0ABB29B960D5C9304F4DF7D1DCF9B8DF3F973102"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-component-testing\\references\\typing.md",
+        "hash":  "C511025B5C9B02D7F49034A5613C8B478193BF60C90EA6DDDB3FAF9C6985C82B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-component-testing\\references\\vue.md",
+        "hash":  "D1B129F126C700702A3C00AD8EB6C86898BC941C29A656C1191EB7230650BF8B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\skills\\playwright-trace\\SKILL.md",
+        "hash":  "4124DD790915BB76108377121D1E6CA93A5544C90485C090FA5655235EFE22AA"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\utils\\extension.js",
+        "hash":  "404AE19E57A7C7C5ED3E6ECF9DF26A3FCF95867250732F954823078CCB879E63"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\tools\\utils\\socketConnection.js",
+        "hash":  "973C2BEA70A1F1445F4673F99E9FA351E50A2EC9FD93D7381B2C41BB4DE764DD"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\index.html",
+        "hash":  "202903AAD66040604BC1A0C85615DDA4BFC7E6F4A4674E60D9EDA4D44F6FAEA7"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\playwright-logo.svg",
+        "hash":  "511524A1C145819303A18FB71870A4307C3E740F9E9722F7686A2B42B0995B6C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\codeMirrorModule--QdMvsKi.css",
+        "hash":  "20BE824A82832B62CC04642D31DA3C609FD280B23F1CDCB1E622C4F40AAC5AB8"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\codeMirrorModule-CQ8RZGBm.js",
+        "hash":  "56B9C6A50C09DFAC28EEA5EC3E76C8AE85A26009B20EBAC9928959CF3C3312BB"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\codicon-DCmgc-ay.ttf",
+        "hash":  "0F1D5219934E96E83B8DB162D60B4D8C09B5DE1E7D38031CBAFE4A3C0F2889C9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\firefox-1bWoP6pv.svg",
+        "hash":  "3F3742D1E78C0DB6C2D3531250F70C30675EE5310DE32FA89BEFAF738C54EFD0"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\firefox-beta-k3eOH_eK.svg",
+        "hash":  "7EAB5FFDC25903BA33A7202F7FFFA1999F119C7BE45A39E9E703C118904F917A"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\firefox-nightly-Cp5nfeDT.svg",
+        "hash":  "F311C074B0FA999FCD6B73441301FB54EE87A48FF3BF05F318647928110476DA"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\index-AwgwcYie.css",
+        "hash":  "82D06F291A7D0860E1B1E1803AB6F2E49C637541779A37168652E10B062B67F9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\index-hRvO4yU2.js",
+        "hash":  "3A05ED0B026442A1459952DF25B9A836D4FA1A917838CF6F9357DAEFC0E42285"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\dashboard\\assets\\safari-na3_-uQk.svg",
+        "hash":  "80FD72CA5EB8545F1981277B31F4F92951D469D4EFEBD078E4086B676FE517DC"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\htmlReport\\index.html",
+        "hash":  "CE7C098020A0EB9CE10EDD416245EA6DA50DFEAAB18DFD0A2176979D22643BE6"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\htmlReport\\report.css",
+        "hash":  "D98A244BF950333ADE383B109E97D396F970F650B20F2E5EF5ECC2740205DFF7"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\htmlReport\\report.js",
+        "hash":  "3DB0C0291241102B14B62AF4B80D84DD8169A281BB2FF360C986B9D7DA57C339"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\recorder\\index.html",
+        "hash":  "5783E9B7E2CC78DD8A1A409D84B44B2431BF60F8F54B8BE36C6E433C6A1086ED"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\recorder\\playwright-logo.svg",
+        "hash":  "6B0A4367BDEAB10995BC239278F04C68C10E48ADBEC15E799E01909A0D66DCB9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\recorder\\assets\\codeMirrorModule--QdMvsKi.css",
+        "hash":  "20BE824A82832B62CC04642D31DA3C609FD280B23F1CDCB1E622C4F40AAC5AB8"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\recorder\\assets\\codeMirrorModule-CVQWJZAA.js",
+        "hash":  "45F900FD93BF33545E6915308A964C49CE342C2E175A54AAEF0898F05B25FCF5"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\recorder\\assets\\codicon-DCmgc-ay.ttf",
+        "hash":  "0F1D5219934E96E83B8DB162D60B4D8C09B5DE1E7D38031CBAFE4A3C0F2889C9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\recorder\\assets\\index-BZpYJZ-P.css",
+        "hash":  "CC24563B96F286614B88F74DA413E9984DE263227971C4CDFABE1F73BE095514"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\recorder\\assets\\index-hrlLqLtq.js",
+        "hash":  "F7F3DFD9113B0119821ADF1F3FC873FA5DDDBA8B2C278014E0FB0ECC1B3F492B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\codeMirrorModule.-QdMvsKi.css",
+        "hash":  "20BE824A82832B62CC04642D31DA3C609FD280B23F1CDCB1E622C4F40AAC5AB8"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\codicon.DCmgc-ay.ttf",
+        "hash":  "0F1D5219934E96E83B8DB162D60B4D8C09B5DE1E7D38031CBAFE4A3C0F2889C9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\defaultSettingsView.Bqk9acqE.css",
+        "hash":  "CD1D3C277D4962246ED92D7D42734C5FFED6BAC5C499232693F9C8331B71801F"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\index.B4cLoZK3.js",
+        "hash":  "7B96EFD541639738A8D46E4B6BA9780FFAF57A5C104DB66764E0CEC46D9F64E8"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\index.B_TqY17P.css",
+        "hash":  "08A212FCACAE1866F44F065654AFCC4C7D03409C68C74B3315C5BDA17A0CA003"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\index.html",
+        "hash":  "139AC80123FB450CFC0631296E9F01463313CA2FEC961B3A247EC6C9528447A2"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\manifest.webmanifest",
+        "hash":  "D8540500603A32A39FE7E5A0375DC0F9EBAFD11118E06A846DB7EFC608223AB9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\playwright-logo.svg",
+        "hash":  "6B0A4367BDEAB10995BC239278F04C68C10E48ADBEC15E799E01909A0D66DCB9"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\snapshot.B_Jk1wbt.js",
+        "hash":  "D4D09E05451D107D8E1A6BBD041405FE518B9FD2833890E4EBAAAD83B7F554F5"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\snapshot.html",
+        "hash":  "C608C8899C95C5A74D3F556E20146C3D852B9DF85AE2854C659A7CC773C9B727"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\sw.bundle.js",
+        "hash":  "37B230329280E28E32B03DF20738D2ED3BFD0EA45B408A69213158BB8400ADB3"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\uiMode.CU5KtEkS.js",
+        "hash":  "0C0DC5E0C822C27E60420A5C1659683FDA89398F1561E43608F9D829EAFDC197"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\uiMode.CyMfwkXJ.css",
+        "hash":  "FB403CF0B07007BC1D771E29737F7408924DA300E2FAB8B289A3EF2E8FC08D7B"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\uiMode.html",
+        "hash":  "C6E92923EA7F2B617DB3A2128AC8889C6C1461A77764651588E0111B729C3A3D"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\xtermModule.kHJ-D0s7.css",
+        "hash":  "0DD60056134E6A2994A86B59A1E9789B9F04E92924DA109AEF8C923ACAF08CE5"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\assets\\codeMirrorModule-BbkfBe3n.js",
+        "hash":  "274B964242426BF4E1C662A84F6345D8A99F67821CAA508FB12C52E2D1DFD48C"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\assets\\defaultSettingsView-Ds6CBOo0.js",
+        "hash":  "0B48F13034CFA075338CC0839F212297D22CADAB9219D9699D161D2B18C79019"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\assets\\urlMatch-L3liM589.js",
+        "hash":  "1BC6321E32D11C31A452BC75896F0B344E6153321854D9F1658818BE7F845C16"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\lib\\vite\\traceViewer\\assets\\xtermModule-DywYcAf8.js",
+        "hash":  "2546783E4F74A432BBCCD88A6763CF78AC4E951686262CDF85B54D5A26CA3995"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\types\\protocol.d.ts",
+        "hash":  "0410ED82A9AC63269DC1471ED249B280E2D461249A3A331E71CDB54CDF10DB33"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\types\\structs.d.ts",
+        "hash":  "C9B9179B7291C8562EB0FB781219DDBDCF36149EBD7BD355E5B4A553D6B60B81"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\ui-check\\node_modules\\playwright-core\\types\\types.d.ts",
+        "hash":  "2806F6D7810FBA0306066D500CD716A6D1128D90AF2C3CF71723E3EA0A8904C4"
+    },
+    {
+        "path":  "C:\\Users\\lnp\\Documents\\Obsidian Vault\\10 Projects\\Cognos\\运行数据\\第一发生场.jsonl",
+        "hash":  "50274C21B527234E012B578E120D40436C2E49353F4C934310844D36A0E884E0"
+    }
+]

@@ -1,0 +1,13 @@
+{
+  "fixture": "isolated scripted runtime; no model inference",
+  "checks": [
+    "Anonymous page loads with hidden login overlay and no startup ReferenceError",
+    "Login succeeds; session cookie is inaccessible to JavaScript; password field cleared",
+    "Project Members tab and member homepage work with right rail hidden; Back restores tab",
+    "Registered second account can be added to project from central Members tab",
+    "Human display name containing spaces renders and posts without DOMTokenList error",
+    "Activity shares login cookie; anonymous write opens login; second account logs in and creates activity"
+  ],
+  "pageErrors": [],
+  "status": "passed"
+}

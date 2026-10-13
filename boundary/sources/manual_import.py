@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,18 +46,33 @@ def import_file(
     path = Path(path).expanduser()
     if not path.is_file():
         raise ManualImportError(f"输入文件不存在：{path}")
-    if not source_id.strip():
+    source_id = source_id.strip()
+    if not source_id:
         raise ValueError("source_id 不能为空")
+    if (
+        Path(source_id).is_absolute()
+        or source_id in {".", ".."}
+        or "/" in source_id
+        or "\\\\" in source_id
+        or ".." in Path(source_id).parts
+        or not re.fullmatch(r"[A-Za-z0-9._-]+", source_id)
+    ):
+        raise ValueError("source_id 必须是单一安全路径片段")
 
+    archive_root = Path(archive_root).expanduser().resolve()
     digest = sha256_short(path)
-    archive_dir = archive_root / "manual" / source_id / digest
+    archive_dir = (archive_root / "manual" / source_id / digest).resolve()
+    if not archive_dir.is_relative_to(archive_root):
+        raise ManualImportError("归档路径越出 archive_root")
     archive_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = archive_dir / path.name
-    projection_path = archive_dir / "import.json"
+    raw_path = archive_dir / ("raw" + (path.suffix or ".bin"))
+    projection_path = archive_dir / "import.meta.json"
 
     is_new = not raw_path.exists()
     if is_new:
         shutil.copy2(path, raw_path)
+    elif sha256_short(raw_path) != digest:
+        raise ManualImportError("已有归档内容与本次来源不同，拒绝覆盖")
 
     now = utc_now_iso()
     projection = {

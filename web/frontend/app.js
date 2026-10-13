@@ -1,6 +1,18 @@
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[char]);
+}
+
 const stream = document.querySelector("#message-stream");
 const memberPage = document.querySelector("#member-page");
 const memberPageBody = document.querySelector("#member-page-body");
+const socialPage = document.querySelector("#social-page");
+const socialPageBody = document.querySelector("#social-page-body");
+const socialDirectoryBtn = document.querySelector("#social-directory-btn");
+const socialInvitationsBtn = document.querySelector("#social-invitations-btn");
+const socialBack = document.querySelector("#social-back");
+const invitationCount = document.querySelector("#invitation-count");
 const memberBack = document.querySelector("#member-back");
 const emptyState = document.querySelector("#empty-state");
 const composer = document.querySelector("#composer");
@@ -38,6 +50,7 @@ const memberParticipant = document.querySelector("#member-participant");
 const memberAddBtn = document.querySelector("#member-add-btn");
 const viewTitle = document.querySelector("#view-title");
 const viewNote = document.querySelector("#view-note");
+const directBack = document.querySelector("#direct-back");
 const scopeBar = document.querySelector("#scope-bar");
 const scopeLabel = document.querySelector("#scope-label");
 const projectTabs = document.querySelector("#project-tabs");
@@ -71,8 +84,25 @@ let stagedQuote = null;
 let isHandoffMode = false;
 let messagesMap = new Map();
 let orgData = null;
+let currentUser = "";
+let currentAccount = null;
+async function refreshAuth() {
+  currentAccount = null;
+  try {
+    const r = await fetch("/api/auth/me");
+    if (r.ok) currentAccount = (await r.json()).account || null;
+  } catch { /* 暂时无法核实会话时要求重新登录。 */ }
+  currentUser = currentAccount?.display_name || "";
+  const lab = document.querySelector("#current-user-label");
+  if (lab) lab.textContent = currentAccount ? `${currentUser} (@${currentAccount.username})` : "未登录";
+  if (authLogoutBtn) authLogoutBtn.hidden = !currentAccount;
+  if (authOpenBtn) authOpenBtn.hidden = !!currentAccount;
+  return currentAccount;
+}
+
 let currentView = { type: "field" };
 let previousView = { type: "field" };
+let socialMode = "directory";
 let currentMembers = [];
 let projectChannels = [];
 let projectChannelsProjectId = null;
@@ -226,20 +256,19 @@ if (stagedCloseBtn) {
 
 function createMessage(record, { pending = false } = {}) {
   const node = messageTemplate.content.firstElementChild.cloneNode(true);
-  const isUser = record.author === "小林";
+  const isAI = !!record.author_participant_id || !!record.runtime_ref;
+  const isUser = !isAI && (record.author_account_id ? currentAccount?.id === record.author_account_id : currentUser && record.author === currentUser);
   const authorName = record.author || "未知参与者";
   
   node.classList.toggle("user", isUser);
   node.classList.toggle("pending", pending);
-  if (!isUser) {
-    node.classList.add(`author-${authorName.toLowerCase()}`);
-  }
+  if (isAI) node.classList.add(`author-${String(record.author_participant_id || authorName).toLowerCase().replace(/[^a-z0-9_-]/g, "-")}`);
   
   node.dataset.messageId = record.id || "pending";
   
   const authorEl = node.querySelector(".author");
   if (isUser && record.target) {
-    authorEl.textContent = `小林 → @${record.target}`;
+    authorEl.textContent = `${currentUser} → @${record.target}`;
   } else {
     authorEl.textContent = authorName;
   }
@@ -257,9 +286,9 @@ function createMessage(record, { pending = false } = {}) {
     quotePreview.hidden = false;
     quotePreview.innerHTML = `
       <span class="qp-badge">面对已有发生</span>
-      <strong class="qp-author">@${qAuthor}</strong>
-      <code class="qp-id">${shortId(record.quoted_occurrence_id, "")}</code>
-      ${shortText ? `<span class="qp-text">${shortText}</span>` : ""}
+      <strong class="qp-author">@${escapeHtml(qAuthor)}</strong>
+      <code class="qp-id">${escapeHtml(shortId(record.quoted_occurrence_id, ""))}</code>
+      ${shortText ? `<span class="qp-text">${escapeHtml(shortText)}</span>` : ""}
     `;
   }
   
@@ -270,8 +299,8 @@ function createMessage(record, { pending = false } = {}) {
       <div class="handoff-box" style="margin-top:12px; padding:12px; border-left:3px solid var(--accent); background:rgba(255,255,255,0.05); border-radius:4px;">
         <strong style="color:var(--accent);">⚡ 外部交接请求</strong>
         <div style="font-size:0.9em; margin-top:4px;">
-          <span>目标: <code>${record.handoff_request.target_agent || "未知"}</code></span>
-          <span style="margin-left:8px;">上下文: <code>${record.handoff_request.source_refs.map(id => shortId(id, "")).join(", ")}</code></span>
+          <span>目标: <code>${escapeHtml(record.handoff_request.target_agent || "未知")}</code></span>
+          <span style="margin-left:8px;">上下文: <code>${escapeHtml((record.handoff_request.source_refs || []).map(id => shortId(id, "")).join(", "))}</code></span>
         </div>
       </div>
     `;
@@ -284,15 +313,15 @@ function createMessage(record, { pending = false } = {}) {
       <div class="handoff-box result-box" style="margin-top:12px; padding:12px; border-left:3px solid var(--success); background:rgba(255,255,255,0.05); border-radius:4px;">
         <strong style="color:var(--success);">✅ 交接结果</strong>
         <div style="font-size:0.9em; margin-top:4px;">
-          <span>变更文件: <code>${record.handoff_result.changed_files.length}</code></span>
-          <span style="margin-left:8px;">运行命令: <code>${record.handoff_result.commands_run.length}</code></span>
+          <span>变更文件: <code>${(record.handoff_result.changed_files || []).length}</code></span>
+          <span style="margin-left:8px;">运行命令: <code>${(record.handoff_result.commands_run || []).length}</code></span>
         </div>
       </div>
     `;
   }
 
   const body = node.querySelector(".message-body");
-  renderContent(body, record.content, isUser);
+  renderContent(body, record.content, !isAI);
 
   // 联网检索来源（Search Grounding）回显
   if (record.sources && record.sources.length) {
@@ -447,7 +476,7 @@ function createPendingReply(targetName) {
   }
   const fallback = document.createElement("article");
   fallback.className = "message pending-reply";
-  fallback.innerHTML = `<div class="message-meta"><span class="author">${targetName || "AI"}</span><time>正在回应</time></div><div class="message-body">正在回应…</div>`;
+  fallback.innerHTML = `<div class="message-meta"><span class="author">${escapeHtml(targetName || "AI")}</span><time>正在回应</time></div><div class="message-body">正在回应…</div>`;
   return fallback;
 }
 
@@ -476,7 +505,7 @@ function renderTargetPills() {
     btn.type = "button";
     btn.className = `target-pill ${p.id === currentTargetId ? "active" : ""}`;
     btn.dataset.targetId = p.id;
-    btn.innerHTML = `<span class="pill-dot"></span>@${p.name}`;
+    btn.innerHTML = `<span class="pill-dot"></span>@${escapeHtml(p.name)}`;
     btn.title = `定向邀请 ${p.name} (${p.model_name})`;
     btn.addEventListener("click", () => {
       currentTargetId = p.id;
@@ -529,7 +558,7 @@ function renderMentionPopup() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `mention-item${idx === mentionIndex ? " selected" : ""}`;
-    btn.innerHTML = `<span>@${item.label}</span><span class="mention-kind">${item.kind}</span>`;
+    btn.innerHTML = `<span>@${escapeHtml(item.label)}</span><span class="mention-kind">${escapeHtml(item.kind)}</span>`;
     btn.addEventListener("mousedown", (event) => {
       event.preventDefault();
       selectMention(idx);
@@ -599,12 +628,12 @@ function renderParticipants(participants) {
     card.className = `participant-card ${p.id === currentTargetId ? "focused" : ""}`;
     card.innerHTML = `
       <div class="p-header">
-        <strong class="p-name">@${p.name}</strong>
-        <span class="p-model">${p.model_name || ""}</span>
+        <strong class="p-name">@${escapeHtml(p.name)}</strong>
+        <span class="p-model">${escapeHtml(p.model_name || "")}</span>
       </div>
       <div class="p-thread">
         <span class="p-label">Thread:</span>
-        <code title="${p.thread_id || ''}">${shortId(p.thread_id, "尚未建立")}</code>
+        <code title="${escapeHtml(p.thread_id || "")}">${escapeHtml(shortId(p.thread_id, "尚未建立"))}</code>
       </div>
     `;
     participantsList.append(card);
@@ -638,7 +667,7 @@ function renderMembers(members) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = `member-chip member-${m.kind}`;
-    chip.title = `进入 ${m.name} 的主体空间`;
+    chip.title = `打开 ${m.name} 的成员主页`;
     chip.textContent = `${m.kind === "ai" ? "AI" : "人"} · ${m.name}`;
     chip.addEventListener("click", () => openMember(m.id));
     membersList.append(chip);
@@ -818,6 +847,7 @@ async function openConversation(orgId, projectId, conversation) {
   setFieldActive(false);
   showConversationPane();
   setProjectTabsVisible(true, "discussion");
+  if (directBack) directBack.hidden = true;
   if (inquirySection) inquirySection.hidden = false;
   try {
     const [projectPayload, payload] = await Promise.all([
@@ -915,7 +945,7 @@ function renderOrgNav() {
       if (currentView.projectId === project.id) {
         btn.classList.add("active");
       }
-      btn.innerHTML = `<span class="project-glyph">◌</span><span class="project-title">${project.title}</span>`;
+      btn.innerHTML = `<span class="project-glyph">◌</span><span class="project-title">${escapeHtml(project.title)}</span>`;
       btn.title = project.description || project.title;
       btn.addEventListener("click", () => switchToProject(org.id, project.id));
       group.append(btn);
@@ -936,6 +966,7 @@ async function switchToField() {
   if (viewTitle) viewTitle.textContent = "第一发生场";
   if (viewNote) viewNote.textContent = "同一发生场内多参与者共在；原文保存在本地 Vault";
   if (membersBlock) membersBlock.hidden = true;
+  if (directBack) directBack.hidden = true;
   if (inquirySection) inquirySection.hidden = true;
   setScope("正在发生于：第一发生场（全局）");
   setEmptyState("从正在牵引你的地方开始。", "无需选择类型，也无需先把它整理成任务。");
@@ -947,6 +978,7 @@ async function switchToField() {
 
 function showConversationPane() {
   if (memberPage) memberPage.hidden = true;
+  if (socialPage) socialPage.hidden = true;
   if (inquiryPage) inquiryPage.hidden = true;
   if (stream) stream.hidden = false;
   if (composer) composer.hidden = false;
@@ -965,7 +997,7 @@ async function loadInquiries(projectId) {
       if (currentView.type === "inquiry" && currentView.inquiryId === inquiry.id) {
         btn.classList.add("active");
       }
-      btn.innerHTML = `<span class="project-glyph">◎</span><span class="project-title">${inquiry.question.slice(0, 40)}</span>`;
+      btn.innerHTML = `<span class="project-glyph">◎</span><span class="project-title">${escapeHtml(inquiry.question.slice(0, 40))}</span>`;
       btn.title = `尝试 ${inquiry.attempt_count || 0} 次 · ${inquiry.status}`;
       btn.addEventListener("click", () => openInquiry(inquiry.id));
       inquiryNav.append(btn);
@@ -1128,12 +1160,110 @@ if (inquiryCreateBtn) inquiryCreateBtn.addEventListener("click", createInquiry);
 if (inquiryBack) inquiryBack.addEventListener("click", backFromInquiry);
 if (inquiryRetry) inquiryRetry.addEventListener("click", retryInquiry);
 
-async function openMember(memberId) {
+async function openSocial(mode = "directory") {
+  if (!currentAccount) { openAuth(); return; }
   previousView = { ...currentView };
+  currentView = { type: "social", mode };
+  socialMode = mode;
+  if (stream) stream.hidden = true;
+  if (composer) composer.hidden = true;
+  if (scopeBar) scopeBar.hidden = true;
+  if (memberPage) memberPage.hidden = true;
+  if (inquiryPage) inquiryPage.hidden = true;
+  if (socialPage) socialPage.hidden = false;
+  setProjectTabsVisible(false);
+  if (viewTitle) viewTitle.textContent = mode === "invitations" ? "待处理邀请" : "成员目录与私信";
+  if (viewNote) viewNote.textContent = "搜索成员、加入组织，或继续一对一沟通。";
+  try {
+    const [accountsPayload, invitationsPayload, directPayload] = await Promise.all([
+      requestJson("/api/auth/accounts"),
+      requestJson("/api/invitations"),
+      requestJson("/api/direct-conversations"),
+    ]);
+    const pending = (invitationsPayload.invitations || []).filter((item) => item.status === "pending");
+    if (invitationCount) invitationCount.textContent = pending.length ? `(${pending.length})` : "";
+    renderSocialPage(accountsPayload.accounts || [], invitationsPayload.invitations || [], directPayload.conversations || []);
+  } catch (error) { showError(error.message || "协作入口读取失败"); }
+}
+
+function renderSocialPage(accounts, invitations, directConversations) {
+  if (!socialPageBody) return;
+  socialPageBody.replaceChildren();
+  const directory = document.createElement("section"); directory.className = "wb-section";
+  directory.innerHTML = '<div class="wb-section-head"><h2>成员目录</h2><span class="wb-hint">按用户名或显示名搜索</span></div>';
+  const search = document.createElement("input"); search.className = "wb-search"; search.placeholder = "搜索成员…"; search.type = "search";
+  const list = document.createElement("div"); list.className = "wb-list";
+  const renderAccounts = (items) => {
+    list.replaceChildren();
+    items.filter((item) => item.id !== currentAccount?.id).forEach((item) => {
+      const row = document.createElement("div"); row.className = "wb-item social-account-row";
+      const info = document.createElement("div"); info.innerHTML = `<strong>${escapeHtml(item.display_name)}</strong><span class="wb-hint">@${escapeHtml(item.username)}</span>`;
+      const actions = document.createElement("div"); actions.className = "wb-item-controls";
+      const inviteOrg = document.createElement("select"); inviteOrg.className = "wb-compact-select";
+      const orgs = orgData || [];
+      orgs.forEach((org) => { const option = document.createElement("option"); option.value = org.id; option.textContent = org.name; inviteOrg.append(option); });
+      const invite = document.createElement("button"); invite.className = "wb-action"; invite.textContent = "邀请入组织"; invite.disabled = !orgs.length;
+      invite.addEventListener("click", async () => {
+        if (!inviteOrg.value) { showError("请先创建组织"); return; }
+        try {
+          await requestJson(`/api/orgs/${inviteOrg.value}/invitations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invitee_account_id: item.id }) });
+          invite.textContent = "已发送"; invite.disabled = true;
+        } catch (error) { showError(error.message || "邀请失败"); }
+      });
+      const dm = document.createElement("button"); dm.className = "wb-primary"; dm.textContent = "发起私信";
+      dm.addEventListener("click", async () => {
+        try {
+          const result = await requestJson("/api/direct-conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ account_id: item.id }) });
+          await openDirectConversation(result.conversation, item);
+        } catch (error) { showError(error.message || "私信创建失败"); }
+      });
+      actions.append(inviteOrg, invite, dm); row.append(info, actions); list.append(row);
+    });
+    if (!list.children.length) list.textContent = "没有匹配的成员。";
+  };
+  renderAccounts(accounts);
+  search.addEventListener("input", () => { const q = search.value.trim().toLowerCase(); renderAccounts(accounts.filter((item) => `${item.username} ${item.display_name}`.toLowerCase().includes(q))); });
+  directory.append(search, list); socialPageBody.append(directory);
+
+  const invites = document.createElement("section"); invites.className = "wb-section"; invites.innerHTML = '<div class="wb-section-head"><h2>我的组织邀请</h2></div>';
+  invitations.filter((item) => item.status === "pending").forEach((item) => {
+    const row = document.createElement("div"); row.className = "wb-item"; row.innerHTML = `<strong>${escapeHtml(item.org_name)}</strong><span class="wb-hint">邀请人：${escapeHtml(item.inviter_account_id)}</span>`;
+    const accept = document.createElement("button"); accept.className = "wb-primary"; accept.textContent = "接受加入";
+    accept.addEventListener("click", async () => { await requestJson(`/api/invitations/${item.id}/respond`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accept: true }) }); await openSocial("invitations"); });
+    const decline = document.createElement("button"); decline.className = "wb-action"; decline.textContent = "拒绝";
+    decline.addEventListener("click", async () => { await requestJson(`/api/invitations/${item.id}/respond`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accept: false }) }); await openSocial("invitations"); });
+    row.append(accept, decline); invites.append(row);
+  });
+  if (!invites.querySelector(".wb-item")) invites.append(document.createTextNode("暂无待处理邀请。"));
+  socialPageBody.append(invites);
+
+  const dms = document.createElement("section"); dms.className = "wb-section"; dms.innerHTML = '<div class="wb-section-head"><h2>最近私信</h2></div>';
+  directConversations.forEach((conversation) => { const button = document.createElement("button"); button.className = "wb-item social-dm"; button.textContent = conversation.other_account?.display_name || "成员"; button.addEventListener("click", () => openDirectConversation(conversation, conversation.other_account)); dms.append(button); });
+  if (!directConversations.length) dms.append(document.createTextNode("还没有私信。先从成员目录搜索一个人。"));
+  socialPageBody.append(dms);
+}
+
+async function openDirectConversation(conversation, otherAccount) {
+  previousView = { ...currentView }; currentView = { type: "direct", conversationId: conversation.id, title: otherAccount?.display_name || "私信" };
+  if (socialPage) socialPage.hidden = true; showConversationPane();
+  if (directBack) directBack.hidden = false;
+  if (viewTitle) viewTitle.textContent = `私信 · ${otherAccount?.display_name || "成员"}`;
+  if (viewNote) viewNote.textContent = "一对一沟通；消息会保留在原始发生记录中。";
+  try { const payload = await requestJson(`/api/direct-conversations/${conversation.id}/messages`); renderMessages(payload.messages || []); setEmptyState("还没有私信", "在下方发出第一条消息。"); } catch (error) { showError(error.message || "私信读取失败"); }
+}
+
+if (socialDirectoryBtn) socialDirectoryBtn.addEventListener("click", () => openSocial("directory"));
+if (socialInvitationsBtn) socialInvitationsBtn.addEventListener("click", () => openSocial("invitations"));
+if (socialBack) socialBack.addEventListener("click", () => { currentView = previousView || { type: "field" }; showConversationPane(); bootstrap(); });
+if (directBack) directBack.addEventListener("click", () => openSocial("directory"));
+
+async function openMember(memberId) {
+  if (currentView.type !== "member") previousView = { ...currentView };
   currentView = { type: "member", memberId };
   try {
     const payload = await requestJson(`/api/members/${memberId}`);
     renderMemberPage(payload);
+    document.dispatchEvent(new CustomEvent("cognos:hide-workbench"));
     if (stream) stream.hidden = true;
     if (composer) composer.hidden = true;
     if (scopeBar) scopeBar.hidden = true;
@@ -1143,7 +1273,7 @@ async function openMember(memberId) {
     if (viewTitle) viewTitle.textContent = `成员：${member.name}`;
     if (viewNote) viewNote.textContent = `${member.org_name || "组织"} · ${member.kind === "ai" ? "AI 参与者" : "人类成员"}`;
   } catch (error) {
-    showError(error.message || "无法读取成员空间");
+    showError(error.message || "无法读取成员主页");
     currentView = previousView;
     showConversationPane();
   }
@@ -1154,6 +1284,12 @@ async function backFromMember() {
   currentView = prev;
   if (prev.type === "project") {
     await switchToProject(prev.orgId, prev.projectId);
+    if (prev.tab && prev.tab !== "discussion") {
+      setActiveTab(prev.tab);
+      document.dispatchEvent(new CustomEvent("cognos:workbench-tab", { detail: { tab: prev.tab } }));
+    }
+  } else if (prev.type === "conversation") {
+    await openConversation(prev.orgId, prev.projectId, { id: prev.conversationId, title: prev.title });
   } else {
     await switchToField();
   }
@@ -1174,10 +1310,10 @@ function renderMemberPage(payload) {
 
   // 身份与职责
   buf.push(`<div class="mp-section"><span class="fact-label">身份</span>`);
-  buf.push(`<div class="mp-grid"><span>名称</span><strong>${member.name}</strong>`);
+  buf.push(`<div class="mp-grid"><span>名称</span><strong>${escapeHtml(member.name)}</strong>`);
   buf.push(`<span>类型</span><strong>${member.kind === "ai" ? "AI 参与者" : "人类成员"}</strong>`);
-  buf.push(`<span>模型</span><strong>${participant ? participant.model_name + " · " + participant.id : (member.participant_id || "—")}</strong>`);
-  buf.push(`<span>所属组织</span><strong>${member.org_name || "—"}</strong></div></div>`);
+  buf.push(`<span>模型</span><strong>${escapeHtml(participant ? participant.model_name + " · " + participant.id : (member.participant_id || "—"))}</strong>`);
+  buf.push(`<span>所属组织</span><strong>${escapeHtml(member.org_name || "—")}</strong></div></div>`);
 
   // 组织职位/职责
   buf.push(`<div class="mp-section"><span class="fact-label">组织职位 / 职责</span>`);
@@ -1266,8 +1402,83 @@ function renderMemberPage(payload) {
     });
   }
 
-  if (memberBack) memberBack.addEventListener("click", backFromMember);
 }
+
+// ---------- 登录 / 注册 ----------
+const authOverlay = document.querySelector("#auth-overlay");
+const authOpenBtn = document.querySelector("#auth-open-btn");
+const authLogoutBtn = document.querySelector("#auth-logout-btn");
+const authCloseBtn = document.querySelector("#auth-close-btn");
+const authError = document.querySelector("#auth-error");
+const authDisplay = document.querySelector("#auth-display");
+const authUsername = document.querySelector("#auth-username");
+const authPassword = document.querySelector("#auth-password");
+
+function openAuth() {
+  if (authOverlay) authOverlay.hidden = false;
+  if (authUsername) authUsername.focus();
+}
+function closeAuth() {
+  if (authOverlay) authOverlay.hidden = true;
+  if (authPassword) authPassword.value = "";
+  if (authError) { authError.hidden = true; authError.textContent = ""; }
+}
+function showAuthError(msg) {
+  if (!authError) return;
+  authError.textContent = msg;
+  authError.hidden = false;
+}
+async function submitAuth(kind) {
+  const username = (authUsername && authUsername.value || "").trim();
+  const password = authPassword ? authPassword.value : "";
+  const display = (authDisplay && authDisplay.value || "").trim();
+  if (!username || !password) { showAuthError("请输入用户名和密码"); return; }
+  try {
+    await requestJson(`/api/auth/${kind}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, display_name: display }),
+    });
+    await refreshAuth();
+    closeAuth();
+    await reloadCurrentView();
+  } catch (error) {
+    showAuthError(error.message || (kind === "login" ? "登录失败" : "注册失败"));
+  }
+}
+if (authOpenBtn) authOpenBtn.addEventListener("click", openAuth);
+if (authCloseBtn) authCloseBtn.addEventListener("click", closeAuth);
+if (authOverlay) authOverlay.addEventListener("click", (event) => { if (event.target === authOverlay) closeAuth(); });
+if (authUsername) authUsername.addEventListener("keydown", (event) => { if (event.key === "Enter") submitAuth("login"); });
+if (authPassword) authPassword.addEventListener("keydown", (event) => { if (event.key === "Enter") submitAuth("login"); });
+if (document.querySelector("#auth-login-btn")) document.querySelector("#auth-login-btn").addEventListener("click", () => submitAuth("login"));
+if (document.querySelector("#auth-register-btn")) document.querySelector("#auth-register-btn").addEventListener("click", () => submitAuth("register"));
+if (authLogoutBtn) authLogoutBtn.addEventListener("click", async () => {
+  try {
+    await requestJson("/api/auth/logout", { method: "POST" });
+    await refreshAuth();
+    await reloadCurrentView();
+  } catch (error) { showError(error.message || "登出失败"); }
+});
+
+async function reloadCurrentView() {
+  const view = { ...currentView };
+  if (view.type === "project") {
+    await switchToProject(view.orgId, view.projectId);
+    if (view.tab && view.tab !== "discussion") {
+      setActiveTab(view.tab);
+      document.dispatchEvent(new CustomEvent("cognos:workbench-tab", { detail: { tab: view.tab } }));
+    }
+  } else if (view.type === "conversation") {
+    await openConversation(view.orgId, view.projectId, { id: view.conversationId, title: view.title });
+  } else if (view.type === "inquiry") await openInquiry(view.inquiryId);
+  else if (view.type === "member") await openMember(view.memberId);
+  else await bootstrap();
+}
+
+document.addEventListener("cognos:login-required", () => { refreshAuth(); openAuth(); });
+document.addEventListener("cognos:open-member", (event) => openMember(event.detail.memberId));
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeAuth(); });
 
 function makePositionRow(proj, memberId) {
   const row = document.createElement("div");
@@ -1322,6 +1533,7 @@ async function switchToProject(orgId, projectId) {
   currentView = { type: "project", orgId, projectId };
   setFieldActive(false);
   showConversationPane();
+  if (directBack) directBack.hidden = true;
   if (inquirySection) inquirySection.hidden = false;
   try {
     const payload = await requestJson(`/api/projects/${projectId}/messages`);
@@ -1408,14 +1620,21 @@ async function requestJson(url, options) {
     // 非 JSON 响应
   }
   if (!response.ok) {
-    throw new Error(payload.detail || `请求失败（${response.status}）`);
+    if (response.status === 401 && !url.startsWith("/api/auth/")) {
+      document.dispatchEvent(new CustomEvent("cognos:login-required"));
+    }
+    const detail = Array.isArray(payload.detail) ? payload.detail.map((item) => item.msg).join("；") : payload.detail;
+    throw new Error(detail || `请求失败（${response.status}）`);
   }
   return payload;
 }
 
 async function bootstrap() {
+  await refreshAuth();
+  if (authLogoutBtn) authLogoutBtn.hidden = currentAccount ? false : true;
   try {
     const payload = await requestJson("/api/bootstrap");
+    window.__cognosParticipants = payload.participants || [];
     renderMessages(payload.messages || []);
     renderState(payload);
     document.querySelector("#runtime-status").textContent = "多参与者场已就绪";
@@ -1431,6 +1650,9 @@ function currentMessagesUrl() {
   }
   if (currentView.type === "conversation") {
     return `/api/conversations/${currentView.conversationId}/messages`;
+  }
+  if (currentView.type === "direct") {
+    return `/api/direct-conversations/${currentView.conversationId}/messages`;
   }
   if (currentView.type === "inquiry") {
     return `/api/inquiries/${currentView.inquiryId}/attempts`;
@@ -1458,6 +1680,7 @@ function resizeInput() {
 async function sendCurrentMessage(forcedContent) {
   const contentValue = forcedContent !== undefined ? forcedContent : input.value;
   if (sending || !contentValue.trim()) return;
+  if (!currentAccount) { openAuth(); return; }
 
   const content = contentValue;
   const targetId = currentTargetId;
@@ -1474,7 +1697,7 @@ async function sendCurrentMessage(forcedContent) {
   // 渲染乐观的用户发送卡片
   const optimisticUser = {
     id: "pending-user",
-    author: "小林",
+    author: currentUser,
     target: targetName,
     quoted_occurrence_id: quoteId,
     content,
@@ -1522,6 +1745,9 @@ async function sendCurrentMessage(forcedContent) {
       await openConversation(currentView.orgId, currentView.projectId, { id: currentView.conversationId, title: currentView.title });
     } else if (currentView.type === "inquiry") {
       await openInquiry(currentView.inquiryId);
+    } else if (currentView.type === "direct") {
+      const payload = await requestJson(`/api/direct-conversations/${currentView.conversationId}/messages`);
+      renderMessages(payload.messages || []);
     } else {
       await bootstrap();
     }
@@ -1533,6 +1759,9 @@ async function sendCurrentMessage(forcedContent) {
       await openConversation(currentView.orgId, currentView.projectId, { id: currentView.conversationId, title: currentView.title });
     } else if (currentView.type === "inquiry") {
       await openInquiry(currentView.inquiryId);
+    } else if (currentView.type === "direct") {
+      const payload = await requestJson(`/api/direct-conversations/${currentView.conversationId}/messages`);
+      renderMessages(payload.messages || []);
     } else {
       await bootstrap();
     }
@@ -1553,6 +1782,7 @@ if (projectTabs) {
     const btn = event.target.closest(".view-tab");
     if (!btn) return;
     const tab = btn.dataset.tab;
+    currentView.tab = tab;
     if (tab === "discussion") {
       setActiveTab("discussion");
       document.dispatchEvent(new CustomEvent("cognos:show-discussion"));
@@ -1573,7 +1803,7 @@ if (projectTabs) {
   });
 }
 
-document.addEventListener("cognos:discussion-tab", () => setActiveTab("discussion"));
+document.addEventListener("cognos:discussion-tab", () => { currentView.tab = "discussion"; setActiveTab("discussion"); });
 
 input.addEventListener("input", resizeInput);
 input.addEventListener("input", updateMention);
@@ -1605,4 +1835,3 @@ input.addEventListener("keydown", (event) => {
 setFieldActive(true);
 bootstrap();
 input.focus();
-

@@ -9,8 +9,17 @@
 <body>
   <header class="topbar">
     <a href="/" class="brand">COGNOS <span>共同展开</span></a>
+    <div class="inline"><span id="account-label">未登录</span><button id="account-open">登录 / 注册</button><button id="account-logout" hidden>登出</button></div>
     <a href="/">返回项目</a>
   </header>
+  <dialog id="account-dialog" aria-labelledby="account-title">
+    <h2 id="account-title">登录 / 注册</h2>
+    <label for="account-display">注册显示名（作为发言作者）</label><input id="account-display" maxlength="80" />
+    <label for="account-username">用户名（3–32 位）</label><input id="account-username" autocomplete="username" maxlength="32" />
+    <label for="account-password">密码（6–128 位）</label><input id="account-password" type="password" autocomplete="current-password" maxlength="128" />
+    <p id="account-error" role="alert"></p>
+    <div class="inline"><button id="account-login">登录</button><button id="account-register">注册</button><button id="account-close">关闭</button></div>
+  </dialog>
   <main>
     <section class="activity-toolbar" aria-label="活动入口">
       <div><p class="eyebrow" id="project-title">当前项目</p><h1>从材料继续，让理解有地方改变。</h1></div>

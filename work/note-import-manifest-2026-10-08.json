@@ -1,0 +1,99 @@
+{
+  "manifest_version": 1,
+  "generated_at": "2026-10-08T00:46:49.041919+00:00",
+  "read_only": true,
+  "content_included": false,
+  "records": [
+    {
+      "source_root": "Obsidian Vault",
+      "source_path": "00 Inbox/项目方向清单-待展开.md",
+      "source_kind": "md",
+      "title": "项目方向清单-待展开",
+      "import_status": "imported",
+      "source_id": "c4d7ec970c6f40f894bcc70df160849fadd320064ef457c3adbc97342d220827",
+      "content_hash": "13d11894c659ed3faf5cbf0d0452b5b1ecdb81df7d205ef744fcc6b7f21cada5",
+      "source_mtime": "2026-08-13T12:38:36.242887+00:00",
+      "byte_length": 205,
+      "character_length": 135,
+      "frontmatter": {
+        "type": "inbox-fragment",
+        "source_role": "user-note",
+        "status": "待展开或归入项目",
+        "updated": "2026-08-13"
+      },
+      "links": [],
+      "participants": []
+    },
+    {
+      "source_root": "Obsidian Vault",
+      "source_path": "10 Projects/Spark-核心设计哲学.md",
+      "source_kind": "md",
+      "title": "Spark-核心设计哲学",
+      "import_status": "imported",
+      "source_id": "cec62d7274510ba0e2cf64a2ee41c4e1b1708dbffae16845baa904644119df04",
+      "content_hash": "17e697b38242434986c0a13761a3e0ff2fdcb1a06118fa404a496b147d5e0239",
+      "source_mtime": "2026-05-31T09:41:26.291692+00:00",
+      "byte_length": 12250,
+      "character_length": 5288,
+      "frontmatter": {
+        "author": "Claude Opus 4.8",
+        "date": "2026-05-31",
+        "status": "核心设计哲学",
+        "project": "prototype-spark / spark 生态",
+        "source": "从小林与 antigravity、Gemini 3.1 Pro、Claude Opus 的架构讨论中提炼",
+        "context": "这不是技术方案，是哲学约束 — 任何技术方案都必须满足这些约束"
+      },
+      "links": [
+        "10 Projects/spark-sessions/2026-05-28-antigravity-架构讨论/index",
+        "AI/当前主线",
+        "AI/认识论"
+      ],
+      "participants": []
+    },
+    {
+      "source_root": "ChatGPT project",
+      "source_path": "Cognos-给pi-agent的执行交接.md",
+      "source_kind": "md",
+      "title": "Cognos-给pi-agent的执行交接",
+      "import_status": "imported",
+      "source_id": "04c3aa340384126b62d7ad5826152bb201d559c41f5f708f701c831188dad883",
+      "content_hash": "bc0ebab4ba2666263d8411edb4b98eb0b8e8311c86f57344755b21dfd0e75ddc",
+      "source_mtime": "2026-09-17T20:31:07.394172+00:00",
+      "byte_length": 39594,
+      "character_length": 16724,
+      "frontmatter": {},
+      "links": [],
+      "participants": []
+    },
+    {
+      "source_root": "Obsidian Vault",
+      "source_path": "10 Projects/_原料_异轴思想.json",
+      "source_kind": "json",
+      "title": "_原料_异轴思想",
+      "import_status": "imported",
+      "source_id": "66d67585c166fd93417993ee96539a6b8e64f25b00f03a325a8a08f97902b9ed",
+      "content_hash": "2733d5301430852b1bdbad9b9ba37f859e7e723c4cc69dfe1007297d51605f51",
+      "source_mtime": "2026-06-19T17:52:58.598296+00:00",
+      "byte_length": 42995,
+      "character_length": 42195,
+      "frontmatter": {},
+      "links": [],
+      "participants": []
+    },
+    {
+      "source_root": "Cognos repository",
+      "source_path": "docs/Cognos-空间与认知架构-工作稿.md",
+      "source_kind": "md",
+      "title": "Cognos-空间与认知架构-工作稿",
+      "import_status": "imported",
+      "source_id": "0a22730b15913c404ca38a1b8f92aa5960886885b802a2707454d12ce46b9503",
+      "content_hash": "32c4f00a89d55c25f63d0d1f18d03794ab5a74d14eb90a483b6729f6fc90ea88",
+      "source_mtime": "2026-10-08T00:17:19.629010+00:00",
+      "byte_length": 5783,
+      "character_length": 2279,
+      "frontmatter": {},
+      "links": [],
+      "participants": []
+    }
+  ]
+}

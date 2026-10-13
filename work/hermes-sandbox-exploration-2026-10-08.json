@@ -1,0 +1,62 @@
+{
+  "run_id": "hermes-sandbox-exploration-2026-10-08",
+  "target": "isolated Cognos service on 127.0.0.1:8876",
+  "isolation": {
+    "root": "/tmp/cognos-sandbox-Ydtdnz",
+    "separate_vault_state_auth_org_activity": true,
+    "production_data_used": false,
+    "model_calls": false
+  },
+  "identities": ["founder_sbx", "member_a_sbx", "member_b_sbx"],
+  "journeys": [
+    {
+      "id": "J01-partial",
+      "status": "passed",
+      "evidence": [
+        "Three independent registration responses returned HTTP 200",
+        "Each cookie session returned its own account from GET /api/auth/me"
+      ]
+    },
+    {
+      "id": "J02-partial",
+      "status": "passed",
+      "evidence": [
+        "Founder created organization and project",
+        "Founder invited Member A and Member B",
+        "Both members retrieved pending invitations and accepted them",
+        "Organization detail showed all three stable account IDs as active members"
+      ]
+    },
+    {
+      "id": "J03",
+      "status": "unverified",
+      "finding": "Accepting an organization invitation did not automatically make the account a project member. Founder had to POST /api/projects/{project_id}/members for each member before project messages exposed them.",
+      "evidence": [
+        "Before explicit project-member addition, Member A project messages listed Founder only",
+        "After explicit addition, Member A saw Founder, Member A, and Member B"
+      ]
+    },
+    {
+      "id": "J04-partial",
+      "status": "failed",
+      "finding": "Unauthenticated GET /api/projects/{project_id}/timeline returned HTTP 200 and an empty events list for the sandbox project. Unauthenticated project message write returned HTTP 401.",
+      "evidence": [
+        "GET /api/projects/{project_id}/timeline -> HTTP 200",
+        "POST /api/projects/{project_id}/messages without cookie -> HTTP 401"
+      ],
+      "scope": "The read boundary may be intentionally public or may be a journey/privacy defect; requires product decision and authenticated outsider test."
+    },
+    {
+      "id": "interface-discovery",
+      "status": "failed",
+      "finding": "GET /api/projects/{project_id}/members returned HTTP 405. The available route is POST for adding members; project member reads are embedded in project/message responses rather than exposed at that path.",
+      "evidence": ["GET /api/projects/{project_id}/members -> HTTP 405"]
+    }
+  ],
+  "next": [
+    "Run authenticated outsider and non-member reads against private project data.",
+    "Run J05/J07 with two project members and refresh/new-login checks.",
+    "Decide whether organization acceptance should imply project membership or whether UI must make the second step explicit.",
+    "Do not call Activity publish during discovery."
+  ]
+}

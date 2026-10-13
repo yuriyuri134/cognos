@@ -9,6 +9,8 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from contextlib import asynccontextmanager
+from test_helpers import login_test_user
 from pathlib import Path
 
 from httpx import ASGITransport, AsyncClient
@@ -73,11 +75,14 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
+    @asynccontextmanager
     async def client(self):
-        return AsyncClient(transport=ASGITransport(app=self.app), base_url="http://test")
+        async with AsyncClient(transport=ASGITransport(app=self.app), base_url="http://test") as client:
+            await login_test_user(client)
+            yield client
 
     async def create_org_project_member(self):
-        async with await self.client() as client:
+        async with self.client() as client:
             org_id = (
                 await client.post("/api/orgs", json={"name": "Cognos 组织"})
             ).json()["organization"]["id"]
@@ -99,7 +104,7 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_channel_projects_old_and_new_messages(self) -> None:
         _, project_id, _ = await self.create_org_project_member()
-        async with await self.client() as client:
+        async with self.client() as client:
             conversations = (
                 await client.get(f"/api/projects/{project_id}/conversations")
             ).json()
@@ -136,7 +141,7 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_decision_from_message_keeps_source_refs(self) -> None:
         _, project_id, _ = await self.create_org_project_member()
-        async with await self.client() as client:
+        async with self.client() as client:
             sent = await client.post(
                 f"/api/projects/{project_id}/messages",
                 json={"content": "先把项目频道做出来", "target": "gemini"},
@@ -162,7 +167,7 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_work_item_lifecycle_and_events(self) -> None:
         _, project_id, member_id = await self.create_org_project_member()
-        async with await self.client() as client:
+        async with self.client() as client:
             decision_id = (
                 await client.post(
                     f"/api/projects/{project_id}/decisions",
@@ -202,7 +207,7 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_work_item_handoff_and_result_round_trip(self) -> None:
         _, project_id, member_id = await self.create_org_project_member()
-        async with await self.client() as client:
+        async with self.client() as client:
             message_id = (
                 await client.post(
                     f"/api/projects/{project_id}/messages",
@@ -261,7 +266,7 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_timeline_merges_all_slice1_objects(self) -> None:
         _, project_id, _ = await self.create_org_project_member()
-        async with await self.client() as client:
+        async with self.client() as client:
             await client.post(
                 f"/api/projects/{project_id}/messages",
                 json={"content": "先在项目频道讨论。", "target": "gemini"},
@@ -311,7 +316,7 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_conversation_message_send_and_unknown_ids(self) -> None:
         _, project_id, _ = await self.create_org_project_member()
-        async with await self.client() as client:
+        async with self.client() as client:
             default_id = (
                 await client.get(f"/api/projects/{project_id}/conversations")
             ).json()["default_conversation_id"]
@@ -343,7 +348,7 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
         """触发式能力：场内最近发生要进入处境，否则参与者“东西都在但接不上”。"""
 
         _, project_id, _ = await self.create_org_project_member()
-        async with await self.client() as client:
+        async with self.client() as client:
             await client.post(
                 f"/api/projects/{project_id}/messages",
                 json={"content": "先讨论赚钱的两种尺度：现金流和长期结构", "target": "gemini"},
@@ -361,7 +366,7 @@ class ProjectWorkflowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("occurrence_id=", last_prompt)
 
     async def test_workbench_frontend_assets_are_served(self) -> None:
-        async with await self.client() as client:
+        async with self.client() as client:
             index = await client.get("/")
             self.assertEqual(200, index.status_code)
             self.assertIn("/assets/workbench.js", index.text)

@@ -16,6 +16,7 @@ use OCA\Deck\Service\PermissionService;
 use OCP\App\IAppManager;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IRequest;
@@ -33,11 +34,13 @@ final class ActivityController extends Controller {
     }
 
     #[NoAdminRequired]
+    #[NoCSRFRequired]
     public function page(): TemplateResponse {
         return new TemplateResponse('cognos', 'activities', []);
     }
 
     #[NoAdminRequired]
+    #[NoCSRFRequired]
     public function listPage(): TemplateResponse {
         return $this->page();
     }

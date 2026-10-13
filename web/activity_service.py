@@ -317,7 +317,8 @@ class ActivityService:
         return run
 
     async def continue_activity(self, ident: str, *, content: str, target: str | None,
-                                revision: int, request_id: str, initiator: str = "小林") -> dict[str, Any]:
+                                revision: int, request_id: str, initiator: str = "小林",
+                                initiator_account_id: str | None = None) -> dict[str, Any]:
         if target is not None and target not in self.conversation.participants:
             raise ValueError("参与者不存在")
         target_id, message = self.conversation.resolve_target(content, target)
@@ -328,7 +329,8 @@ class ActivityService:
             if activity is None:
                 raise KeyError(ident)
             run, fresh = self.store.begin_run(ident, request_id, {
-                "content": content, "target": target_id, "revision": revision, "initiator": initiator})
+                "content": content, "target": target_id, "revision": revision, "initiator": initiator,
+                **({"initiator_account_id": initiator_account_id} if initiator_account_id else {})})
             if not fresh:
                 return self.view_run(run)
             self.live_runs.add(run["id"])
@@ -339,7 +341,7 @@ class ActivityService:
                 user_record = None
                 if message.strip():
                     user_record = self.conversation.history.append_message(
-                        author=initiator, content=content, target=participant.name,
+                        author=initiator, author_account_id=initiator_account_id, content=content, target=participant.name,
                         target_participant_id=target_id, project_id=activity["project_id"],
                         activity_id=ident, activity_run_id=run["id"])
                 run["user_occurrence_id"] = user_record["id"] if user_record else None
@@ -828,17 +830,20 @@ class ActivityService:
 
     async def import_material(self, ident: str, *, revision: int, request_id: str,
                               source_activity: str, source_revision: int, document: str,
-                              version: int | None = None, kind: str = "material", note: str = "") -> dict[str, Any]:
+                              version: int | None = None, kind: str = "material", note: str = "",
+                              initiator: str = "小林", initiator_account_id: str | None = None) -> dict[str, Any]:
         async with self.conversation._send_lock:
             command = {"type": "import_activity", "source_activity": source_activity,
                        "source_revision": source_revision, "document": document,
                        "version": version, "kind": kind, "note": note}
-            run, fresh = self.store.begin_run(ident, request_id, {"revision": revision, **command})
+            run, fresh = self.store.begin_run(ident, request_id, {"revision": revision, **command,
+                "initiator": initiator,
+                **({"initiator_account_id": initiator_account_id} if initiator_account_id else {})})
             if not fresh:
                 return self.view_run(run)
             self.live_runs.add(run["id"])
             try:
-                result, output_revision = self._command(ident, revision, command, actor="小林")
+                result, output_revision = self._command(ident, revision, command, actor=initiator)
                 run.update(status="imported", output_revision=output_revision,
                            events=[{"status": "executed", "results": [{"status": "ok", **result}]}])
             except (ValueError, TypeError, KeyError) as exc:
@@ -848,10 +853,12 @@ class ActivityService:
                 self.store.save_run(run)
             return run
 
-    async def acquire_material(self, ident: str, *, revision: int, request_id: str, initiator: str = "小林") -> dict[str, Any]:
+    async def acquire_material(self, ident: str, *, revision: int, request_id: str, initiator: str = "小林",
+                               initiator_account_id: str | None = None) -> dict[str, Any]:
         """界面直接取材：沿用持久请求标识，不调用模型，不重复提交同一请求。"""
         async with self.conversation._send_lock:
-            run, fresh = self.store.begin_run(ident, request_id, {"revision": revision, "kind": "acquisition", "initiator": initiator})
+            run, fresh = self.store.begin_run(ident, request_id, {"revision": revision, "kind": "acquisition", "initiator": initiator,
+                **({"initiator_account_id": initiator_account_id} if initiator_account_id else {})})
             if not fresh:
                 return self.view_run(run)
             self.live_runs.add(run["id"])
@@ -867,7 +874,8 @@ class ActivityService:
             return run
 
     async def answer_activity(self, ident: str, move_id: str, *, answer: str, revision: int,
-                              request_id: str, initiator: str = "小林") -> dict[str, Any]:
+                              request_id: str, initiator: str = "小林",
+                              initiator_account_id: str | None = None) -> dict[str, Any]:
         """用户对等待中问题的真实回答：保存为结果，随后让模型面对该结果继续。"""
         async with self.conversation._send_lock:
             activity = self.store.get(ident)
@@ -878,7 +886,8 @@ class ActivityService:
                 raise KeyError(move_id)
             run, fresh = self.store.begin_run(ident, request_id, {
                 "kind": "answer", "move_id": move_id, "answer": answer,
-                "revision": revision, "initiator": initiator})
+                "revision": revision, "initiator": initiator,
+                **({"initiator_account_id": initiator_account_id} if initiator_account_id else {})})
             if not fresh:
                 return self.view_run(run)
             self.live_runs.add(run["id"])
@@ -897,7 +906,7 @@ class ActivityService:
                     return run
                 participant = self.conversation.participants[target_id]
                 record = self.conversation.history.append_message(
-                    author=initiator, content=answer, project_id=activity["project_id"],
+                    author=initiator, author_account_id=initiator_account_id, content=answer, project_id=activity["project_id"],
                     activity_id=ident, activity_run_id=run["id"])
                 run["user_occurrence_id"] = record["id"]
                 move["state"]["results"].append({"index": len(move["state"]["results"]), "status": "ok",

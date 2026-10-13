@@ -21,10 +21,33 @@
             <small>第一数字承载 · 雏形 01</small>
           </span>
         </a>
+        <div class="user-chip" id="user-chip" title="成员身份">
+          <span class="fact-label">成员</span>
+          <strong id="current-user-label">未登录</strong>
+          <button class="nav-mini-btn" id="auth-open-btn" type="button">登录 / 注册</button>
+          <button class="nav-mini-btn" id="auth-logout-btn" type="button" hidden>登出</button>
+        </div>
         <div class="runtime-pill" id="runtime-pill" title="这里只表示本地服务已启动">
           <span class="status-dot"></span>
           <span id="runtime-status">正在连接本地承载</span>
         </div>
+    <div class="auth-overlay" id="auth-overlay" hidden>
+      <div class="auth-card" role="dialog" aria-modal="true" aria-label="登录或注册">
+        <div class="wb-section-head"><h2>登录 / 注册</h2><span class="wb-hint">用户名 3–32 位 · 密码 ≥6 位</span></div>
+        <label class="auth-label" for="auth-display">注册显示名（会作为发言作者）</label>
+        <input id="auth-display" placeholder="例如 小林" maxlength="80" autocomplete="off" />
+        <label class="auth-label" for="auth-username">用户名</label>
+        <input id="auth-username" placeholder="xiaolin" maxlength="32" autocomplete="username" />
+        <label class="auth-label" for="auth-password">密码</label>
+        <input id="auth-password" type="password" placeholder="至少 6 位" maxlength="128" autocomplete="current-password" />
+        <div class="auth-row">
+          <button class="wb-primary" id="auth-login-btn" type="button">登录</button>
+          <button class="wb-action" id="auth-register-btn" type="button">注册</button>
+          <button class="nav-mini-btn" id="auth-close-btn" type="button">关闭</button>
+        </div>
+        <p class="auth-error" id="auth-error" hidden></p>
+      </div>
+    </div>
       </header>
 
       <section class="workspace">
@@ -38,6 +61,12 @@
             </span>
             <span class="field-live" id="field-live" aria-label="当前活跃"></span>
           </button>
+
+          <div class="rail-section" id="social-section">
+            <p class="eyebrow">协作入口</p>
+            <button class="nav-mini-btn" id="social-directory-btn" type="button">成员目录 / 私信</button>
+            <button class="nav-mini-btn" id="social-invitations-btn" type="button">待处理邀请 <span id="invitation-count"></span></button>
+          </div>
 
           <div class="rail-section" id="org-section">
             <p class="eyebrow">组织与项目</p>
@@ -81,11 +110,15 @@
               <p class="eyebrow">正在发生</p>
               <h1 id="view-title">第一发生场</h1>
             </div>
-            <p class="head-note" id="view-note">同一发生场内多参与者共在；原文保存在本地 Vault</p>
+            <div class="conversation-head-actions">
+              <button class="nav-mini-btn" id="direct-back" type="button" hidden>← 协作入口</button>
+              <p class="head-note" id="view-note">同一发生场内多参与者共在；原文保存在本地 Vault</p>
+            </div>
           </header>
 
           <nav class="view-tabs" id="project-tabs" hidden>
             <button type="button" class="view-tab active" data-tab="discussion">讨论</button>
+            <button type="button" class="view-tab" data-tab="members">成员</button>
             <button type="button" class="view-tab" data-tab="work_items">工作项</button>
             <button type="button" class="view-tab" data-tab="decisions">决定</button>
             <button type="button" class="view-tab" data-tab="timeline">时间线</button>
@@ -103,7 +136,7 @@
           <section class="member-page" id="member-page" hidden>
             <div class="member-page-head">
               <button class="nav-mini-btn" id="member-back" type="button">← 返回</button>
-              <span class="eyebrow">成员主体空间</span>
+              <span class="eyebrow">成员主页</span>
             </div>
             <div class="member-page-body" id="member-page-body"></div>
           </section>
@@ -117,8 +150,15 @@
             <div class="member-page-body" id="inquiry-page-body"></div>
           </section>
 
-          <section class="member-page" id="project-page" hidden>
+          <section class="member-page" id="social-page" hidden>
             <div class="member-page-head">
+              <button class="nav-mini-btn" id="social-back" type="button">← 返回</button>
+              <span class="eyebrow">成员与私信</span>
+            </div>
+            <div class="member-page-body" id="social-page-body"></div>
+          </section>
+
+          <section class="member-page" id="project-page" hidden>
               <button class="nav-mini-btn" id="project-back" type="button">← 返回</button>
               <span class="eyebrow">项目工作台 · 闭环</span>
               <button class="nav-mini-btn" id="workbench-refresh" type="button">刷新</button>

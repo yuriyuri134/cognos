@@ -1,4 +1,12 @@
-/* 项目可见形态：顶部标签页（讨论 / 工作项 / 决定 / 时间线） */
+/* 项目可见形态：顶部标签页与同一可滚动内容行。 */
+[hidden] { display: none !important; }
+.conversation { grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; }
+.conversation-head { grid-row: 1; }
+.view-tabs { grid-row: 2; }
+.message-stream, .conversation > .member-page { grid-row: 3; }
+.error-banner { grid-row: 4; }
+.scope-bar { grid-row: 5; }
+.composer { grid-row: 6; }
 .view-tabs {
   display: flex;
   gap: 4px;
@@ -241,6 +249,32 @@
   min-width: 110px;
 }
 
+.social-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.social-account-row > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wb-compact-select {
+  min-width: 120px;
+  max-width: 180px;
+}
+
+.social-dm {
+  display: block;
+  width: 100%;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
 .wb-status {
   display: inline-block;
   padding: 2px 8px;
@@ -417,3 +451,20 @@ body.in-project .decision-button {
   background: var(--green-soft);
   color: var(--green);
 }
+
+.user-chip{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;padding:6px 10px;background:var(--panel)}
+.user-chip strong{font-size:.85rem}
+.auth-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:90}
+.auth-overlay[hidden]{display:none}
+.auth-card{width:min(420px,92vw);border:1px solid var(--line-bright);border-radius:16px;background:var(--panel);padding:18px;display:flex;flex-direction:column;gap:8px}
+.auth-label{color:var(--dim);font-size:.78rem}
+.auth-card input{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.25);color:var(--text);font:inherit;font-size:.88rem}
+.auth-row{display:flex;gap:8px;align-items:center}
+.auth-error{color:#f0a390;font-size:.82rem;margin:0}
+.wb-event-kind{padding:2px 8px;border-radius:999px;font-size:.72rem;border:1px solid var(--line-bright);color:var(--muted)}
+.wb-member-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.wb-member-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);text-align:left;cursor:pointer}
+.wb-member-card:hover{border-color:var(--line-bright);background:var(--panel-strong)}
+.wb-member-link{color:var(--green);font-size:.8rem}
+.user-chip{flex-wrap:wrap}
+@media(max-width:760px){.user-chip{padding:4px 6px;gap:4px}.user-chip .fact-label{display:none}.user-chip strong{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.view-tabs{flex-wrap:wrap}.auth-card{background:var(--panel-strong)}}

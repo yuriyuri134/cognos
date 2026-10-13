@@ -14,6 +14,10 @@ label { display:block; margin:9px 0; }
 h1 { font-size:21px; font-weight:500; margin:5px 0; line-height:1.5; }
 h2 { font-size:16px; margin:0; font-weight:600; }
 .topbar { display:flex; justify-content:space-between; align-items:center; padding:20px 28px; border-bottom:1px solid var(--line); }
+.topbar{flex-wrap:wrap;gap:12px}
+#account-dialog{width:min(420px,92vw);background:#1b2420;color:#e9ece7;border:1px solid var(--line);border-radius:12px;padding:24px}
+#account-dialog::backdrop{background:rgba(0,0,0,.55)}
+#account-error{color:#f0a390}
 .brand { letter-spacing:.14em; font-weight:650; }.brand span { letter-spacing:0; font-weight:400; color:var(--muted); margin-left:16px; }
 main { max-width:1800px; margin:auto; padding:24px; }
 .activity-toolbar { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:24px; }

@@ -449,7 +449,11 @@ def collect_test_provenance(
         exit_match = re.search(r"\[exit code:\s*(\d+)\]|exit code[: ]?\s*(\d+)", output, re.I)
         exit_code = int(exit_match.group(1) or exit_match.group(2)) if exit_match else None
         summary = _parse_pytest_summary(output)
-        if summary["failed"] > 0 or summary["errors"] > 0:
+        if exit_code is not None and exit_code != 0:
+            actual_status = "tests_failed"
+        elif result and result.get("is_error"):
+            actual_status = "tests_failed"
+        elif summary["failed"] > 0 or summary["errors"] > 0:
             actual_status = "tests_failed" if summary["failed"] > 0 else "tests_had_errors"
         elif summary["passed"] > 0:
             actual_status = "tests_passed"

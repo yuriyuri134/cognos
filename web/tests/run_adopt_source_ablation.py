@@ -22,8 +22,8 @@ TEXT 与 BOUND 的文字**不完全相同**：BOUND 的 context 额外含
   PYTHONPATH="phase0;web" phase0/.venv/Scripts/python.exe \
       web/tests/run_adopt_source_ablation.py --condition TEXT --repetitions 2
   --condition: TEXT | BOUND | UNBOUND
-  BOUND 必须先在独立临时目录完成 adopt；UNBOUND 复用同一次 BOUND 的活动状态，
-  因此 runner 在 BOUND 时把活动状态快照保存到 work/，UNBOUND 从快照恢复。
+  三条件都使用同一个 Pi/a6api/gpt-6-astra participant；Activity 调用使用
+  Pi 的 --no-session，不读写普通 Pi session。
 
 只读纪律：本 runner 只写 work/ 与自建临时目录；不触碰 Vault 真实第一发生场，
 不触碰 web/.state/ 下的 runtime 连续性文件。
@@ -51,7 +51,7 @@ sys.path.insert(0, str(ROOT / "phase0"))
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 from activity_service import ActivityService  # noqa: E402,F401  (导入以校验依赖闭包)
-from codex_runtime import CodexRuntimeAdapter, JsonThreadStore  # noqa: E402
+from pi_runtime import PiRuntimeAdapter, PiStateStore  # noqa: E402
 from server import AppConfig, Participant, create_app  # noqa: E402
 
 WORK = ROOT / "work"
@@ -62,7 +62,7 @@ SOURCE_FILES = (
     "web/activity_service.py", "web/activity_store.py", "web/activity_acquisition.py",
     "web/activity_program.py", "web/context_assembly.py", "web/cognitive_runtime.py",
     "web/server.py", "web/project_api.py", "web/history.py",
-    "phase0/codex_runtime.py", "web/tests/run_adopt_source_ablation.py",
+    "phase0/pi_runtime.py", "web/tests/run_adopt_source_ablation.py",
 )
 
 # 被埋没的关键记录：只有针对它的取材才能取到。
@@ -126,11 +126,13 @@ async def make_app(root: Path) -> tuple[Any, AsyncClient, dict[str, Any], dict[s
     config = AppConfig(history_path=root / "vault" / "field.jsonl",
                        thread_state_dir=root / "state", codex_cwd=root,
                        participant_instructions_path=instruction)
-    adapter = CodexRuntimeAdapter(
-        cwd=root, state_store=JsonThreadStore(root / "state" / "ablation-codex.json"),
+    adapter = PiRuntimeAdapter(
+        cwd=root, state_store=PiStateStore(root / "state" / "ablation-pi.json"),
+        session_dir=root / "pi-sessions", command="pi", model="a6api/gpt-6-astra",
+        timeout=180,
         developer_instructions="只处理传入的隔离活动；不要读取工作区外材料补全实验事实。")
     app = create_app(config, participants={
-        "ablation": Participant("ablation", "Ablation participant", "Codex App-Server", adapter)})
+        "ablation": Participant("ablation", "Ablation participant", "Pi a6api/gpt-6-astra", adapter)})
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://ablation")
     org = (await client.post("/api/orgs", json={"name": "adopt-source ablation"})).json()["organization"]
     project = (await client.post(f"/api/orgs/{org['id']}/projects",
@@ -333,14 +335,25 @@ async def run_condition(condition: str, repetitions: int, output: Path,
 
             # ---- 阶段 2：认知作用（真实模型调用）----
             if not skip_model:
-                activity = (await client.get(f"/api/activities/{activity['id']}")).json()["activity"]
-                cognition = await request_cognition(client, activity, condition, rep)
+                if condition == "UNBOUND":
+                    # 释放后的同一 Activity 仍保留释放前已取得的历史材料。
+                    # 为避免把该材料误当成“释放后仍可取得”，模型阶段使用
+                    # 同一项目、同一前态、但从未采用取材方式的新 Activity。
+                    cognition_activity, _ = await build_activity(
+                        app, client, project, condition="TEXT")
+                else:
+                    cognition_activity = (await client.get(
+                        f"/api/activities/{activity['id']}"
+                    )).json()["activity"]
+                cognition = await request_cognition(client, cognition_activity, condition, rep)
                 entry["cognitive"] = score_cognition(cognition, buried_id)
                 entry["cognitive_response"] = cognition
                 snapshot = (cognition.get("body") or {}).get("run", {}).get("events", [{}])
                 first_event = snapshot[0] if snapshot else {}
                 entry["context_prompt_hash"] = first_event.get("context_prompt_hash")
                 entry["context_snapshot"] = first_event.get("context")
+                if condition == "UNBOUND":
+                    entry["cognitive_activity_id"] = cognition_activity["id"]
             else:
                 entry["cognitive"] = None
                 entry["skipped_model"] = True

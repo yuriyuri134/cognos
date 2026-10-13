@@ -91,6 +91,8 @@ class InquiryApiTest(unittest.IsolatedAsyncioTestCase):
     async def test_inquiry_create_and_attempts_chain(self) -> None:
         app = create_app(self.config, participants=self.participants)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            from test_helpers import login_test_user
+            await login_test_user(client)
             _, project_id = await self._setup_org_project(client)
 
             # 创建探究（问题本身成为一条带 inquiry_id 的发生）
@@ -148,6 +150,8 @@ class InquiryApiTest(unittest.IsolatedAsyncioTestCase):
     async def test_inquiry_404s(self) -> None:
         app = create_app(self.config, participants=self.participants)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            from test_helpers import login_test_user
+            await login_test_user(client)
             self.assertEqual(404, (await client.get("/api/inquiries/nope")).status_code)
             self.assertEqual(
                 404,
@@ -179,6 +183,8 @@ class InquiryApiTest(unittest.IsolatedAsyncioTestCase):
         }
         app = create_app(self.config, participants=participants)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            from test_helpers import login_test_user
+            await login_test_user(client)
             _, project_id = await self._setup_org_project(client)
             inquiry_id = (
                 await client.post(

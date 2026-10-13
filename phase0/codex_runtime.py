@@ -55,9 +55,9 @@ class JsonThreadStore:
         except (OSError, json.JSONDecodeError) as exc:
             raise ThreadStateError(f"无法读取 thread 状态：{self.path}") from exc
 
+        if not isinstance(payload, dict):
+            raise ThreadStateError(f"thread 状态必须是 JSON 对象：{self.path}")
         thread_id = payload.get("thread_id")
-        if thread_id is None:
-            return None
         if not isinstance(thread_id, str) or not thread_id.strip():
             raise ThreadStateError(f"thread_id 格式无效：{self.path}")
         return thread_id

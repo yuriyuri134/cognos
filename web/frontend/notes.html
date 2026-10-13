@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cognos · 笔记空间</title>
+  <link rel="stylesheet" href="/assets/notes.css">
+</head>
+<body>
+  <main class="notes-shell">
+    <header class="notes-topbar">
+      <a href="/" class="brand">COGNOS <span>笔记空间</span></a>
+      <div class="top-actions"><a href="/">第一发生场</a><button id="logout" hidden>退出</button><span id="user">未登录</span></div>
+    </header>
+    <section class="notes-layout">
+      <aside class="spaces-panel">
+        <div class="panel-head"><div><small>空间</small><h1>正在形成</h1></div><button id="new-space" title="建立一个空间">＋</button></div>
+        <form id="space-form" hidden><input id="space-title" placeholder="空间名称" maxlength="200" required><textarea id="space-description" placeholder="可以先不写清楚" maxlength="4000"></textarea><button>建立空间</button></form>
+        <div id="spaces" class="space-list"></div>
+      </aside>
+      <section class="workspace">
+        <div id="empty" class="empty"><p>先建立一个空间。</p><small>不要求先决定它是什么。空间由你建立，结构在使用中出现。</small></div>
+        <div id="space-view" hidden>
+          <header class="space-head"><div><small id="space-meta"></small><h2 id="space-name"></h2><p id="space-description"></p></div><button id="call-agent" title="只在你明确召唤时进入">@ Agent</button></header>
+          <div class="space-grid">
+            <section class="notes-column"><div class="section-head"><h3>材料</h3><button id="new-note">＋ 笔记</button></div><div id="notes" class="note-list"></div></section>
+            <section class="editor-column"><div id="editor-empty" class="editor-empty">选择一份笔记，或建立新的。</div><form id="note-form" hidden><input id="note-title" placeholder="标题" maxlength="300" required><textarea id="note-content" placeholder="在这里写下或粘贴原文"></textarea><details><summary>来源</summary><input id="source-root" placeholder="来源空间，例如 Obsidian Vault"><input id="source-path" placeholder="原始路径或会话地址"><input id="source-kind" placeholder="markdown / conversation / json"><label><input type="checkbox" id="source-immutable"> 保留为不可变来源</label></details><div class="editor-actions"><span id="save-status"></span><button type="submit">保存笔记</button><button id="continue-from-note" type="button" hidden>围绕此起点继续</button><select id="continue-project" hidden aria-label="选择继续进入的项目"></select></div></form></section>
+            <aside class="map-column"><div class="section-head"><h3>连接</h3><small>显式建立</small></div><div id="links" class="links"></div><form id="link-form" hidden><select id="link-target"></select><input id="link-label" placeholder="关系说明（可空）" maxlength="300"><button>连接当前笔记</button></form><div class="agent-placeholder"><strong>空间对话</strong><div id="note-messages" class="note-messages"></div><form id="agent-form"><select id="agent-target"></select><textarea id="agent-input" rows="3" placeholder="@ Agent，在当前空间中继续……"></textarea><button>发送给 Agent</button></form><p>只有你点击发送或明确 @ 时，Agent 才会进入当前空间。</p></div></aside>
+          </div>
+        </div>
+      </section>
+    </section>
+    <div id="notice" role="status" hidden></div>
+  </main>
+  <script src="/assets/notes.js" defer></script>
+</body>
+</html>

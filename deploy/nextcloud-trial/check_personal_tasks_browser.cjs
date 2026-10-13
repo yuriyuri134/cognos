@@ -1,0 +1,41 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{spawn}=require('node:child_process'),readline=require('node:readline');
+const trial='C:/Users/lnp/Documents/Playground/cognos/deploy/nextcloud-trial',output=trial+'/evidence';
+const fixture=JSON.parse(fs.readFileSync(output+'/personal-tasks-case.json','utf8'));
+const child=spawn(process.execPath,[trial+'/browser-shell.cjs'],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+let readyResolve,waiting;const ready=new Promise(r=>readyResolve=r),report={scope:'live mobile personal tasks, filters, details and offline recovery',checks:[],full_journey:'unverified'};
+readline.createInterface({input:child.stdout}).on('line',line=>{if(line==='READY'){readyResolve();return;}try{const r=JSON.parse(line);if(waiting){const p=waiting;waiting=null;clearTimeout(p.timer);r.error?p.reject(new Error(r.error)):p.resolve(r.result);}}catch{}});
+function send(c){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{waiting=null;reject(new Error('Browser command timed out'));},30000);waiting={resolve,reject,timer};child.stdin.write(JSON.stringify(c)+'\n');});}
+const evaluate=eval=>send({eval});const row=`document.querySelector('[data-cognos-personal-card="${fixture.card}"]')`;
+const filter=async value=>{await evaluate(`(()=>{const e=document.querySelector('[data-cognos-personal-filter]');e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`);await send({wait:'!document.querySelector("[data-cognos-personal-refresh]").disabled'});};
+async function main(){
+ await ready;await send({login:'bob'});await send({viewport:390});
+ await send({navigate:'http://127.0.0.1:8780/index.php/apps/deck'});
+ await send({wait:'!!document.querySelector("#app-content-vue")'});
+ assert.ok(await evaluate('window.__cognosTaskLifecycle && window.__cognosPersonalTasks && window.__cognosTaskFeedback'));
+ report.checks.push('opening Deck root loads extensions before subsequent navigation');
+ await send({navigate:'http://127.0.0.1:8780/index.php/apps/deck/upcoming'});await send({wait:`!!(${row})`});
+ assert.equal(await evaluate(`${row}.querySelector('[data-cognos-personal-status]').dataset.cognosPersonalStatus`),'done');
+ await filter('done');assert.ok(await evaluate(`!!(${row})`));await filter('blocked');assert.equal(await evaluate(`!!(${row})`),false);await filter('all');
+ report.checks.push('390px completed task is discoverable; status filters include and exclude the right task');
+ await evaluate(`${row}.querySelector('a').click();true`);await send({wait:'document.querySelector("[data-cognos-task-status]")?.value === "done"'});
+ await evaluate(`(()=>{const e=document.querySelector('[data-cognos-task-status]');e.value='blocked';e.dispatchEvent(new Event('change',{bubbles:true}));return true})()`);await send({click:'[data-cognos-status-save]'});
+ await send({wait:'document.querySelector("[data-cognos-current-status]")?.innerText === "当前状态：阻塞"'});
+ await send({navigate:'http://127.0.0.1:8780/index.php/apps/deck/upcoming'});await send({wait:`${row}?.querySelector('[data-cognos-personal-status]')?.dataset.cognosPersonalStatus === 'blocked'`});
+ await filter('blocked');assert.ok(await evaluate(`!!(${row})`));await filter('done');assert.equal(await evaluate(`!!(${row})`),false);await filter('all');
+ report.checks.push('visible task opens details, reopens to blocked, and return to list reads current state');
+ await send({latency:1200});await send({click:'[data-cognos-personal-refresh]'});
+ assert.ok(await evaluate('document.querySelector("[data-cognos-personal-refresh]").disabled && document.querySelector("[data-cognos-personal-message]").innerText.includes("正在读取")'));
+ await send({wait:'!document.querySelector("[data-cognos-personal-refresh]").disabled'});await send({latency:0});report.checks.push('loading message and disabled refresh are visible during real network delay');
+ await send({offline:true});await send({click:'[data-cognos-personal-refresh]'});await send({wait:'document.querySelector("[data-cognos-personal-message]").getAttribute("role")==="alert"'});
+ assert.ok(await evaluate('!!document.querySelector("[data-cognos-personal-message] button")'));await send({offline:false});await send({click:'[data-cognos-personal-message] button'});await send({wait:`!!(${row}) && !document.querySelector('[data-cognos-personal-refresh]').disabled`});
+ report.checks.push('offline read shows error and retry; reconnect restores current task list');
+ await send({screenshot:'个人任务-手机'});
+ assert.ok(await evaluate('document.querySelector("[data-cognos-personal-tasks]").getBoundingClientRect().width <= innerWidth'));
+ await send({logout:true});await send({login:'outsider'});await send({navigate:'http://127.0.0.1:8780/index.php/apps/deck/upcoming'});
+ await send({wait:'document.querySelector("[data-cognos-personal-message]")?.innerText.includes("还没有指派")'});
+ assert.equal(await evaluate('document.querySelector("[data-cognos-personal-list]").children.length'),0);
+ report.checks.push('another account has an empty personal list with a next-step explanation');
+ await send({screenshot:'个人任务-空列表'});
+ report.result='passed';report.card=fixture.card;
+}
+main().catch(async e=>{report.result='failed';report.failure=e.message;try{report.network=await send({networkSummary:true});}catch{}process.exitCode=1;}).finally(()=>{fs.writeFileSync(output+'/个人任务-浏览器验收.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));child.stdin.write('{"close":true}\n');setTimeout(()=>child.kill(),2000).unref();});

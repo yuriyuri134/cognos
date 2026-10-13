@@ -1,0 +1,15 @@
+{
+  "purpose": "single Cognos homepage quick tunnel",
+  "source_repo": "C:\\Users\\lnp\\Documents\\Playground\\cognos",
+  "origin": "http://127.0.0.1:8765",
+  "public_url": "https://reuters-orlando-prefix-passing.trycloudflare.com/",
+  "tunnel_process_session": "proc_779eb3aa6a66",
+  "tunnel_connector_id": "35ad8ff7-b183-4a3c-89b9-b93d6f29df1f",
+  "started_at": "2026-10-08T14:03:58Z",
+  "stopped_at": "2026-10-08T18:56:16Z",
+  "status": "stopped",
+  "scope": "Cognos homepage and assets only; no Nextcloud/Talk tunnel",
+  "note": "The direct homepage tunnel was stopped after audit because it exposed public read endpoints, including bootstrap history. Use a restricted proxy before reopening.",
+  "current_public_url": null,
+  "reason": "Direct FastAPI 8765 tunnel stopped; local FastAPI and Nextcloud remain local-only pending unified read permissions and Nextcloud UI journey acceptance."
+}

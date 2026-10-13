@@ -20,14 +20,17 @@ sys.path.insert(0, str(PHASE0_DIR))
 
 from codex_runtime import RuntimeReply, RuntimeUnavailableError
 from server import AppConfig, Participant, create_app
+from test_helpers import login_test_user
 
 
 class FakeRuntime:
     def __init__(self, prefix: str = "fake", thread_id: str = "thread-web") -> None:
         self.prefix = prefix
         self.thread_id = thread_id
+        self.calls: list[str] = []
 
     async def send(self, message: str) -> RuntimeReply:
+        self.calls.append(message)
         return RuntimeReply(
             thread_id=self.thread_id,
             turn_id=f"turn-{self.prefix}-fixed",
@@ -61,6 +64,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            await login_test_user(client)
             page = await client.get("/")
             health = await client.get("/api/health")
 
@@ -73,6 +77,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=first_app), base_url="http://test"
         ) as client:
+            await login_test_user(client)
             response = await client.post("/api/messages", json={"content": "从这里继续"})
             self.assertEqual(200, response.status_code)
             self.assertEqual("thread-web", response.json()["state"]["thread_id"])
@@ -81,6 +86,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=reopened_app), base_url="http://test"
         ) as reopened:
+            await login_test_user(reopened)
             payload = (await reopened.get("/api/bootstrap")).json()
 
         self.assertEqual(2, len(payload["messages"]))
@@ -107,6 +113,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            await login_test_user(client)
             # 1. 小林 -> @Gemini
             res1 = await client.post("/api/messages", json={"content": "@Gemini 第一条消息"})
             self.assertEqual(200, res1.status_code)
@@ -164,6 +171,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            await login_test_user(client)
             # 1. Gemini 发言产生发生 A
             res1 = await client.post("/api/messages", json={"content": "这是初始判断", "target": "gemini"})
             gemini_reply_id = res1.json()["reply"]["id"]
@@ -193,6 +201,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            await login_test_user(client)
             response = await client.post(
                 "/api/messages", json={"content": "即使失败也不要抹掉"}
             )
@@ -207,6 +216,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            await login_test_user(client)
             response = await client.post("/api/messages", json={"content": "   \n"})
             history = (await client.get("/api/bootstrap")).json()["messages"]
 
@@ -219,6 +229,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
 
         app = create_app(self.config, runtime=FakeRuntime(), search_fn=fake_search)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await login_test_user(client)
             response = await client.post(
                 "/api/messages", json={"content": "检索一下 CERN 近况", "search": True}
             )
@@ -236,6 +247,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
 
         app = create_app(self.config, runtime=FakeRuntime(), search_fn=bad_search)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await login_test_user(client)
             response = await client.post(
                 "/api/messages", json={"content": "查一下", "search": True}
             )
@@ -251,6 +263,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
 
         app = create_app(self.config, runtime=FakeRuntime(), search_fn=never_called)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await login_test_user(client)
             response = await client.post("/api/messages", json={"content": "普通消息"})
 
         self.assertEqual(200, response.status_code)
@@ -267,6 +280,7 @@ class WebSliceTest(unittest.IsolatedAsyncioTestCase):
 
         app = create_app(self.config, runtime=FakeRuntime(), search_fn=fake_search)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await login_test_user(client)
             response = await client.post(
                 "/api/messages",
                 json={

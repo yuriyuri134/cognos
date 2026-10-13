@@ -1,3 +1,8 @@
+param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$RunArgs
+)
+
 $ErrorActionPreference = "Stop"
 
 $webDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -30,8 +35,7 @@ try {
 }
 
 Write-Host "----------------------------------------"
-Write-Host "Starting Web Server on http://127.0.0.1:8765 ..." -ForegroundColor Cyan
+Write-Host "Starting Web Server (default http://127.0.0.1:8765; run.py accepts --host / --port) ..." -ForegroundColor Cyan
 Set-Location -LiteralPath $webDir
-& $python (Join-Path $webDir "run.py") --open
-
+& $python (Join-Path $webDir "run.py") --open @RunArgs
 

@@ -22,6 +22,9 @@ work/*-live-state*/
 work/*.out.log
 work/*.err.log
 
+# Local operational binaries and generated audit caches
+tools/bin/
+
 # OS
 Thumbs.db
 Desktop.ini

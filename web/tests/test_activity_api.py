@@ -16,6 +16,7 @@ sys.path.insert(0, str(WEB_DIR.parent / "phase0"))
 
 from codex_runtime import RuntimeReply
 from server import AppConfig, Participant, create_app
+from test_helpers import login_test_user
 
 
 class ScriptedActivityRuntime:
@@ -141,6 +142,8 @@ class ActivityApiTest(unittest.IsolatedAsyncioTestCase):
                          search_fn=search_fn)
         client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
         self.addAsyncCleanup(client.aclose)
+        await login_test_user(client)
+        # 登录
         org = (await client.post("/api/orgs", json={"name": "测试"})).json()["organization"]
         project = (await client.post(f"/api/orgs/{org['id']}/projects", json={"title": "开放活动"})).json()["project"]
         activity = (await client.post(f"/api/projects/{project['id']}/activities", json={})).json()["activity"]
@@ -612,6 +615,7 @@ class ActivityApiTest(unittest.IsolatedAsyncioTestCase):
             "test": Participant("test", "条件变化探针", "脚本替身", runtime)})
         client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
         self.addAsyncCleanup(client.aclose)
+        await login_test_user(client)
         org = (await client.post("/api/orgs", json={"name": "第二次进入测试"})).json()["organization"]
         project = (await client.post(f"/api/orgs/{org['id']}/projects", json={"title": "条件会变化"})).json()["project"]
         activity = (await client.post(f"/api/projects/{project['id']}/activities", json={})).json()["activity"]
@@ -748,6 +752,7 @@ class ActivityApiTest(unittest.IsolatedAsyncioTestCase):
             "test": Participant("test", "上下文探针", "脚本替身", runtime)})
         client = AsyncClient(transport=ASGITransport(app), base_url="http://test")
         self.addAsyncCleanup(client.aclose)
+        await login_test_user(client)
         org = (await client.post("/api/orgs", json={"name": "程序接续测试"})).json()["organization"]
         project = (await client.post(f"/api/orgs/{org['id']}/projects", json={"title": "条件改变"})).json()["project"]
         activity = (await client.post(f"/api/projects/{project['id']}/activities", json={})).json()["activity"]
@@ -1159,6 +1164,7 @@ class ActivityApiTest(unittest.IsolatedAsyncioTestCase):
         app = create_app(self.config, participants=participants)
         client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
         self.addAsyncCleanup(client.aclose)
+        await login_test_user(client)
         org = (await client.post("/api/orgs", json={"name": "测试"})).json()["organization"]
         project = (await client.post(f"/api/orgs/{org['id']}/projects", json={"title": "多参与者活动"})).json()["project"]
         activity = (await client.post(f"/api/projects/{project['id']}/activities", json={})).json()["activity"]
@@ -1204,6 +1210,20 @@ class ActivityApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(created["immutable"])
         move = app.state.activity_store.list_moves(activity["id"])[0]
         self.assertEqual("done", move["state"]["status"])
+
+    async def test_activity_reads_and_writes_require_existing_project_membership(self):
+        app, client, runtime, activity = await self.setup_activity([])
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as outsider:
+            await login_test_user(outsider, username="activity_outsider", display_name="Outsider")
+            prefix = f"/api/activities/{activity['id']}"
+            for path in (prefix, prefix + "/preview", prefix + "/contexts",
+                         prefix + "/history-browse", prefix + "/experience-candidates"):
+                response = await outsider.get(path)
+                self.assertEqual(403, response.status_code, path)
+            continued = await outsider.post(prefix + "/continue", json={
+                "revision": activity["revision"], "request_id": "outsider-continue", "target": "test"
+            })
+            self.assertEqual(403, continued.status_code)
 
 
 if __name__ == "__main__":

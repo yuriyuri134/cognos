@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import shutil
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 import uuid
@@ -83,7 +84,9 @@ class PiRuntimeAdapter:
                  session_dir: Path | None = None, command: str = "pi",
                  timeout: float = 120.0, model: str | None = None,
                  developer_instructions: str | None = None,
-                 subprocess_factory: Callable[..., Any] | None = None) -> None:
+                 subprocess_factory: Callable[..., Any] | None = None,
+                 max_reply_chars: int = 2_000_000,
+                 max_protocol_bytes: int = 16_000_000) -> None:
         self.cwd = cwd.resolve()
         self.state_store = state_store
         self.session_dir = (session_dir or state_store.path.parent / "pi-sessions").resolve()
@@ -91,6 +94,10 @@ class PiRuntimeAdapter:
         self.timeout = float(timeout)
         if not math.isfinite(self.timeout) or self.timeout <= 0:
             raise ValueError("Pi timeout 必须是有限正数")
+        if max_reply_chars <= 0 or max_protocol_bytes <= 0:
+            raise ValueError("Pi 输出预算必须为正数")
+        self.max_reply_chars = max_reply_chars
+        self.max_protocol_bytes = max_protocol_bytes
         self.model = model or None
         self.developer_instructions = developer_instructions
         self._spawn = subprocess_factory or asyncio.create_subprocess_exec
@@ -146,14 +153,21 @@ class PiRuntimeAdapter:
         process = None
         stderr_task = None
         stderr_bytes = [0]
+        started = time.monotonic()
         try:
-            # Creation is awaited to retain ownership even when cancellation follows.
-            process = await self._spawn(*args, cwd=str(self.cwd), stdin=asyncio.subprocess.PIPE,
-                                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-                                        limit=8 * 1024 * 1024)
+            # Bound startup separately so a broken wrapper cannot consume the whole request.
+            process = await asyncio.wait_for(
+                self._spawn(*args, cwd=str(self.cwd), stdin=asyncio.subprocess.PIPE,
+                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                            limit=min(8 * 1024 * 1024, self.max_protocol_bytes)),
+                min(self.timeout, 10.0),
+            )
             stderr_task = asyncio.create_task(self._drain_stderr(process.stderr, stderr_bytes))
+            remaining = self.timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise asyncio.TimeoutError
             reply, state = await asyncio.wait_for(
-                self._exchange(process, prompt, stored, isolated), self.timeout)
+                self._exchange(process, prompt, stored, isolated), remaining)
             if not isolated:
                 self.state_store.save(state)
             return reply
@@ -200,7 +214,11 @@ class PiRuntimeAdapter:
                         process.kill()
                     except ProcessLookupError:
                         pass
-                    await process.wait()
+                    try:
+                        await asyncio.wait_for(process.wait(), 1.0)
+                    except asyncio.TimeoutError:
+                        # Broken children must not block the request forever.
+                        pass
         finally:
             if stderr_task is not None:
                 stderr_task.cancel()
@@ -208,12 +226,19 @@ class PiRuntimeAdapter:
 
     async def _exchange(self, process: Any, prompt: dict[str, Any],
                         stored: PiSessionState | None, isolated: bool) -> tuple[RuntimeReply, PiSessionState]:
+        protocol_bytes = 0
+        reply_chars = 0
+
         async def write(record: dict[str, Any]) -> None:
             process.stdin.write(json.dumps(record, ensure_ascii=False).encode("utf-8") + b"\n")
             await process.stdin.drain()
 
         async def read() -> dict[str, Any]:
+            nonlocal protocol_bytes
             line = await process.stdout.readline()  # binary, strictly LF (not splitlines)
+            protocol_bytes += len(line)
+            if protocol_bytes > self.max_protocol_bytes:
+                raise RuntimeUnavailableError("Pi RPC 输出超过协议预算")
             if not line:
                 raise RuntimeUnavailableError("Pi 子进程退出或 stdout 关闭，未完成 RPC")
             if not line.endswith(b"\n"):
@@ -255,7 +280,7 @@ class PiRuntimeAdapter:
         model_used = None
 
         def assistant(message: Any) -> None:
-            nonlocal final_text, model_used
+            nonlocal final_text, model_used, reply_chars
             if not isinstance(message, dict) or message.get("role") != "assistant":
                 return
             if message.get("stopReason") in ("error", "aborted") or message.get("errorMessage"):
@@ -267,6 +292,9 @@ class PiRuntimeAdapter:
                 text = "".join(part["text"] for part in content if isinstance(part, dict)
                                and part.get("type") == "text" and isinstance(part.get("text"), str))
                 if text:
+                    reply_chars += len(text)
+                    if reply_chars > self.max_reply_chars:
+                        raise RuntimeUnavailableError("Pi 回复超过字符预算")
                     final_text = text
             if isinstance(message.get("model"), str) and message["model"]:
                 model_used = message["model"]
@@ -292,6 +320,9 @@ class PiRuntimeAdapter:
                 if not isinstance(update, dict):
                     raise RuntimeUnavailableError("Pi message_update 响应无效")
                 if update.get("type") == "text_delta" and isinstance(update.get("delta"), str):
+                    reply_chars += len(update["delta"])
+                    if reply_chars > self.max_reply_chars:
+                        raise RuntimeUnavailableError("Pi 回复超过字符预算")
                     deltas.append(update["delta"])
             elif kind == "message_end":
                 assistant(record.get("message"))

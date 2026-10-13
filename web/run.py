@@ -19,7 +19,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    url = f"http://{args.host}:{args.port}"
+    browser_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
+    url = f"http://{browser_host}:{args.port}"
     if args.open:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
     uvicorn.run("server:app", host=args.host, port=args.port, reload=False)

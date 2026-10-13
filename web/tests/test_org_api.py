@@ -8,6 +8,8 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from contextlib import asynccontextmanager
+from test_helpers import login_test_user
 from pathlib import Path
 
 from httpx import ASGITransport, AsyncClient
@@ -70,11 +72,14 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
+    @asynccontextmanager
     async def client(self):
-        return AsyncClient(transport=ASGITransport(app=self.app), base_url="http://test")
+        async with AsyncClient(transport=ASGITransport(app=self.app), base_url="http://test") as client:
+            await login_test_user(client)
+            yield client
 
     async def create_org_and_project(self):
-        async with await self.client() as client:
+        async with self.client() as client:
             org_res = await client.post(
                 "/api/orgs", json={"name": "Cognos 组织", "description": "第一个组织"}
             )
@@ -87,7 +92,7 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
             return org_id, project_id
 
     async def test_org_project_member_round_trip(self) -> None:
-        async with await self.client() as client:
+        async with self.client() as client:
             # 创建组织
             org_res = await client.post("/api/orgs", json={"name": "测试组织"})
             self.assertEqual(200, org_res.status_code)
@@ -125,17 +130,19 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
             # 组织详情包含项目与成员
             org_detail = (await client.get(f"/api/orgs/{org_id}")).json()
             self.assertEqual(1, len(org_detail["projects"]))
-            self.assertEqual(2, len(org_detail["members"]))
+            # 创建者登录账号自动入组织；显式旧式成员不按同名合并。
+            self.assertEqual(3, len(org_detail["members"]))
+            self.assertIsNotNone(org_detail["members"][0]["account_id"])
 
             # 项目消息视图返回成员
             messages = (await client.get(f"/api/projects/{project_id}/messages")).json()
-            self.assertEqual(2, len(messages["members"]))
-            self.assertEqual("Gemini", messages["members"][1]["name"])
-            self.assertEqual("ai", messages["members"][1]["kind"])
+            self.assertEqual(3, len(messages["members"]))
+            self.assertEqual("Gemini", messages["members"][-1]["name"])
+            self.assertEqual("ai", messages["members"][-1]["kind"])
 
     async def test_project_messages_are_scoped_but_global_field_keeps_all(self) -> None:
         org_id, project_id = await self.create_org_and_project()
-        async with await self.client() as client:
+        async with self.client() as client:
             # 项目内发一条消息
             sent = await client.post(
                 f"/api/projects/{project_id}/messages",
@@ -150,16 +157,48 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
             scoped = (await client.get(f"/api/projects/{project_id}/messages")).json()
             self.assertEqual(2, len(scoped["messages"]))
 
-            # 全局发生场仍然包含所有 raw 发生（第一发生场 = raw 全量）
+            # bootstrap 仅返回该账号有成员身份的项目的消息
             global_field = (await client.get("/api/bootstrap")).json()
             self.assertEqual(2, len(global_field["messages"]))
             self.assertTrue(
                 all(m.get("project_id") == project_id for m in global_field["messages"])
             )
 
+    async def test_project_messages_require_membership(self) -> None:
+        org_id, project_id = await self.create_org_and_project()
+        async with AsyncClient(transport=ASGITransport(app=self.app), base_url="http://test") as owner:
+            await login_test_user(owner, username="project_read_owner", display_name="Owner")
+            # 未入组前写入必须被拒绝（此前靠 join_project() 自动加入才返回 200）。
+            self.assertEqual(
+                403,
+                (await owner.post(f"/api/projects/{project_id}/messages",
+                                  json={"content": "尚未入组", "target": "gemini"})).status_code,
+            )
+            # 未入组者不能给自己开位子；由已在组织内的账号走正式入组路径。
+            owner_account = (await owner.get("/api/auth/me")).json()["account"]
+            self.assertEqual(
+                403,
+                (await owner.post(f"/api/orgs/{org_id}/members",
+                                  json={"kind": "human", "account_id": owner_account["id"]})).status_code,
+            )
+            async with self.client() as admin:
+                seat = (await admin.post(f"/api/orgs/{org_id}/members",
+                                         json={"kind": "human", "account_id": owner_account["id"]})).json()["member"]
+                self.assertEqual(200, (await admin.post(f"/api/projects/{project_id}/members",
+                                                        json={"org_member_id": seat["id"]})).status_code)
+            sent = await owner.post(
+                f"/api/projects/{project_id}/messages",
+                json={"content": "成员可见的讨论", "target": "gemini"},
+            )
+            self.assertEqual(200, sent.status_code)
+        async with AsyncClient(transport=ASGITransport(app=self.app), base_url="http://test") as outsider:
+            await login_test_user(outsider, username="project_read_outsider", display_name="Outsider")
+            denied = await outsider.get(f"/api/projects/{project_id}/messages")
+            self.assertEqual(403, denied.status_code)
+
     async def test_two_projects_are_isolated(self) -> None:
         org_id, project_a = await self.create_org_and_project()
-        async with await self.client() as client:
+        async with self.client() as client:
             project_b_res = await client.post(
                 f"/api/orgs/{org_id}/projects", json={"title": "项目 B"}
             )
@@ -174,7 +213,7 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_cross_project_quote_references_global_occurrence(self) -> None:
         org_id, project_a = await self.create_org_and_project()
-        async with await self.client() as client:
+        async with self.client() as client:
             project_b_res = await client.post(
                 f"/api/orgs/{org_id}/projects", json={"title": "项目 B"}
             )
@@ -207,7 +246,7 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_ai_member_requires_existing_participant(self) -> None:
         org_id, _ = await self.create_org_and_project()
-        async with await self.client() as client:
+        async with self.client() as client:
             missing = await client.post(
                 f"/api/orgs/{org_id}/members",
                 json={"kind": "ai", "name": "幽灵", "participant_id": "not-registered"},
@@ -220,8 +259,30 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(422, no_participant.status_code)
 
+    async def test_project_discussion_reaches_agent_and_returns_in_project_stream(self) -> None:
+        org_id, project_id = await self.create_org_and_project()
+        async with self.client() as client:
+            add_ai = await client.post(
+                f"/api/orgs/{org_id}/members",
+                json={"kind": "ai", "name": "Gemini", "participant_id": "gemini"},
+            )
+            self.assertEqual(200, add_ai.status_code)
+            await client.post(
+                f"/api/projects/{project_id}/members",
+                json={"org_member_id": add_ai.json()["member"]["id"]},
+            )
+            sent = await client.post(
+                f"/api/projects/{project_id}/messages",
+                json={"content": "请参与项目讨论", "target": "gemini"},
+            )
+            self.assertEqual(200, sent.status_code)
+            self.assertEqual("Gemini", sent.json()["reply"]["author"])
+            stream = (await client.get(f"/api/projects/{project_id}/messages")).json()
+            self.assertEqual(["小林", "Gemini"], [item["author"] for item in stream["messages"]])
+            self.assertEqual("gemini", stream["participants"][0]["id"])
+
     async def test_unknown_org_project_return_404(self) -> None:
-        async with await self.client() as client:
+        async with self.client() as client:
             self.assertEqual(404, (await client.get("/api/orgs/nope")).status_code)
             self.assertEqual(
                 404,
@@ -246,7 +307,7 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_cross_org_project_member_is_rejected(self) -> None:
         org_a, project_a = await self.create_org_and_project()
-        async with await self.client() as client:
+        async with self.client() as client:
             org_b = (
                 await client.post("/api/orgs", json={"name": "另一个组织"})
             ).json()["organization"]["id"]
@@ -264,7 +325,7 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_member_role_and_project_position(self) -> None:
         org_id, project_id = await self.create_org_and_project()
-        async with await self.client() as client:
+        async with self.client() as client:
             member_res = await client.post(
                 f"/api/orgs/{org_id}/members",
                 json={"kind": "ai", "name": "Gemini", "participant_id": "gemini", "org_role": "架构判断"},
@@ -300,7 +361,7 @@ class OrgApiTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_member_detail_returns_its_occurrences(self) -> None:
         org_id, project_id = await self.create_org_and_project()
-        async with await self.client() as client:
+        async with self.client() as client:
             member_res = await client.post(
                 f"/api/orgs/{org_id}/members",
                 json={"kind": "ai", "name": "Gemini", "participant_id": "gemini"},

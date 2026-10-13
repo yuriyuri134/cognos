@@ -15,10 +15,45 @@ function notify(message = "") { el("notice").textContent = message; el("notice")
 async function request(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...options.headers } });
   const data = await response.json();
-  if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : `请求未完成（${response.status}）`);
+  if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/api/auth/")) openAccountDialog();
+    const detail = Array.isArray(data.detail) ? data.detail.map(item => item.msg).filter(Boolean).join("；") : data.detail;
+    throw new Error(typeof detail === "string" ? detail : `请求未完成（${response.status}）`);
+  }
   return data;
 }
 function action(fn) { return async event => { if (event) event.preventDefault(); try { notify(); await fn(); } catch (error) { notify(error.message); } }; }
+
+async function refreshAccount() {
+  const payload = await request("/api/auth/me");
+  const account = payload.account;
+  el("account-label").textContent = account ? `${account.display_name} (@${account.username})` : "未登录";
+  el("account-open").hidden = !!account;
+  el("account-logout").hidden = !account;
+}
+function openAccountDialog() {
+  el("account-error").textContent = "";
+  if (!el("account-dialog").open) el("account-dialog").showModal();
+  el("account-username").focus();
+}
+async function submitAccount(kind) {
+  try {
+    await request(`/api/auth/${kind}`, { method: "POST", body: JSON.stringify({
+      username: el("account-username").value.trim(), password: el("account-password").value,
+      display_name: el("account-display").value.trim(),
+    }) });
+    el("account-dialog").close();
+    await refreshAccount();
+  } catch (error) { el("account-error").textContent = error.message; }
+}
+el("account-open").addEventListener("click", openAccountDialog);
+el("account-close").addEventListener("click", () => el("account-dialog").close());
+el("account-dialog").addEventListener("close", () => { el("account-password").value = ""; });
+el("account-login").addEventListener("click", () => submitAccount("login"));
+el("account-register").addEventListener("click", () => submitAccount("register"));
+el("account-password").addEventListener("keydown", (event) => { if (event.key === "Enter") submitAccount("login"); });
+el("account-logout").addEventListener("click", action(async () => { await request("/api/auth/logout", {method: "POST"}); await refreshAccount(); }));
+refreshAccount().catch((error) => notify(error.message));
 function asText(value) { return typeof value === "string" ? value : JSON.stringify(value, null, 2); }
 function documentLabel(id) { return activity.state.documents[id]?.title || id; }
 function describe(node, depth = 0) {

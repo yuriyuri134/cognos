@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 from pathlib import Path
 from typing import Any
@@ -67,9 +68,12 @@ def post_result(
     *,
     server_url: str = "http://127.0.0.1:8765",
     timeout: float = 30.0,
+    client: httpx.Client | None = None,
 ) -> dict[str, Any]:
     payload = build_request_payload(vault_result)
-    response = httpx.post(
+    # A supplied client carries its HttpOnly login cookie; no token enters payloads.
+    sender = client.post if client is not None else httpx.post
+    response = sender(
         f"{server_url.rstrip('/')}/api/handoff/result",
         json=payload,
         timeout=timeout,
@@ -83,11 +87,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("vault_payload", type=Path, help="E3 生成的 Vault-safe payload JSON")
     parser.add_argument("--server-url", default="http://127.0.0.1:8765")
     parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument("--username", required=True, help="Cognos 登录账号；密码从终端读取，不放入命令行")
     args = parser.parse_args(argv)
 
     try:
         payload = json.loads(args.vault_payload.read_text(encoding="utf-8"))
-        result = post_result(payload, server_url=args.server_url, timeout=args.timeout)
+        password = getpass.getpass("Cognos password: ")
+        with httpx.Client(timeout=args.timeout) as client:
+            login = client.post(f"{args.server_url.rstrip('/')}/api/auth/login",
+                                json={"username": args.username, "password": password})
+            password = None
+            login.raise_for_status()
+            try:
+                result = post_result(payload, server_url=args.server_url, timeout=args.timeout, client=client)
+            finally:
+                client.post(f"{args.server_url.rstrip('/')}/api/auth/logout")
+    except (EOFError, KeyboardInterrupt):
+        print("error: login cancelled")
+        return 1
     except (OSError, json.JSONDecodeError, httpx.HTTPError) as exc:
         print(f"error: {exc}")
         return 1

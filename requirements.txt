@@ -1,5 +1,7 @@
-sqlalchemy>=2.0.0
-fastapi>=0.100.0
-uvicorn>=0.22.0
-httpx>=0.24.0
-pydantic>=2.0.0
+# Keep the local venv, tests, and the canonical service on one known stack.
+# Re-run the isolated full suite after changing these pins.
+sqlalchemy==2.0.52
+fastapi==0.141.1
+uvicorn==0.52.1
+httpx==0.28.1
+pydantic==2.13.4

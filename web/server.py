@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, List, Annotated
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import Any, List
+
+from auth_middleware import require_login
 
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -41,7 +45,13 @@ from inquiry_store import InquiryStore
 from activity_api import create_activity_router
 from activity_service import ActivityService
 from activity_store import ActivityStore
+from auth_store import AuthStore
+from auth_api import create_auth_router
+from notes_api import create_notes_router
+from notes_store import NotesStore
 from runtime_profile import build_runtime_profile
+from error_utils import runtime_api_detail
+from talk_bridge import TalkBridge, TalkBridgeStore, load_room_projects, parse_bool
 from search_provider import (
     SearchUnavailableError,
     enrich_search_sources,
@@ -114,23 +124,39 @@ class AppConfig:
     thread_state_dir: Path
     codex_cwd: Path
     participant_instructions_path: Path
-    gemini_api_key: str | None = None
+    gemini_api_key: str | None = field(default=None, repr=False)
     gemini_model: str = "gemini-3.7-flash"
     handoff_dir: Path | None = None
     org_db_path: Path | None = None
     situation_dir: Path | None = None
     activity_db_path: Path | None = None
+    notes_db_path: Path | None = None
+    auth_db_path: Path | None = None
+    auth_cookie_secure: bool = False
+    talk_bridge_db_path: Path | None = None
+    talk_bot_secret: str | None = field(default=None, repr=False)
+    talk_nextcloud_url: str | None = None
+    talk_bot_name: str = "Cognos"
+    talk_default_target: str | None = None
+    talk_room_projects: dict[str, str] | None = None
+    talk_default_project_id: str | None = None
+    talk_require_mention: bool = True
+    # Safe label only; never expose filesystem paths or credentials in API responses.
+    instance_name: str = "primary-local"
+    instance_role: str = "primary"
 
 
 class SendMessageRequest(BaseModel):
     content: str
     target: str | None = None
     quoted_occurrence_id: str | None = None
+    author: str | None = Field(default=None, max_length=80, description="Legacy field; authenticated session determines the author")
     search: bool = False
     search_query: str | None = None
 
 
 class HandoffCreateRequest(BaseModel):
+    request_id: str | None = Field(default=None, max_length=160, description="客户端重试幂等键")
     instruction: str = Field(..., description="小林的交接指令")
     target_agent: str = Field(..., description="接收任务的外部代理，如 'Antigravity' 或 'DSH'")
     working_directory: str | None = None
@@ -151,6 +177,7 @@ class HandoffCreateRequest(BaseModel):
 
 
 class HandoffResultRequest(BaseModel):
+    request_id: str | None = Field(default=None, max_length=160, description="结果回流幂等键")
     handoff_id: str = Field(..., description="对应的 Handoff 发生 ID")
     agent_name: str = Field(..., description="回传结果的代理名称，如 'Antigravity' 或 'DSH'")
     changed_files: List[str] = Field(default_factory=list)
@@ -213,6 +240,12 @@ class ConversationService:
         conversation_id: str | None = None,
         search: bool = False,
         search_query: str | None = None,
+        author: str = "小林",
+        author_account_id: str | None = None,
+        external_source: str | None = None,
+        external_event_id: str | None = None,
+        external_author_id: str | None = None,
+        external_room_id: str | None = None,
     ) -> dict[str, Any]:
         if not content.strip():
             raise ValueError("消息不能为空")
@@ -263,19 +296,56 @@ class ConversationService:
                 search_error = f"{type(exc).__name__}: {exc}"
 
         async with self._send_lock:
-            user_record = self.history.append_message(
-                author="小林",
-                content=content,
-                target=participant.name,
-                target_participant_id=participant.id,
-                quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
-                project_id=project_id,
-                conversation_id=conversation_id,
-                search_query=effective_query,
-                search_error=search_error,
-                search_sources=search_sources,
-                search_material=search_material,
-            )
+            user_record = None
+            existing_reply = None
+            if external_event_id:
+                try:
+                    existing_user, existing_reply = self.find_external_turn(external_event_id)
+                except (HistoryCorruptionError, RuntimeError):
+                    existing_user, existing_reply = None, None
+                if existing_reply is not None:
+                    return {
+                        "user": existing_user,
+                        "reply": existing_reply,
+                        "target": participant.to_dict(),
+                        "situation": {
+                            "situation_id": existing_reply.get("situation_ref"),
+                            "situation_hash": existing_reply.get("situation_hash"),
+                            "requested_model": existing_reply.get("requested_model"),
+                            "actual_model": existing_reply.get("actual_model"),
+                            "fallback_happened": bool(existing_reply.get("fallback_happened")),
+                            "orientation": existing_reply.get("orientation"),
+                        },
+                        "search": {
+                            "query": effective_query,
+                            "requested": bool(search),
+                            "sources": search_sources,
+                            "error": search_error,
+                        }
+                        if search
+                        else None,
+                    }
+                if existing_user is not None:
+                    user_record = existing_user
+            if user_record is None:
+                user_record = self.history.append_message(
+                    author=author,
+                    author_account_id=author_account_id,
+                    content=content,
+                    target=participant.name,
+                    target_participant_id=participant.id,
+                    quoted_occurrence_id=quoted_occurrence_id if quoted_record else None,
+                    project_id=project_id,
+                    conversation_id=conversation_id,
+                    search_query=effective_query,
+                    search_error=search_error,
+                    search_sources=search_sources,
+                    search_material=search_material,
+                    external_source=external_source,
+                    external_event_id=external_event_id,
+                    external_author_id=external_author_id,
+                    external_room_id=external_room_id,
+                )
             # 发送给指定参与者的独立运行时，保持该参与者自己的连续性
             reply = await participant.runtime.send(actual_input)
 
@@ -343,6 +413,26 @@ class ConversationService:
                 if search
                 else None,
             }
+    def find_external_turn(self, external_event_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Recover a Talk turn after a process failure without appending its input again."""
+        records = self.history.read_all()
+        user_record = next(
+            (record for record in reversed(records)
+             if record.get("external_event_id") == external_event_id
+             and record.get("external_source") == "nextcloud_talk"
+             and not record.get("author_participant_id")),
+            None,
+        )
+        if user_record is None:
+            return None, None
+        reply = next(
+            (record for record in records
+             if record.get("in_reply_to") == user_record.get("id")
+             and record.get("author_participant_id")),
+            None,
+        )
+        return user_record, reply
+
     def _make_situation(
         self,
         participant: Participant,
@@ -456,6 +546,8 @@ class ConversationService:
         inquiry: dict[str, Any],
         previous_attempts: list[dict[str, Any]],
         attempt_no: int,
+        author: str = "小林",
+        author_account_id: str | None = None,
     ) -> dict[str, Any]:
         """一次探究尝试：同一问题上的第 attempt_no 次展开，可被下一次承接。
 
@@ -488,7 +580,8 @@ class ConversationService:
             user_record = None
             if content.strip():
                 user_record = self.history.append_message(
-                    author="小林",
+                    author=author,
+                    author_account_id=author_account_id,
                     content=content,
                     target=participant.name,
                     target_participant_id=participant.id,
@@ -603,6 +696,19 @@ def default_config() -> AppConfig:
                 str(thread_state_dir / "situations"),
             )
         ).resolve(),
+        auth_db_path=Path(os.environ.get("COGNOS_AUTH_DB_PATH", str(thread_state_dir / "auth.db"))).resolve(),
+        notes_db_path=Path(os.environ.get("COGNOS_NOTES_DB_PATH", str(thread_state_dir / "notes.db"))).resolve(),
+        auth_cookie_secure=os.environ.get("COGNOS_AUTH_COOKIE_SECURE", "0") == "1",
+        talk_bridge_db_path=Path(os.environ.get("COGNOS_TALK_BRIDGE_DB_PATH", str(thread_state_dir / "talk_bridge.db"))).resolve(),
+        talk_bot_secret=os.environ.get("COGNOS_TALK_BOT_SECRET") or None,
+        talk_nextcloud_url=os.environ.get("COGNOS_TALK_NEXTCLOUD_URL") or None,
+        talk_bot_name=os.environ.get("COGNOS_TALK_BOT_NAME", "Cognos"),
+        talk_default_target=os.environ.get("COGNOS_TALK_DEFAULT_TARGET") or None,
+        talk_room_projects=load_room_projects(os.environ.get("COGNOS_TALK_ROOM_PROJECTS")),
+        talk_default_project_id=os.environ.get("COGNOS_TALK_DEFAULT_PROJECT_ID") or None,
+        talk_require_mention=parse_bool(os.environ.get("COGNOS_TALK_REQUIRE_MENTION"), True),
+        instance_name=os.environ.get("COGNOS_INSTANCE_NAME", "primary-local"),
+        instance_role=os.environ.get("COGNOS_INSTANCE_ROLE", "primary"),
     )
 
 
@@ -814,12 +920,43 @@ def create_app(
     app.state.participants = registry
     app.state.org_store = org_store
     app.state.inquiry_store = inquiry_store
+    app.state.auth_store = AuthStore(config.auth_db_path or config.thread_state_dir / "auth.db")
+    app.include_router(create_auth_router(app.state.auth_store, cookie_secure=config.auth_cookie_secure))
+    notes_store = NotesStore(config.notes_db_path or config.thread_state_dir / "notes.db")
+    app.state.notes_store = notes_store
+    app.include_router(create_notes_router(notes_store, service))
+
+    talk_bridge = None
+    if config.talk_bot_secret and config.talk_nextcloud_url:
+        talk_bridge = TalkBridge(
+            service=service,
+            store=TalkBridgeStore(config.talk_bridge_db_path or config.thread_state_dir / "talk_bridge.db"),
+            secret=config.talk_bot_secret,
+            nextcloud_url=config.talk_nextcloud_url,
+            bot_name=config.talk_bot_name,
+            default_target=config.talk_default_target or default_target,
+            room_projects=config.talk_room_projects,
+            default_project_id=config.talk_default_project_id,
+            require_mention=config.talk_require_mention,
+        )
+    app.state.talk_bridge = talk_bridge
+
+    @app.exception_handler(RequestValidationError)
+    async def safe_auth_validation(request: Request, exc: RequestValidationError):
+        if request.url.path.startswith("/api/auth/"):
+            # Pydantic validation includes input values, including a submitted password.
+            errors = [{"loc": error["loc"], "type": error["type"],
+                       "msg": "账号输入格式不正确，请检查用户名、密码和显示名的类型与长度"}
+                      for error in exc.errors()]
+            return JSONResponse(status_code=422, content={"detail": errors})
+        return await request_validation_exception_handler(request, exc)
     activity_store = ActivityStore(config.activity_db_path or config.thread_state_dir / "activities.db")
     activity_service = ActivityService(activity_store, service)
     app.state.activity_store = activity_store
     app.state.activity_service = activity_service
     app.include_router(create_activity_router(store=activity_store, service=activity_service,
-                                             org_store=org_store, history=history))
+                                             org_store=org_store, history=history,
+                                             notes_store=notes_store))
     app.include_router(
         create_org_router(
             store=org_store,
@@ -844,6 +981,10 @@ def create_app(
     @app.get("/activities")
     async def activity_page() -> FileResponse:
         return FileResponse(FRONTEND_DIR / "activity.html")
+
+    @app.get("/notes")
+    async def notes_page() -> FileResponse:
+        return FileResponse(FRONTEND_DIR / "notes.html")
 
     @app.get("/api/situations/{situation_id}")
     async def get_situation(situation_id: str) -> dict[str, Any]:
@@ -877,11 +1018,20 @@ def create_app(
         return FileResponse(FRONTEND_DIR / "index.html")
 
     @app.get("/api/bootstrap")
-    async def bootstrap() -> dict[str, Any]:
+    async def bootstrap(account: Annotated[dict[str, Any], Depends(require_login)]) -> dict[str, Any]:
         try:
-            messages = history.read_all()
+            all_messages = history.read_all()
         except (HistoryCorruptionError, RuntimeError) as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        # 获取当前账号的项目成员身份
+        my_project_ids = org_store.get_project_ids_for_account(account["id"])
+        
+        # 过滤消息：只返回我的项目消息 + 无项目的全局消息
+        messages = [
+            msg for msg in all_messages
+            if msg.get("project_id") is None or msg.get("project_id") in my_project_ids
+        ]
 
         participant_list = [p.to_dict() for p in registry.values()]
         latest_runtime = next(
@@ -896,11 +1046,42 @@ def create_app(
                 "latest_runtime_ref": latest_runtime,
                 "history_count": len(messages),
                 "persistence": "Obsidian Vault / 追加式 JSONL",
+                "instance_name": config.instance_name,
+                "instance_role": config.instance_role,
             },
         }
 
+    @app.post("/api/integrations/nextcloud-talk/webhook")
+    async def nextcloud_talk_webhook(request: Request) -> JSONResponse:
+        """Receive signed Talk bot events; authentication is the bot HMAC, not a user cookie."""
+        bridge = request.app.state.talk_bridge
+        if bridge is None:
+            return JSONResponse({"detail": "Talk bridge is not configured"}, status_code=503)
+        raw_body = await request.body()
+        if not bridge.verify_request(
+            raw_body,
+            request.headers.get("x-nextcloud-talk-random", ""),
+            request.headers.get("x-nextcloud-talk-signature", ""),
+        ):
+            return JSONResponse({"detail": "Invalid Talk signature"}, status_code=401)
+        try:
+            payload = json.loads(raw_body)
+        except json.JSONDecodeError:
+            return JSONResponse({"detail": "Invalid JSON"}, status_code=400)
+        if not isinstance(payload, dict):
+            return JSONResponse({"detail": "Invalid Talk event"}, status_code=400)
+        try:
+            result = await bridge.handle(payload, raw_body)
+        except Exception as exc:
+            # Return non-2xx so Talk retries; details stay in the local bridge projection.
+            return JSONResponse({"detail": f"Talk bridge unavailable: {type(exc).__name__}"}, status_code=502)
+        return JSONResponse(result)
+
     @app.post("/api/messages")
-    async def send_message(request: SendMessageRequest) -> dict[str, Any]:
+    async def send_message(
+        request: SendMessageRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
         try:
             result = await service.send(
                 request.content,
@@ -908,14 +1089,13 @@ def create_app(
                 quoted_occurrence_id=request.quoted_occurrence_id,
                 search=request.search,
                 search_query=request.search_query,
+                author=account["display_name"],
+                author_account_id=account["id"],
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RuntimeUnavailableError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"消息已保存，但目标参与者本次未能返回。错误：{exc}",
-            ) from exc
+            raise HTTPException(status_code=502, detail=runtime_api_detail("消息已保存，但" , exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -932,7 +1112,7 @@ def create_app(
         return {"status": "ready"}
 
     @app.get("/api/instructions")
-    async def get_instructions() -> dict[str, Any]:
+    async def get_instructions(account: Annotated[dict[str, Any], Depends(require_login)]) -> dict[str, Any]:
         path = config.participant_instructions_path
         try:
             content = path.read_text(encoding="utf-8")
@@ -946,7 +1126,10 @@ def create_app(
         }
 
     @app.post("/api/handoff/create")
-    async def create_handoff(request: HandoffCreateRequest) -> dict[str, Any]:
+    async def create_handoff(
+        request: HandoffCreateRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
         try:
             # 兼容旧客户端：旧字段 source_refs 原本承载 occurrence ID。
             effective_occurrence_refs = request.occurrence_refs or request.source_refs
@@ -960,17 +1143,32 @@ def create_app(
                 if occurrence is not None:
                     occurrence_records.append(occurrence)
 
+            if request.project_id and request.work_item_id:
+                work_item = org_store.get_work_item(request.work_item_id)
+                if work_item is None or work_item.get("project_id") != request.project_id:
+                    raise HTTPException(status_code=422, detail="工作项不属于指定项目")
+            if request.work_item_id and not request.project_id:
+                raise HTTPException(status_code=422, detail="指定工作项时必须同时指定项目")
+            if request.request_id:
+                for prior in history.read_all():
+                    prior_handoff = prior.get("handoff_request")
+                    if (isinstance(prior_handoff, dict)
+                            and prior_handoff.get("request_id") == request.request_id
+                            and prior.get("author_account_id") == account["id"]):
+                        return {"status": "existing", "record": prior, "envelope_path": str(config.handoff_dir or (config.thread_state_dir / "handoffs")) + f"/{prior['id']}.json"}
             working_directory = str(
                 Path(request.working_directory or str(config.codex_cwd)).expanduser().resolve()
             )
 
             record = history.append_message(
-                author="小林",
+                author=account["display_name"],
+                author_account_id=account["id"],
                 content=request.instruction,
                 target=request.target_agent,
                 project_id=request.project_id,
                 work_item_id=request.work_item_id,
                 handoff_request={
+                    "request_id": request.request_id,
                     "target_agent": request.target_agent,
                     "working_directory": working_directory,
                     "occurrence_refs": effective_occurrence_refs,
@@ -990,7 +1188,7 @@ def create_app(
                         request.work_item_id,
                         "handoff",
                         record["id"],
-                        actor="小林",
+                        actor=account["display_name"],
                     )
                     if item["status"] == "open":
                         org_store.update_work_item(
@@ -1021,7 +1219,10 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post("/api/handoff/result")
-    async def receive_handoff_result(request: HandoffResultRequest) -> dict[str, Any]:
+    async def receive_handoff_result(
+        request: HandoffResultRequest,
+        account: Annotated[dict[str, Any], Depends(require_login)],
+    ) -> dict[str, Any]:
         try:
             handoff_record = history.get_by_id(request.handoff_id)
             if handoff_record is None:
@@ -1029,14 +1230,32 @@ def create_app(
                     status_code=422,
                     detail=f"handoff_id 不在当前第一发生场中：{request.handoff_id}",
                 )
+            if not isinstance(handoff_record.get("handoff_request"), dict):
+                raise HTTPException(status_code=422, detail="指定发生不是有效的 Handoff 请求")
+            existing_results = [
+                item for item in history.read_all()
+                if isinstance(item.get("handoff_result"), dict)
+                and item.get("handoff_result", {}).get("handoff_id") == request.handoff_id
+            ]
+            if existing_results:
+                if request.request_id:
+                    for existing in existing_results:
+                        result_payload = existing.get("handoff_result") or {}
+                        if (result_payload.get("request_id") == request.request_id
+                                and existing.get("submitted_by_account_id") == account["id"]):
+                            return {"status": "existing", "record": existing}
+                raise HTTPException(status_code=409, detail="该 Handoff 已有回流结果")
 
             record = history.append_message(
                 author=request.agent_name,
+                submitted_by_account_id=account["id"],
+                submitted_by=account["display_name"],
                 content=request.agent_response,
                 in_reply_to=request.handoff_id,
                 project_id=handoff_record.get("project_id"),
                 work_item_id=handoff_record.get("work_item_id"),
                 handoff_result={
+                    "request_id": request.request_id,
                     "handoff_id": request.handoff_id,
                     "related_occurrence_ids": request.related_occurrence_ids,
                     "session_ref": request.session_ref,

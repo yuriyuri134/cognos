@@ -1,0 +1,249 @@
+{
+  "report_version": 1,
+  "generated_at": "2026-10-08T21:37:26.525671+00:00",
+  "read_only": true,
+  "scope_note": "Known Cognos instances and ports only; this is not a claim that every historical experiment directory was inspected.",
+  "source_repository": "C:\\Users\\lnp\\Documents\\Playground\\cognos",
+  "source_repository_exists": true,
+  "instances": [
+    {
+      "name": "primary-local",
+      "role": "primary",
+      "state": {
+        "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state",
+        "exists": true,
+        "is_dir": true,
+        "children": [
+          "activities.db",
+          "auth.db",
+          "boundary",
+          "codex_thread.json",
+          "deepseek_thread.json",
+          "experiments",
+          "gemini_b_thread.json",
+          "gemini_thread.json",
+          "handoffs",
+          "inquiry.db",
+          "notes.db",
+          "org.db",
+          "situations",
+          "talk_bridge.db",
+          "test_b.json",
+          "ui-check"
+        ]
+      },
+      "vault": {
+        "path": "C:\\Users\\lnp\\Documents\\Obsidian Vault",
+        "exists": true,
+        "is_dir": true,
+        "children": [
+          ".agents",
+          ".claude",
+          ".claudian",
+          ".codex",
+          ".git",
+          ".gitignore",
+          ".obsidian",
+          "00 Inbox",
+          "10 Projects",
+          "70 素材",
+          "80 知识库",
+          "AGENTS.md",
+          "AI",
+          "AI.md",
+          "CLAUDE.md",
+          "HOME.md",
+          "小林的",
+          "未命名 1.md",
+          "未命名 2.md",
+          "未命名 3.md",
+          "未命名 4.md",
+          "未命名 5.md",
+          "未命名.base",
+          "未命名.md"
+        ]
+      },
+      "history": {
+        "path": "C:\\Users\\lnp\\Documents\\Obsidian Vault\\10 Projects\\Cognos\\运行数据\\第一发生场.jsonl",
+        "exists": true,
+        "lines": 93,
+        "sha256": "50274c21b527234e012b578e120d40436c2e49353f4c934310844d36a0e884e0"
+      },
+      "api": {
+        "url": "http://127.0.0.1:8765/api/health",
+        "status": 200,
+        "content_type": "application/json",
+        "bytes": 18,
+        "json_valid": true,
+        "reported_status": "ready"
+      },
+      "bootstrap": {
+        "url": "http://127.0.0.1:8765/api/bootstrap",
+        "status": 200,
+        "content_type": "application/json",
+        "bytes": 164241,
+        "json_valid": true,
+        "history_count": 93,
+        "instance_name": "primary-local",
+        "instance_role": "primary",
+        "participant_count": 4
+      }
+    },
+    {
+      "name": "trial-nextcloud",
+      "role": "trial",
+      "state": {
+        "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\deploy\\nextcloud-trial\\.cognos-state",
+        "exists": true,
+        "is_dir": true,
+        "children": [
+          "activities.db",
+          "auth.db",
+          "codex_thread.json",
+          "gemini_thread.json",
+          "inquiry.db",
+          "org.db",
+          "situations",
+          "talk_bridge.db"
+        ]
+      },
+      "vault": {
+        "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\deploy\\nextcloud-trial\\.cognos-vault",
+        "exists": true,
+        "is_dir": true,
+        "children": [
+          "10 Projects"
+        ]
+      },
+      "history": {
+        "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\deploy\\nextcloud-trial\\.cognos-vault\\10 Projects\\Cognos\\运行数据\\第一发生场.jsonl",
+        "exists": true,
+        "lines": 3,
+        "sha256": "0173691960706b85e2c9bdf26c999bc5e9b9d70cfd02f0e9d02cd1b2514dc597"
+      },
+      "api": {
+        "url": "http://127.0.0.1:8775/api/health",
+        "status": null,
+        "error": "URLError"
+      },
+      "bootstrap": {
+        "url": "http://127.0.0.1:8775/api/bootstrap",
+        "status": null,
+        "error": "URLError"
+      }
+    }
+  ],
+  "protected_files": [
+    {
+      "path": "C:\\Users\\lnp\\Documents\\Obsidian Vault\\10 Projects\\Cognos\\运行数据\\第一发生场.jsonl",
+      "exists": true,
+      "bytes": 161785,
+      "sha256": "50274c21b527234e012b578e120d40436c2e49353f4c934310844d36a0e884e0"
+    },
+    {
+      "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\codex_thread.json",
+      "exists": true,
+      "bytes": 61,
+      "sha256": "fe00954eab8197bed7144f765bb2d1f83c053d774938343c2a851fb937f88b1e"
+    },
+    {
+      "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\gemini_thread.json",
+      "exists": true,
+      "bytes": 109663,
+      "sha256": "eaccf125b1b61e0cadf90719b4ff4c26d35e542e3c5c7579b5a40830d90c313d"
+    },
+    {
+      "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\gemini_b_thread.json",
+      "exists": true,
+      "bytes": 25528,
+      "sha256": "4eff712b676e2bbf476d7017de513e74d16fe8e9743288502dff037c6cd9c544"
+    },
+    {
+      "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\deepseek_thread.json",
+      "exists": true,
+      "bytes": 415187,
+      "sha256": "18566ba2dc1038806878e170db233075a8ac375deeda02b6b36b5b57a2d3ef07"
+    },
+    {
+      "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\web\\.state\\pi_thread.json",
+      "exists": false,
+      "bytes": null,
+      "sha256": null
+    }
+  ],
+  "known_temporary_dirs": [
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-audit",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-audit-py313-sm8f6a",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-audit-venv",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-audit-venv-NxA9DV",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-current-verify-3kqcrqd1",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-final-audit-yoJSWs",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-intent-round1-smd919a3",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-route-audit-083mo_0m",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-route-audit-qg_vkgbv",
+    "C:\\Users\\lnp\\AppData\\Local\\Temp\\cognos-space-verify-5ysccekp",
+    "\\tmp\\cognos-audit-venv",
+    "\\tmp\\cognos-notes-zREfyD",
+    "\\tmp\\cognos-notes2-q0TcsX",
+    "\\tmp\\cognos-notes3-LYGOcL",
+    "\\tmp\\cognos-sandbox-Ydtdnz",
+    "\\tmp\\cognos-verify-ui-q8zDFx"
+  ],
+  "ports": [
+    {
+      "port": 8765,
+      "label": "primary-local Cognos",
+      "listening": true
+    },
+    {
+      "port": 8775,
+      "label": "trial-nextcloud Cognos",
+      "listening": false
+    },
+    {
+      "port": 8776,
+      "label": "trial-nextcloud webhook proxy",
+      "listening": false
+    },
+    {
+      "port": 8780,
+      "label": "trial-nextcloud Nextcloud",
+      "listening": false
+    },
+    {
+      "port": 8876,
+      "label": "temporary test service",
+      "listening": false
+    },
+    {
+      "port": 8877,
+      "label": "temporary notes test service",
+      "listening": false
+    },
+    {
+      "port": 8878,
+      "label": "temporary notes test service",
+      "listening": false
+    },
+    {
+      "port": 8879,
+      "label": "temporary UI test service",
+      "listening": false
+    }
+  ],
+  "public_access_state": {
+    "path": "C:\\Users\\lnp\\Documents\\Playground\\cognos\\deploy\\nextcloud-trial\\.public-access-state.json",
+    "exists": false
+  },
+  "worktree": {
+    "available": true,
+    "changed_paths": 162,
+    "tracked_or_modified": 40,
+    "untracked": 122
+  },
+  "not_scanned": [
+    "credentials under deploy/nextcloud-trial/.secrets",
+    "database contents",
+    "message bodies and runtime thread contents"
+  ]
+}

@@ -1,0 +1,245 @@
+{
+  "experiment": "adopt_source_structural_binding",
+  "condition": "BOUND",
+  "repetitions": 1,
+  "skip_model": true,
+  "saved_at": "2026-10-01T17:51:31.966747+00:00",
+  "source_identity": {
+    "git_head": "97fe9bd3ba1f890e1b09c1c12c83cc396fbf0acc",
+    "worktree_dirty": true,
+    "worktree_status_sha256": "f48d41a34749bf5b39964f02fe3efa2332a8e7cf9c98473dc49747f6027d7f10",
+    "source_file_sha256": {
+      "web/activity_service.py": "95b2216fa34bb00c53d342f2c5b85ebeb7938128ee98ff3e4f721bca935bf021",
+      "web/activity_store.py": "6bd0da01da06e25d1b30aafb354c4fc76da8aaad517a8634105491b28f808876",
+      "web/activity_acquisition.py": "f4c5cc1139ac0d97f59813694372cd24db488f5c75be2e436841eba6b45f98d1",
+      "web/activity_program.py": "f051252c2ecd27e72942424b5cefcebc5bd6cfc5befa1eb845f5936d9a8c884a",
+      "web/context_assembly.py": "3a37f41b5ce339847e51679009454cc757742ba0f1a2b193f1ce8a1e3c5eb4f4",
+      "web/cognitive_runtime.py": "53479d8f947ed55b19d6c0e1911103cd47ddb8fa1a4f16f918561671c229d8e6",
+      "web/server.py": "5cd30b192767c74009a36ddfb7d2fe8adbad1f9558c43013fe6d996bceedc9e9",
+      "web/project_api.py": "c20fa1018bfd1904ad64f744c7722fdf8f92af20ce2674b96399e934b3e410e4",
+      "web/history.py": "555d13aad72c73dd1c07c6494cb11a1b1147d7aa98734830f73eb004c49b8097",
+      "phase0/pi_runtime.py": "321bc468d6feaf12438212486c48e83a3ec33ff0de1d1e5ba614c57b7ff8a548",
+      "web/tests/run_adopt_source_ablation.py": "5a409b4f0b6d222785ffc66439efb7a6095b323500eef588a88336e3e644c69d"
+    },
+    "bundle_sha256": "7d8879893c9399518773f0489a7618b671de01ccbfb728a3390f5f0181f08313"
+  },
+  "fixture": {
+    "buried_marker": "排满",
+    "buried_content": "其实接单的时间已经排满了，真正卡住我的是手上没有可以重复交付的东西。",
+    "dominant_count": 20,
+    "question": "根据当前项目可得证据判断：真正卡住我的问题是什么？证据不够时自行取材，不要假装知道未读历史，也不要只凭出现频率下结论。",
+    "definition": {
+      "op": "literal",
+      "value": {
+        "provider": "project_history",
+        "contains": "排满",
+        "limit": 10
+      }
+    }
+  },
+  "results": [
+    {
+      "condition": "BOUND",
+      "repetition": 1,
+      "source_identity": {
+        "git_head": "97fe9bd3ba1f890e1b09c1c12c83cc396fbf0acc",
+        "worktree_dirty": true,
+        "worktree_status_sha256": "f48d41a34749bf5b39964f02fe3efa2332a8e7cf9c98473dc49747f6027d7f10",
+        "source_file_sha256": {
+          "web/activity_service.py": "95b2216fa34bb00c53d342f2c5b85ebeb7938128ee98ff3e4f721bca935bf021",
+          "web/activity_store.py": "6bd0da01da06e25d1b30aafb354c4fc76da8aaad517a8634105491b28f808876",
+          "web/activity_acquisition.py": "f4c5cc1139ac0d97f59813694372cd24db488f5c75be2e436841eba6b45f98d1",
+          "web/activity_program.py": "f051252c2ecd27e72942424b5cefcebc5bd6cfc5befa1eb845f5936d9a8c884a",
+          "web/context_assembly.py": "3a37f41b5ce339847e51679009454cc757742ba0f1a2b193f1ce8a1e3c5eb4f4",
+          "web/cognitive_runtime.py": "53479d8f947ed55b19d6c0e1911103cd47ddb8fa1a4f16f918561671c229d8e6",
+          "web/server.py": "5cd30b192767c74009a36ddfb7d2fe8adbad1f9558c43013fe6d996bceedc9e9",
+          "web/project_api.py": "c20fa1018bfd1904ad64f744c7722fdf8f92af20ce2674b96399e934b3e410e4",
+          "web/history.py": "555d13aad72c73dd1c07c6494cb11a1b1147d7aa98734830f73eb004c49b8097",
+          "phase0/pi_runtime.py": "321bc468d6feaf12438212486c48e83a3ec33ff0de1d1e5ba614c57b7ff8a548",
+          "web/tests/run_adopt_source_ablation.py": "5a409b4f0b6d222785ffc66439efb7a6095b323500eef588a88336e3e644c69d"
+        },
+        "bundle_sha256": "7d8879893c9399518773f0489a7618b671de01ccbfb728a3390f5f0181f08313"
+      },
+      "binding": {
+        "source_adopted": {
+          "document": "acq-def",
+          "version": 1,
+          "program_versions": {}
+        },
+        "condition": "BOUND"
+      },
+      "source_adopted_before": {
+        "document": "acq-def",
+        "version": 1,
+        "program_versions": {}
+      },
+      "structural": {
+        "http_status": 200,
+        "run_status": "acquired",
+        "acquire_succeeded": true,
+        "acquire_error": null,
+        "acquisition_matched_count": 1,
+        "acquisition_returned_count": 1,
+        "buried_reached_by_acquisition": true,
+        "acquired_document": "cbdae64c57b0495e9a0bebddaed66029",
+        "source_occurrence_id": "1fcdb6c9-cf2c-49f6-b6b5-836515742dc7"
+      },
+      "structural_response": {
+        "status_code": 200,
+        "body": {
+          "run": {
+            "id": "c62c63f7be974fc2adf8798251b685b8",
+            "activity_id": "b41f03400b084a169927c68a6ca19c9d",
+            "request_id": "acquire-BOUND-1",
+            "status": "acquired",
+            "events": [
+              {
+                "status": "executed",
+                "results": [
+                  {
+                    "status": "ok",
+                    "revision": 3,
+                    "document": "cbdae64c57b0495e9a0bebddaed66029",
+                    "acquisition": {
+                      "provider": "project_history",
+                      "project_id": "7c3afa20-4196-4817-8c7f-735e35727f71",
+                      "request": {
+                        "provider": "project_history",
+                        "contains": "排满",
+                        "author": "",
+                        "kind": "any",
+                        "limit": 10,
+                        "occurrence_id": ""
+                      },
+                      "matched_count": 1,
+                      "returned_count": 1,
+                      "more_matches": false,
+                      "records": [
+                        {
+                          "occurrence_id": "c145c10d-08f8-42ba-87b6-6a14d95c11b7",
+                          "author": "小林",
+                          "occurred_at": "2026-10-01T17:51:31.808759+00:00",
+                          "kind": "message",
+                          "content": "其实接单的时间已经排满了，真正卡住我的是手上没有可以重复交付的东西。",
+                          "content_truncated": false,
+                          "excerpt_start": 0
+                        }
+                      ]
+                    },
+                    "source_occurrence_id": "1fcdb6c9-cf2c-49f6-b6b5-836515742dc7"
+                  }
+                ]
+              }
+            ],
+            "input_revision": 2,
+            "output_revision": 3
+          },
+          "activity": {
+            "id": "b41f03400b084a169927c68a6ca19c9d",
+            "revision": 3,
+            "project_id": "7c3afa20-4196-4817-8c7f-735e35727f71",
+            "state": {
+              "title": "取材绑定对照",
+              "focus": "",
+              "documents": {
+                "acq-def": {
+                  "title": "取材方式定义",
+                  "format": "json",
+                  "immutable": true,
+                  "versions": [
+                    {
+                      "body": {
+                        "op": "literal",
+                        "value": {
+                          "provider": "project_history",
+                          "contains": "排满",
+                          "limit": 10
+                        }
+                      },
+                      "actor": "小林",
+                      "occurrence_id": "c7744f88-be95-4a5d-99de-16546c301ae2",
+                      "source_author": null
+                    }
+                  ]
+                },
+                "current-note": {
+                  "title": "当前表述",
+                  "format": "text",
+                  "immutable": true,
+                  "versions": [
+                    {
+                      "body": "最近脑子里总是接单和赚钱，赚钱这个词出现得尤其频繁。",
+                      "actor": "小林",
+                      "occurrence_id": "c7744f88-be95-4a5d-99de-16546c301ae2",
+                      "source_author": null
+                    }
+                  ]
+                },
+                "cbdae64c57b0495e9a0bebddaed66029": {
+                  "title": "取材结果 · 排满",
+                  "format": "json",
+                  "immutable": true,
+                  "versions": [
+                    {
+                      "body": {
+                        "provider": "project_history",
+                        "project_id": "7c3afa20-4196-4817-8c7f-735e35727f71",
+                        "request": {
+                          "provider": "project_history",
+                          "contains": "排满",
+                          "author": "",
+                          "kind": "any",
+                          "limit": 10,
+                          "occurrence_id": ""
+                        },
+                        "matched_count": 1,
+                        "returned_count": 1,
+                        "more_matches": false,
+                        "records": [
+                          {
+                            "occurrence_id": "c145c10d-08f8-42ba-87b6-6a14d95c11b7",
+                            "author": "小林",
+                            "occurred_at": "2026-10-01T17:51:31.808759+00:00",
+                            "kind": "message",
+                            "content": "其实接单的时间已经排满了，真正卡住我的是手上没有可以重复交付的东西。",
+                            "content_truncated": false,
+                            "excerpt_start": 0
+                          }
+                        ]
+                      },
+                      "actor": "Cognos",
+                      "occurrence_id": "1fcdb6c9-cf2c-49f6-b6b5-836515742dc7",
+                      "source_author": "Cognos · 项目发生检索"
+                    }
+                  ]
+                }
+              },
+              "adopted": null,
+              "source_adopted": {
+                "document": "acq-def",
+                "version": 1,
+                "program_versions": {}
+              }
+            },
+            "actor": "Cognos",
+            "reason": "实际取材结果进入活动",
+            "created_at": "2026-10-01T17:51:31.937118+00:00"
+          }
+        }
+      },
+      "cognitive": null,
+      "skipped_model": true,
+      "source_adopted_after": {
+        "document": "acq-def",
+        "version": 1,
+        "program_versions": {}
+      },
+      "documents_after": [
+        "acq-def",
+        "cbdae64c57b0495e9a0bebddaed66029",
+        "current-note"
+      ],
+      "elapsed_seconds": 0.0
+    }
+  ]
+}

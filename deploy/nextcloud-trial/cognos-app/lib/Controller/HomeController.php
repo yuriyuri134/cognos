@@ -19,7 +19,6 @@ final class HomeController extends Controller {
     #[NoAdminRequired]
     #[NoCSRFRequired]
     public function index(): TemplateResponse {
-        error_log('HomeController::index() called');
         Util::addScript('cognos', 'home');
         Util::addStyle('cognos', 'home');
         return new TemplateResponse('cognos', 'home');

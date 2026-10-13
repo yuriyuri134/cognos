@@ -394,6 +394,8 @@ class HandoffEndpointTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            from test_helpers import login_test_user
+            await login_test_user(client)
             source = await client.post("/api/messages", json={"content": "这里是 A 的原始判断"})
             source_id = source.json()["reply"]["id"]
 
@@ -456,6 +458,8 @@ class HandoffEndpointTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            from test_helpers import login_test_user
+            await login_test_user(client)
             response = await client.post(
                 "/api/handoff/result",
                 json={

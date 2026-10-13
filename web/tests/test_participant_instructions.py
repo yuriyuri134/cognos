@@ -16,7 +16,8 @@ sys.path.insert(0, str(WEB_DIR))
 sys.path.insert(0, str(PHASE0_DIR))
 
 from codex_runtime import RuntimeReply
-from server import AppConfig, Participant, create_app
+from server import AppConfig, create_app
+from test_helpers import login_test_user
 
 
 class RecordingRuntime:
@@ -58,6 +59,9 @@ class ParticipantInstructionsDynamicTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            anonymous = await client.get("/api/instructions")
+            self.assertEqual(401, anonymous.status_code)
+            await login_test_user(client)
             res = await client.get("/api/instructions")
             self.assertEqual(200, res.status_code)
             data = res.json()
@@ -73,6 +77,7 @@ class ParticipantInstructionsDynamicTest(unittest.IsolatedAsyncioTestCase):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
+            await login_test_user(client)
             # 1. 初始查询
             res1 = await client.get("/api/instructions")
             self.assertEqual(200, res1.status_code)

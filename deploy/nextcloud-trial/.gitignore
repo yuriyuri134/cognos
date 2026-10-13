@@ -1,0 +1,6 @@
+.secrets/
+.docker-client/
+evidence/
+.cognos-state/
+.cognos-vault/
+.public-access-state.json

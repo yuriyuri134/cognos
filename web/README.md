@@ -3,7 +3,7 @@
 这是第一个可亲自进入的整体雏形，不是新的本体模型。它目前提供两条互相连接的入口：普通组织沟通，以及从材料继续展开的 Activity。
 
 - 浏览器里向 Codex 发言并取得回复；
-- 使用既有 ChatGPT 登录，不使用模型 API Key；
+- Web 协作者使用 Cognos 账号登录；Codex 模型运行时仍使用既有 ChatGPT 登录；
 - 通过同一 `thread_id` 跨请求、跨服务重启继续；
 - 小林原文与 Codex 原文追加写入 Obsidian Vault；
 - 每条 Codex 回复保留 `thread_id / turn_id`；
@@ -34,6 +34,30 @@
 
 默认地址是 `http://127.0.0.1:8765`。
 
+供同一局域网的同学访问时，从 `web/` 目录显式选择监听地址：
+
+```powershell
+.\start.ps1 --host 0.0.0.0 --port 8765
+# 或不自动打开浏览器：
+..\phase0\.venv\Scripts\python.exe run.py --host 0.0.0.0 --port 8765
+```
+
+同学在浏览器打开 `http://<这台电脑的局域网 IPv4 地址>:8765`，然后注册或登录。
+`0.0.0.0` 是服务监听地址，本机自动打开浏览器时使用 `127.0.0.1`。
+两端需要网络互通；若被 Windows 防火墙拦截，需由机器管理员允许相应端口。
+本批没有更改默认 host、没有配置防火墙、没有提供 HTTPS 或公网部署，也没有完成另一台电脑的连接验证。
+
+## 登录与多人协作边界
+
+- 公开：静态页面、health/bootstrap、业务 GET（项目、历史、成员主页等）、注册/登录/注销、`/api/auth/me`。
+- 需会话：所有业务 POST/PATCH（消息、探究、成员修改、工作项、Activity、handoff 创建和结果回流）；账号目录 `/api/auth/accounts` 也需登录。
+- 当前是开放协作试用：任何已登录账号都可参与现有项目。尚未实现邀请凭证、组织/项目权限隔离、私有读取、注册限流或密码找回。因此登录不能被解释为项目隐私或角色授权。
+- 普通消息、项目/频道消息、探究及 Activity 操作的作者/操作者来自会话账号的 `display_name`；请求体中的 `author` 不决定身份。AI 回复仍归 AI；外部执行结果保留代理作者，并记录登录提交者。
+- 新 raw 发生附带 `author_account_id`。成员投影按稳定账号 ID 关联；旧 raw 和旧无账号成员不被同名注册者认领或回写。
+- 创建组织/项目及首次项目发言或 Activity 操作会登记当前协作者。项目中央“成员”页签可添加已注册账号或现有组织成员，并打开主页查看职责、资料、项目与发言；窄屏无需右栏入口。
+- 账号库为 `web/.state/auth.db`（可用 `COGNOS_AUTH_DB_PATH` 指定）。它是登录应用状态，不是 raw 真相源或 Subject。密码存 PBKDF2 哈希，session token 仅通过 HttpOnly、SameSite=Lax cookie 传递，数据库只保存 token 哈希；会话有效期 14 天，注销/轮换撤销旧会话。
+- 默认 HTTP 试用不设 Secure。未来部署实际具备 HTTPS 时才可设置 `COGNOS_AUTH_COOKIE_SECURE=1`；这个开关本身不提供 HTTPS。
+
 ## 本地数据
 
 - 对话原文：`Obsidian Vault/10 Projects/Cognos/运行数据/第一发生场.jsonl`
@@ -45,8 +69,20 @@
 ## 测试
 
 ```powershell
-..\phase0\.venv\Scripts\python.exe -m unittest discover -s tests -v
+$testRoot = Join-Path $env:TEMP ('cognos-tests-' + [guid]::NewGuid().ToString('N'))
+$env:COGNOS_VAULT_PATH = Join-Path $testRoot 'vault'
+$env:COGNOS_THREAD_STATE_DIR = Join-Path $testRoot 'state'
+$env:COGNOS_AUTH_DB_PATH = Join-Path $testRoot 'auth.db'
+$env:COGNOS_ORG_DB_PATH = Join-Path $testRoot 'org.db'
+$env:COGNOS_INQUIRY_DB_PATH = Join-Path $testRoot 'inquiry.db'
+$env:COGNOS_HANDOFF_DIR = Join-Path $testRoot 'handoffs'
+$env:COGNOS_SITUATION_DIR = Join-Path $testRoot 'situations'
+$env:PYTHONPATH = '..\phase0;.'
+..\phase0\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider tests ..\phase0\tests
 ```
+
+使用独立终端运行测试；关闭该终端后再正常启动服务，避免测试环境变量被误用于真实服务。
+测试配置各自使用临时数据，上述环境变量还隔离了 `server` 导入时创建的默认 app。
 
 ## Execution Handoff E1-E5
 
@@ -57,8 +93,11 @@
 ```bash
 PYTHONPATH=phase0:web <venv>/bin/python -m handoff.dsh_runner <envelope.json> --json
 PYTHONPATH=phase0:web <venv>/bin/python -m handoff.exporter --session-log <session_log> ...
-PYTHONPATH=phase0:web <venv>/bin/python -m handoff.result_poster <vault-payload.json>
+PYTHONPATH=phase0:web <venv>/bin/python -m handoff.result_poster <vault-payload.json> --username <Cognos账号>
 ```
+
+E4 从终端隐式读取密码，登录后的 cookie 只保留在 HTTP client 内存中，回流后注销；
+密码不放入命令行，token 不进入结果 payload。已有未登录 HTTP 写入脚本必须先登录并保留 cookie，匿名结果回流返回 401。
 
 ## Organization v0（第一可用切片）
 

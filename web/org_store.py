@@ -81,6 +81,34 @@ CREATE TABLE IF NOT EXISTS conversation_members (
     PRIMARY KEY (conversation_id, org_member_id)
 );
 
+CREATE TABLE IF NOT EXISTS organization_invitations (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id),
+    inviter_account_id TEXT NOT NULL,
+    invitee_account_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    responded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS organization_invitations_invitee
+    ON organization_invitations(invitee_account_id, status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS organization_invitations_pending_pair
+    ON organization_invitations(org_id, invitee_account_id)
+    WHERE status = 'pending';
+
+CREATE TABLE IF NOT EXISTS direct_conversations (
+    id TEXT PRIMARY KEY,
+    account_a_id TEXT NOT NULL,
+    account_b_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    UNIQUE(account_a_id, account_b_id)
+);
+CREATE INDEX IF NOT EXISTS direct_conversations_account_a
+    ON direct_conversations(account_a_id, created_at);
+CREATE INDEX IF NOT EXISTS direct_conversations_account_b
+    ON direct_conversations(account_b_id, created_at);
+
 -- 决定：对原发生/讨论的项目级投影，不替换原消息。
 CREATE TABLE IF NOT EXISTS decisions (
     id TEXT PRIMARY KEY,
@@ -130,6 +158,7 @@ _UNSET: Any = object()
 _ORG_MEMBER_EXTRA_COLUMNS = (
     ("org_role", "TEXT NOT NULL DEFAULT ''"),
     ("materials", "TEXT NOT NULL DEFAULT ''"),
+    ("account_id", "TEXT"),
 )
 _PROJECT_MEMBER_EXTRA_COLUMNS = (
     ("position", "TEXT NOT NULL DEFAULT ''"),
@@ -157,6 +186,8 @@ class OrgStore:
                 for name, ddl in extra:
                     if name not in existing:
                         conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS org_member_account "
+                         "ON org_members(org_id, account_id) WHERE account_id IS NOT NULL")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
@@ -253,6 +284,194 @@ class OrgStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def account_member(self, org_id: str, account_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM org_members WHERE org_id = ? AND account_id = ?",
+                (org_id, account_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_project_ids_for_account(self, account_id: str) -> set[str]:
+        """返回该账号有成员身份的所有项目 ID 集合。"""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT pm.project_id
+                FROM project_members pm
+                JOIN org_members m ON m.id = pm.org_member_id
+                WHERE m.account_id = ?
+                """,
+                (account_id,),
+            ).fetchall()
+        return {row["project_id"] for row in rows}
+
+    # ---------- 组织邀请 ----------
+
+    def create_invitation(
+        self, org_id: str, inviter_account_id: str, invitee_account_id: str
+    ) -> dict[str, Any]:
+        if inviter_account_id == invitee_account_id:
+            raise ValueError("不能邀请自己")
+        now = _now()
+        invitation = {
+            "id": _new_id(),
+            "org_id": org_id,
+            "inviter_account_id": inviter_account_id,
+            "invitee_account_id": invitee_account_id,
+            "status": "pending",
+            "created_at": now,
+            "responded_at": None,
+        }
+        with self._conn() as conn:
+            org = conn.execute("SELECT id FROM organizations WHERE id = ?", (org_id,)).fetchone()
+            if org is None:
+                raise ValueError("组织不存在")
+            if conn.execute(
+                "SELECT 1 FROM org_members WHERE org_id = ? AND account_id = ? AND status = 'active'",
+                (org_id, inviter_account_id),
+            ).fetchone() is None:
+                raise ValueError("只有组织成员可以发出邀请")
+            if conn.execute(
+                "SELECT 1 FROM org_members WHERE org_id = ? AND account_id = ? AND status = 'active'",
+                (org_id, invitee_account_id),
+            ).fetchone() is not None:
+                raise ValueError("对方已经是组织成员")
+            existing = conn.execute(
+                "SELECT * FROM organization_invitations WHERE org_id = ? AND invitee_account_id = ? AND status = 'pending'",
+                (org_id, invitee_account_id),
+            ).fetchone()
+            if existing is not None:
+                return dict(existing)
+            conn.execute(
+                "INSERT INTO organization_invitations "
+                "(id, org_id, inviter_account_id, invitee_account_id, status, created_at, responded_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                tuple(invitation.values()),
+            )
+        return invitation
+
+    def list_invitations_for_account(self, account_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT i.*, o.name AS org_name
+                FROM organization_invitations i
+                JOIN organizations o ON o.id = i.org_id
+                WHERE i.invitee_account_id = ?
+                ORDER BY CASE i.status WHEN 'pending' THEN 0 ELSE 1 END, i.created_at DESC
+                """,
+                (account_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_org_invitations(self, org_id: str, inviter_account_id: str) -> list[dict[str, Any]]:
+        if self.account_member(org_id, inviter_account_id) is None:
+            raise ValueError("只有组织成员可以查看邀请")
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM organization_invitations WHERE org_id = ? ORDER BY created_at DESC",
+                (org_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def respond_invitation(
+        self, invitation_id: str, account: dict[str, Any], accept: bool
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM organization_invitations WHERE id = ?", (invitation_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("邀请不存在")
+            if row["invitee_account_id"] != account["id"]:
+                raise ValueError("这不是发给你的邀请")
+            if row["status"] != "pending":
+                return dict(row)
+            status = "accepted" if accept else "declined"
+            conn.execute(
+                "UPDATE organization_invitations SET status = ?, responded_at = ? WHERE id = ?",
+                (status, now, invitation_id),
+            )
+            if accept:
+                member = conn.execute(
+                    "SELECT * FROM org_members WHERE org_id = ? AND account_id = ?",
+                    (row["org_id"], account["id"]),
+                ).fetchone()
+                if member is None:
+                    conn.execute(
+                        """
+                        INSERT INTO org_members
+                            (id, org_id, kind, name, participant_id, org_role, materials, status, created_at, account_id)
+                        VALUES (?, ?, 'human', ?, NULL, '', '', 'active', ?, ?)
+                        """,
+                        (_new_id(), row["org_id"], account["display_name"], now, account["id"]),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE org_members SET name = ?, status = 'active' WHERE id = ?",
+                        (account["display_name"], member["id"]),
+                    )
+            result = conn.execute(
+                "SELECT * FROM organization_invitations WHERE id = ?", (invitation_id,)
+            ).fetchone()
+        return dict(result)
+
+    # ---------- 私信 ----------
+
+    def get_or_create_direct_conversation(self, account_a_id: str, account_b_id: str) -> dict[str, Any]:
+        if account_a_id == account_b_id:
+            raise ValueError("不能和自己发起私信")
+        first, second = sorted((account_a_id, account_b_id))
+        now = _now()
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM direct_conversations WHERE account_a_id = ? AND account_b_id = ?",
+                (first, second),
+            ).fetchone()
+            if row is not None:
+                return dict(row)
+            conversation = {
+                "id": _new_id(),
+                "account_a_id": first,
+                "account_b_id": second,
+                "status": "active",
+                "created_at": now,
+            }
+            conn.execute(
+                "INSERT INTO direct_conversations (id, account_a_id, account_b_id, status, created_at) VALUES (?, ?, ?, ?, ?)",
+                tuple(conversation.values()),
+            )
+        return conversation
+
+    def get_direct_conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM direct_conversations WHERE id = ?", (conversation_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_direct_conversations(self, account_id: str) -> list[dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM direct_conversations
+                WHERE account_a_id = ? OR account_b_id = ?
+                ORDER BY created_at DESC
+                """,
+                (account_id, account_id),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def direct_other_account(conversation: dict[str, Any], account_id: str) -> str | None:
+        if conversation.get("account_a_id") == account_id:
+            return conversation.get("account_b_id")
+        if conversation.get("account_b_id") == account_id:
+            return conversation.get("account_a_id")
+        return None
+
     def add_org_member(
         self,
         org_id: str,
@@ -260,6 +479,7 @@ class OrgStore:
         name: str,
         participant_id: str | None = None,
         org_role: str = "",
+        account_id: str | None = None,
     ) -> dict[str, Any]:
         member = {
             "id": _new_id(),
@@ -267,6 +487,7 @@ class OrgStore:
             "kind": kind,
             "name": name,
             "participant_id": participant_id,
+            "account_id": account_id,
             "org_role": org_role,
             "materials": "",
             "status": "active",
@@ -276,8 +497,8 @@ class OrgStore:
             conn.execute(
                 """
                 INSERT INTO org_members
-                    (id, org_id, kind, name, participant_id, org_role, materials, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, org_id, kind, name, participant_id, org_role, materials, status, created_at, account_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     member["id"],
@@ -289,9 +510,28 @@ class OrgStore:
                     "",
                     member["status"],
                     member["created_at"],
+                    account_id,
                 ),
             )
         return member
+
+    def ensure_account_member(self, org_id: str, account: dict[str, Any]) -> dict[str, Any]:
+        """Link by stable account ID; never claim an existing unlinked name."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM org_members WHERE org_id = ? AND account_id = ?",
+                               (org_id, account["id"])).fetchone()
+        if row is not None:
+            return dict(row)
+        try:
+            return self.add_org_member(org_id, "human", account["display_name"], account_id=account["id"])
+        except sqlite3.IntegrityError:
+            # Concurrent first messages may both attempt to create the same projection.
+            with self._conn() as conn:
+                row = conn.execute("SELECT * FROM org_members WHERE org_id = ? AND account_id = ?",
+                                   (org_id, account["id"])).fetchone()
+            if row is None:
+                raise
+            return dict(row)
 
     def update_org_member(
         self,

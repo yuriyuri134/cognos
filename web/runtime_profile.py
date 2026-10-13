@@ -12,11 +12,20 @@ def _public_endpoint(value: Any) -> str | None:
         return None
     try:
         parsed = urlsplit(value)
-        if parsed.scheme and parsed.netloc:
-            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        if parsed.scheme and parsed.hostname:
+            # Rebuild from hostname/port so userinfo, query and fragment never escape.
+            host = parsed.hostname
+            if ":" in host and not host.startswith("["):
+                host = f"[{host}]"
+            try:
+                port = parsed.port
+            except ValueError:
+                return None
+            netloc = host if port is None else f"{host}:{port}"
+            return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
     except ValueError:
         return None
-    return value.split("?", 1)[0]
+    return None
 
 
 def build_runtime_profile(runtime: Any, *, display_name: str = "") -> dict[str, Any]:

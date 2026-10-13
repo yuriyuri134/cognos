@@ -28,8 +28,8 @@ class NotesController extends Controller {
     }
 
     private function payload(): array {
-        $raw = $this->request->getContent();
-        if ($raw === '') return [];
+        $raw = file_get_contents('php://input');
+        if ($raw === '' || $raw === false) return [];
         try {
             $value = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $error) {
@@ -54,7 +54,8 @@ class NotesController extends Controller {
         } catch (\InvalidArgumentException $error) {
             return new JSONResponse(['error' => $error->getMessage()], 422);
         } catch (\Throwable $error) {
-            return new JSONResponse(['error' => 'Space could not be created'], 500);
+            \OC::$server->get(\Psr\Log\LoggerInterface::class)->error('Notes createSpace failed: ' . $error->getMessage(), ['exception' => $error]);
+            return new JSONResponse(['error' => 'Space could not be created', 'details' => $error->getMessage()], 500);
         }
     }
 

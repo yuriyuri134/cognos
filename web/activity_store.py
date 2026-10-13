@@ -156,6 +156,22 @@ class ActivityStore:
         return [{"id": row["activity_id"], "revision": row["revision"],
                  "title": json.loads(row["state_json"])["title"], "created_at": row["created_at"]} for row in rows]
 
+    def find_by_source(self, project_id: str, source_ref: dict[str, Any]) -> dict[str, Any] | None:
+        """Return the current activity for an exact immutable source reference."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT a.* FROM activity_revisions a
+                JOIN (SELECT activity_id, MAX(revision) r FROM activity_revisions
+                      WHERE project_id=? GROUP BY activity_id) h
+                ON a.activity_id=h.activity_id AND a.revision=h.r
+                ORDER BY a.created_at DESC""", (project_id,)).fetchall()
+        for row in rows:
+            state = json.loads(row["state_json"])
+            if any(document.get("source_ref") == source_ref
+                   for document in state.get("documents", {}).values()):
+                return self._decode(row)
+        return None
+
     def history(self, ident: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute("SELECT revision, actor, reason, created_at FROM activity_revisions WHERE activity_id=? ORDER BY revision", (ident,)).fetchall()
@@ -369,6 +385,7 @@ class ActivityStore:
                 raise ValueError("只有实际导入通路可以创建保留原文的材料")
             state["documents"][ident] = {
                 "title": title, "format": format_name, "immutable": immutable,
+                "source_ref": operation.get("source_ref"),
                 "versions": [{"body": _body(operation.get("body"), format_name), "actor": actor,
                               "occurrence_id": occurrence_id, "source_author": source_author}],
             }

@@ -37,6 +37,8 @@
     project: null,
     members: [],
     messages: [],
+    participants: [],
+    defaultTarget: null,
     decisions: [],
     workItems: [],
     timeline: [],
@@ -89,7 +91,9 @@
       // 非 JSON 响应
     }
     if (!response.ok) {
-      throw new Error(payload.detail || `请求失败（${response.status}）`);
+      if (response.status === 401) document.dispatchEvent(new CustomEvent("cognos:login-required"));
+      const detail = Array.isArray(payload.detail) ? payload.detail.map((item) => item.msg).join("；") : payload.detail;
+      throw new Error(detail || `请求失败（${response.status}）`);
     }
     return payload;
   }
@@ -115,6 +119,8 @@
     state.project = messages.project || state.project;
     state.members = messages.members || [];
     state.messages = messages.messages || [];
+    state.participants = messages.participants || [];
+    state.defaultTarget = messages.default_target || state.participants[0]?.id || null;
     state.decisions = decisions.decisions || [];
     state.workItems = workItems.work_items || [];
     state.timeline = timeline.events || [];
@@ -173,13 +179,111 @@
     );
     body.append(summary);
 
-    if (state.activeTab === "decisions") {
+    if (state.activeTab === "discussion") {
+      body.append(renderDiscussion());
+    } else if (state.activeTab === "members") {
+      body.append(renderProjectMembers());
+    } else if (state.activeTab === "decisions") {
       body.append(renderDecisions());
     } else if (state.activeTab === "timeline") {
       body.append(renderTimeline());
     } else {
       body.append(renderWorkItems());
     }
+  }
+
+  function renderDiscussion() {
+    const section = el("section", "wb-section");
+    const head = el("div", "wb-section-head");
+    head.append(el("h2", null, `团队讨论（${state.messages.length}）`));
+    head.append(el("span", "wb-hint", "选择 Agent 后发送，Agent 才进入项目讨论"));
+    section.append(head);
+    const list = el("div", "wb-discussion-list");
+    state.messages.forEach((message) => {
+      const row = el("article", "wb-discussion-message");
+      row.append(el("strong", null, message.author || "未知参与者"));
+      row.append(el("time", "wb-hint", formatTime(message.occurred_at)));
+      row.append(el("p", null, message.content || ""));
+      list.append(row);
+    });
+    if (!state.messages.length) list.append(el("p", "wb-empty", "讨论还没有发生。可以先选择一个 Agent 发起。"));
+    section.append(list);
+    const form = el("form", "wb-form");
+    const target = el("select");
+    state.participants.forEach((participant) => target.append(option(`${participant.name} · ${participant.model_name}`, participant.id)));
+    if (state.defaultTarget) target.value = state.defaultTarget;
+    const input = el("textarea"); input.rows = 3; input.placeholder = "在团队讨论中 @ Agent，继续当前项目……"; input.required = true;
+    const send = el("button", "wb-primary", "发送讨论"); send.type = "submit";
+    form.append(target, input, send);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault(); if (!input.value.trim()) return;
+      send.disabled = true;
+      try { await postJson(`/api/projects/${state.projectId}/messages`, { content: input.value.trim(), target: target.value }); input.value = ""; state.notice = "讨论已发出，Agent 回复已回流。"; await refresh(); }
+      catch (error) { state.error = error.message || "讨论发送失败"; render(); }
+      finally { send.disabled = false; }
+    });
+    section.append(form);
+    return section;
+  }
+
+  function renderProjectMembers() {
+    const section = el("section", "wb-section");
+    const head = el("div", "wb-section-head");
+    head.append(el("h2", null, `项目成员（${state.members.length}）`));
+    head.append(el("span", "wb-hint", "打开主页查看职责、资料与发言"));
+    section.append(head);
+    const list = el("div", "wb-member-list");
+    state.members.forEach((member) => {
+      const card = el("button", "wb-member-card");
+      card.type = "button";
+      card.dataset.memberId = member.id;
+      card.append(el("strong", null, member.name));
+      card.append(el("span", "wb-hint", `${member.kind === "ai" ? "AI 参与者" : "人类成员"} · ${member.position || member.org_role || "尚未填写职责"}`));
+      card.append(el("span", "wb-member-link", "打开成员主页 →"));
+      card.addEventListener("click", () => document.dispatchEvent(new CustomEvent("cognos:open-member", { detail: { memberId: member.id } })));
+      list.append(card);
+    });
+    if (!state.members.length) list.append(el("p", "wb-empty", "还没有项目成员。可以添加已注册同学或组织成员。"));
+    section.append(list);
+    const form = el("form", "wb-form");
+    const select = el("select");
+    select.setAttribute("aria-label", "选择要加入项目的成员");
+    select.append(option("选择组织成员或已注册账号", ""));
+    const add = el("button", "wb-primary", "加入项目");
+    add.type = "submit";
+    const hint = el("span", "wb-hint", "登录后可添加成员；同学首次在项目发言时也会加入。");
+    form.append(select, add, hint);
+    section.append(form);
+    Promise.all([
+      requestJson(`/api/orgs/${state.orgId}`),
+      currentAccount ? requestJson("/api/auth/accounts").catch(() => ({ accounts: [] })) : Promise.resolve({ accounts: [] }),
+    ]).then(([org, accounts]) => {
+      const present = new Set(state.members.map((member) => member.id));
+      const linked = new Set((org.members || []).map((member) => member.account_id).filter(Boolean));
+      (org.members || []).filter((member) => !present.has(member.id)).forEach((member) => {
+        select.append(option(`${member.name} · 组织成员`, `member:${member.id}`));
+      });
+      (accounts.accounts || []).filter((account) => !linked.has(account.id)).forEach((account) => {
+        select.append(option(`${account.display_name} (@${account.username}) · 账号`, `account:${account.id}`));
+      });
+    }).catch((error) => { hint.textContent = error.message || "成员目录读取失败"; });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!select.value) return;
+      add.disabled = true;
+      try {
+        const [kind, id] = select.value.split(":");
+        let memberId = id;
+        if (kind === "account") {
+          const payload = await postJson(`/api/orgs/${state.orgId}/members`, { kind: "human", account_id: id });
+          memberId = payload.member.id;
+        }
+        await postJson(`/api/projects/${state.projectId}/members`, { org_member_id: memberId });
+        await refresh();
+      } catch (error) { hint.textContent = error.message || "加入项目失败"; }
+      finally { add.disabled = false; }
+    });
+    return section;
   }
 
   function renderWorkItems() {
@@ -500,6 +604,7 @@
   });
 
   document.addEventListener("cognos:show-discussion", () => closePage());
+  document.addEventListener("cognos:hide-workbench", () => { state.open = false; page.hidden = true; });
 
   if (backBtn) {
     backBtn.addEventListener("click", () => {

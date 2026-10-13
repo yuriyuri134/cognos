@@ -142,8 +142,15 @@ class SituationServiceTest(unittest.IsolatedAsyncioTestCase):
         self.temporary_directory.cleanup()
 
     async def _client(self, participants: dict[str, Participant]):
+        from contextlib import asynccontextmanager
+        from test_helpers import login_test_user
         app = create_app(self.config, participants=participants)
-        return AsyncClient(transport=ASGITransport(app=app), base_url="http://test"), app
+        @asynccontextmanager
+        async def authenticated_client():
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                await login_test_user(client)
+                yield client
+        return authenticated_client(), app
 
     async def test_provenance_recorded_and_situation_fetchable(self) -> None:
         participants = {
@@ -155,7 +162,7 @@ class SituationServiceTest(unittest.IsolatedAsyncioTestCase):
             ),
         }
         client, app = await self._client(participants)
-        async with client:
+        async with client as client:
             response = await client.post("/api/messages", json={"content": "你好", "target": "deepseek"})
             self.assertEqual(200, response.status_code)
             reply = response.json()["reply"]
@@ -193,7 +200,7 @@ class SituationServiceTest(unittest.IsolatedAsyncioTestCase):
             ),
         }
         client, _ = await self._client(participants)
-        async with client:
+        async with client as client:
             response = await client.post("/api/messages", json={"content": "帮我改一下", "target": "deepseek"})
         reply = response.json()["reply"]
         self.assertIn("[需要澄清", reply["content"])
@@ -219,7 +226,7 @@ class SituationServiceTest(unittest.IsolatedAsyncioTestCase):
             ),
         }
         client, _ = await self._client(participants)
-        async with client:
+        async with client as client:
             response = await client.post("/api/messages", json={"content": "帮我改一下", "target": "deepseek"})
         reply = response.json()["reply"]
         self.assertEqual("我先暂定你是在讨论活动入口；如果不是，请补充目标。", reply["content"])
@@ -244,7 +251,7 @@ class SituationServiceTest(unittest.IsolatedAsyncioTestCase):
             ),
         }
         client, _ = await self._client(participants)
-        async with client:
+        async with client as client:
             response = await client.post("/api/messages", json={"content": "改一下", "target": "deepseek"})
         reply = response.json()["reply"]
         self.assertEqual("按假设回答。", reply["content"])
@@ -260,7 +267,7 @@ class SituationServiceTest(unittest.IsolatedAsyncioTestCase):
             ),
         }
         client, app = await self._client(participants)
-        async with client:
+        async with client as client:
             org_id = (await client.post("/api/orgs", json={"name": "组织"})) .json()["organization"]["id"]
             project_id = (await client.post(f"/api/orgs/{org_id}/projects", json={"title": "项目 X", "description": "推进真实问题"})) .json()["project"]["id"]
             member = (await client.post(f"/api/orgs/{org_id}/members", json={"kind": "ai", "name": "DeepSeek", "participant_id": "deepseek", "org_role": "施工主体"})) .json()["member"]["id"]
@@ -275,7 +282,8 @@ class SituationServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("project", situation["locus"]["type"])
         self.assertEqual("项目 X", situation["locus"]["project"]["title"])
         self.assertEqual("组织", situation["locus"]["organization"]["name"])
-        self.assertEqual(1, len(situation["project_reality"]["members"]))
+        self.assertEqual(2, len(situation["project_reality"]["members"]))
+        self.assertEqual({"小林", "DeepSeek"}, {m["name"] for m in situation["project_reality"]["members"]})
 
 
 if __name__ == "__main__":

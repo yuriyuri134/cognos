@@ -396,6 +396,9 @@ class PiRegistrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(root / "state" / "pi-sessions", pi.runtime.session_dir)
         pi.runtime._spawn = AsyncMock(side_effect=FileNotFoundError())
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            registered = await client.post("/api/auth/register", json={
+                "username": "pi-test", "password": "fixture123", "display_name": "小林"})
+            self.assertEqual(200, registered.status_code)
             models = (await client.get("/api/models")).json()["participants"]
             self.assertIsNone(next(item for item in models if item["id"] == "pi")["requested_model"])
             response = await client.post("/api/messages", json={"target": "pi", "content": "hi"})
@@ -406,6 +409,8 @@ class PiRegistrationTest(unittest.IsolatedAsyncioTestCase):
         factory = Factory()
         pi.runtime._spawn = factory
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            logged_in = await client.post("/api/auth/login", json={"username": "pi-test", "password": "fixture123"})
+            self.assertEqual(200, logged_in.status_code)
             response = await client.post("/api/messages", json={"target": "pi", "content": "hi"})
             self.assertEqual(200, response.status_code, response.text)
             ref = response.json()["reply"]["runtime_ref"]
