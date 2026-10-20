@@ -1,61 +1,111 @@
-(() => {
-  'use strict';
-  const form = document.querySelector('#cognos-space-form');
-  const typeInput = document.querySelector('#cognos-space-type');
-  const status = document.querySelector('#cognos-space-status');
-  const name = document.querySelector('#cognos-space-name');
-  const description = document.querySelector('#cognos-space-description');
+'use strict';
 
-  document.querySelector('#cognos-create-space')?.addEventListener('click', () => {
-    form.hidden = !form.hidden;
-    if (!form.hidden) name.focus();
-  });
+(function() {
+    const state = {
+        creations: [],
+        loading: false
+    };
 
-  document.querySelectorAll('[data-space-type]').forEach((button) => {
-    button.addEventListener('click', () => {
-      document.querySelectorAll('[data-space-type]').forEach((item) => item.classList.remove('selected'));
-      button.classList.add('selected');
-      typeInput.value = button.dataset.spaceType || '';
-    });
-  });
+    const elements = {
+        creationsList: null
+    };
 
-  document.querySelector('#cognos-create-space-form')?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (!typeInput.value) {
-      status.textContent = '请先选择空间类型。';
-      return;
+    function init() {
+        elements.creationsList = document.getElementById('recent-creations-list');
+        if (!elements.creationsList) return;
+
+        loadRecentCreations();
     }
-    const button = event.currentTarget.querySelector('button[type="submit"]');
-    button.disabled = true;
-    status.textContent = '正在建立空间…';
-    try {
-      // 创立空间：直接跳转到创立空间列表页
-      if (typeInput.value === 'creation') {
-        window.location.href = '/index.php/apps/cognos/creations';
-        return;
-      }
 
-      // 笔记空间：调用现有的笔记空间创建接口
-      if (typeInput.value === 'notes') {
-        const response = await fetch('/index.php/apps/cognos/notes/spaces', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json', requesttoken: window.OC?.requestToken || '' },
-          body: JSON.stringify({ title: name.value.trim(), description: description.value.trim() }),
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || data.message || `建立失败（${response.status}）`);
-        status.textContent = '空间已建立，正在打开笔记空间…';
-        window.location.href = '/index.php/apps/cognos/notes';
-        return;
-      }
-
-      // 其他类型空间保留入口
-      status.textContent = '这个类型的空间入口已保留，具体成员/项目对象将在对应底座中建立。';
-      button.disabled = false;
-    } catch (error) {
-      status.textContent = error.message;
-      button.disabled = false;
+    async function loadRecentCreations() {
+        if (state.loading) return;
+        
+        state.loading = true;
+        
+        try {
+            const response = await fetch('/index.php/apps/cognos/creations');
+            if (!response.ok) {
+                throw new Error('Failed to fetch creations');
+            }
+            
+            const data = await response.json();
+            state.creations = data.creations || [];
+            
+            renderCreations();
+        } catch (error) {
+            console.error('Error loading creations:', error);
+            renderError();
+        } finally {
+            state.loading = false;
+        }
     }
-  });
+
+    function renderCreations() {
+        if (!elements.creationsList) return;
+
+        if (state.creations.length === 0) {
+            elements.creationsList.innerHTML = `
+                <div class="empty-state">
+                    <p>还没有创立</p>
+                    <p class="empty-hint">点击上方按钮开启第一个创立</p>
+                </div>
+            `;
+            return;
+        }
+
+        const recentCreations = state.creations.slice(0, 4);
+        
+        elements.creationsList.innerHTML = recentCreations.map(creation => {
+            const time = formatTimeAgo(creation.updated_at || creation.created_at);
+            const messageCount = creation.message_count || 0;
+            
+            return `
+                <a href="/index.php/apps/cognos/creations/${creation.id}" class="creation-card">
+                    <h4 class="creation-title">${escapeHtml(creation.title)}</h4>
+                    <div class="creation-meta">
+                        <span class="creation-time">${time}</span>
+                        ${messageCount > 0 ? `<span class="creation-messages">${messageCount} 条对话</span>` : ''}
+                    </div>
+                </a>
+            `;
+        }).join('');
+    }
+
+    function renderError() {
+        if (!elements.creationsList) return;
+        
+        elements.creationsList.innerHTML = `
+            <div class="error-state">
+                <p>加载失败</p>
+                <button onclick="location.reload()">重试</button>
+            </div>
+        `;
+    }
+
+    function formatTimeAgo(timestamp) {
+        if (!timestamp) return '';
+        
+        const date = new Date(timestamp);
+        const now = new Date();
+        const seconds = Math.floor((now - date) / 1000);
+        
+        if (seconds < 60) return '刚刚';
+        if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
+        if (seconds < 604800) return `${Math.floor(seconds / 86400)} 天前`;
+        
+        return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 })();
