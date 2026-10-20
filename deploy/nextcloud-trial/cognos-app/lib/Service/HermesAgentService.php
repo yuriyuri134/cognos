@@ -439,4 +439,11 @@ final class HermesAgentService {
             ->andWhere($query->expr()->eq('state', $query->createNamedParameter('pending')))
             ->executeStatement();
     }
+
+    /**
+     * Public wrapper for callHermes: 用于 ActivityRunService 等其他服务调用 Hermes API
+     */
+    public function callAgent(string $sessionId, array $messages, ?string $model = null, ?string $participantId = null): array {
+        return $this->callHermes($sessionId, $messages, $model, $participantId);
+    }
 }

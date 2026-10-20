@@ -1,2 +1,464 @@
-#cognos-home{max-width:1120px;margin:0 auto;padding:42px 28px;color:var(--color-main-text)}
-.cognos-home-header{display:flex;justify-content:space-between;gap:28px;align-items:flex-start;border-bottom:1px solid var(--color-border);padding-bottom:30px}.cognos-eyebrow{color:var(--color-primary-element);font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px}.cognos-home h1{font-size:32px;margin:0 0 12px}.cognos-home-header p{max-width:680px;color:var(--color-text-maxcontrast);font-size:16px;line-height:1.6}.cognos-primary,.cognos-secondary{display:inline-block;border:0;border-radius:8px;padding:12px 18px;font-weight:700;text-decoration:none;cursor:pointer}.cognos-primary{background:var(--color-primary-element);color:var(--color-primary-element-text)}.cognos-secondary{border:1px solid var(--color-border);color:var(--color-main-text)}.cognos-space-form{margin:26px 0;padding:24px;border:1px solid var(--color-border);border-radius:12px;background:var(--color-background-hover)}.cognos-space-form h2{margin-top:0}.cognos-space-form p{color:var(--color-text-maxcontrast)}.cognos-space-types{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}.cognos-space-types button{display:grid;gap:6px;text-align:left;padding:14px;border:1px solid var(--color-border);border-radius:8px;background:var(--color-main-background);color:var(--color-main-text);cursor:pointer}.cognos-space-types button.selected{border:2px solid var(--color-primary-element);padding:13px}.cognos-space-types span{font-size:13px;color:var(--color-text-maxcontrast)}.cognos-space-form form{display:grid;gap:12px;max-width:720px}.cognos-space-form label{display:grid;gap:6px;font-weight:600}.cognos-space-form input,.cognos-space-form textarea{padding:10px;border:1px solid var(--color-border);border-radius:6px;background:var(--color-main-background);color:var(--color-main-text)}#cognos-space-status{margin-left:10px;color:var(--color-text-maxcontrast)}.cognos-space-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin:30px 0}.cognos-space-card{display:grid;gap:8px;padding:24px;min-height:190px;border:1px solid var(--color-border);border-radius:12px;background:var(--color-main-background);color:var(--color-main-text);text-decoration:none;transition:transform .15s,border-color .15s}.cognos-space-card:hover{transform:translateY(-2px);border-color:var(--color-primary-element)}.cognos-space-card h2,.cognos-space-card p{margin:0}.cognos-space-card p{line-height:1.6;color:var(--color-text-maxcontrast)}.cognos-space-icon{font-size:28px;color:var(--color-primary-element)}.cognos-space-action{margin-top:auto;color:var(--color-primary-element);font-weight:700}.cognos-agent-strip{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:20px 24px;border-radius:12px;background:var(--color-background-hover);border:1px solid var(--color-border)}.cognos-agent-strip p{margin:5px 0 0;color:var(--color-text-maxcontrast);line-height:1.5}.cognos-agent-strip a{white-space:nowrap}@media(max-width:700px){#cognos-home{padding:24px 16px}.cognos-home-header,.cognos-agent-strip{display:grid}.cognos-space-types,.cognos-space-grid{grid-template-columns:1fr}.cognos-primary{width:100%}}
+/* ===== Design System Tokens ===== */
+:root {
+  /* Surface levels - 深色主题多层次 */
+  --surface-0: #05070C;
+  --surface-1: #0A0D12;
+  --surface-2: #0F131C;
+  --surface-3: #161D2B;
+  --surface-4: #1E2636;
+  --surface-5: #2A3442;
+
+  /* Accent colors - 青蓝主题（数据/认识领域） */
+  --accent-primary: #38BDF8;
+  --accent-secondary: #6EE7B7;
+  --accent-muted: #475569;
+
+  /* Text colors */
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: #94A3B8;
+
+  /* Spacing scale */
+  --space-xs: 0.5rem;
+  --space-sm: 1rem;
+  --space-md: 1.5rem;
+  --space-lg: 2rem;
+  --space-xl: 3rem;
+  --space-2xl: 4rem;
+
+  /* Border radius */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+
+  /* Typography */
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ===== Base Reset ===== */
+.cognos-home-modern {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  padding: var(--space-xl) var(--space-lg);
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ===== Section Headers ===== */
+.section-header {
+  margin-bottom: var(--space-lg);
+}
+
+.section-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.section-title {
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.section-subtitle {
+  font-size: clamp(0.95rem, 2vw, 1.05rem);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* ===== 创立空间区域 ===== */
+.creation-space-section {
+  margin-bottom: var(--space-2xl);
+}
+
+.creation-space-content {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+/* 新建创立卡片 */
+.new-creation-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: linear-gradient(135deg, var(--surface-2), var(--surface-3));
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.new-creation-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  opacity: 0;
+  transition: opacity var(--transition-base);
+}
+
+.new-creation-card:hover {
+  background: linear-gradient(135deg, var(--surface-3), var(--surface-4));
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(56, 189, 248, 0.15);
+}
+
+.new-creation-card:hover::before {
+  opacity: 1;
+}
+
+.card-icon-container {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-4);
+  border-radius: var(--radius-circle);
+  transition: all var(--transition-base);
+}
+
+.new-creation-card:hover .card-icon-container {
+  background: var(--accent-primary);
+  transform: rotate(12deg) scale(1.1);
+}
+
+.card-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.card-desc {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.card-arrow {
+  color: var(--accent-primary);
+  opacity: 0.7;
+  transition: all var(--transition-base);
+}
+
+.new-creation-card:hover .card-arrow {
+  opacity: 1;
+  transform: translateX(4px);
+}
+
+/* 最近的创立网格 */
+.recent-creations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-md);
+}
+
+.creation-item {
+  padding: var(--space-md);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: inherit;
+  transition: all var(--transition-base);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.creation-item:hover {
+  background: var(--surface-3);
+  border-color: var(--accent-muted);
+  transform: translateY(-1px);
+}
+
+.creation-item-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.creation-item-meta {
+  display: flex;
+  gap: var(--space-md);
+  font-size: 0.875rem;
+  color: var(--text-tertiary);
+}
+
+.loading-placeholder {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl);
+  color: var(--text-tertiary);
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--surface-3);
+  border-top-color: var(--accent-primary);
+  border-radius: var(--radius-circle);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== 分隔线 ===== */
+.section-divider {
+  margin: var(--space-2xl) 0;
+  padding: var(--space-lg) 0;
+}
+
+.divider-line {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--surface-4) 20%,
+    var(--surface-4) 80%,
+    transparent
+  );
+}
+
+/* ===== 示范空间区域 ===== */
+.demo-space-section {
+  margin-bottom: var(--space-2xl);
+}
+
+.demo-spaces-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-lg);
+}
+
+.demo-space-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: inherit;
+  transition: all var(--transition-base);
+  overflow: hidden;
+  min-height: 200px;
+}
+
+.demo-space-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity var(--transition-base);
+  pointer-events: none;
+}
+
+.demo-space-card:hover {
+  background: var(--surface-3);
+  border-color: var(--accent-primary);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+.demo-space-card:hover::after {
+  opacity: 0.05;
+}
+
+.space-icon-wrapper {
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  border-radius: var(--radius-lg);
+  transition: all var(--transition-base);
+}
+
+.demo-space-card:hover .space-icon-wrapper {
+  background: var(--surface-4);
+  transform: scale(1.05);
+}
+
+.space-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.space-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.space-title {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.space-desc {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.space-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: var(--space-md);
+  background: linear-gradient(0deg, var(--surface-1), transparent);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all var(--transition-base);
+}
+
+.demo-space-card:hover .space-overlay {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.overlay-text {
+  color: var(--accent-primary);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* ===== Agent 信息条 ===== */
+.agent-info-strip {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-pill);
+  margin-top: var(--space-xl);
+}
+
+.info-icon {
+  font-size: 1.5rem;
+}
+
+.info-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-content strong {
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.info-content p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.info-link {
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  transition: color var(--transition-fast);
+}
+
+.info-link:hover {
+  color: var(--accent-secondary);
+}
+
+/* ===== Responsive Design ===== */
+@media (max-width: 768px) {
+  .cognos-home-modern {
+    padding: var(--space-md);
+  }
+
+  .new-creation-card {
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .card-arrow {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .recent-creations-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-spaces-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-info-strip {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .info-link {
+    justify-self: center;
+  }
+}

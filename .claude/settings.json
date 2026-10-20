@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "cd /c/Users/lnp/Documents/Playground/cognos/*",
+      "cat /c/Users/lnp/Documents/Playground/cognos/**/*",
+      "ls /c/Users/lnp/Documents/Playground/cognos/**",
+      "grep -r * /c/Users/lnp/Documents/Playground/cognos/**",
+      "git status",
+      "git diff",
+      "docker ps",
+      "docker-compose ps"
+    ]
+  },
+  "env": {
+    "PROJECT_ROOT": "/c/Users/lnp/Documents/Playground/cognos"
+  }
+}

@@ -32,6 +32,13 @@ return ['routes' => [
     ['name' => 'notes#getGraph', 'url' => '/notes/spaces/{spaceId}/graph', 'verb' => 'GET'],
     ['name' => 'notes#startDiscussion', 'url' => '/notes/{noteId}/discuss', 'verb' => 'POST'],
     ['name' => 'notes#getReferences', 'url' => '/notes/{noteId}/references', 'verb' => 'GET'],
+    ['name' => 'creationSpace#index', 'url' => '/creations', 'verb' => 'GET'],
+    ['name' => 'creationSpace#detail', 'url' => '/creations/{id}', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
+    ['name' => 'creationSpace#list', 'url' => '/creations/data', 'verb' => 'GET'],
+    ['name' => 'creationSpace#create', 'url' => '/creations/data', 'verb' => 'POST'],
+    ['name' => 'creationSpace#get', 'url' => '/creations/{id}/data', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
+    ['name' => 'creationSpace#sendMessage', 'url' => '/creations/{id}/messages', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+']],
+    ['name' => 'creationSpace#getMessages', 'url' => '/creations/{id}/messages', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
 ], 'ocs' => [
     ['name'=>'edit#edit','url'=>'/api/v1.0/cards/{cardId}','verb'=>'PUT'],
     ['name'=>'assignment#assign','url'=>'/api/v1.0/cards/{cardId}/assign','verb'=>'POST'],
