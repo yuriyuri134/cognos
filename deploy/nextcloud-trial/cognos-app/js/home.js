@@ -23,7 +23,7 @@
         state.loading = true;
         
         try {
-            const response = await fetch('/index.php/apps/cognos/creations');
+            const response = await fetch('/index.php/apps/cognos/creations/data');
             if (!response.ok) {
                 throw new Error('Failed to fetch creations');
             }
