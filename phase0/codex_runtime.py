@@ -94,6 +94,15 @@ class CodexRuntimeAdapter:
 
     activity_input_scope = "fresh_thread_runtime_context_not_captured"
 
+    UNDERSTANDING_FIRST_PROTOCOL = """
+参考协议：~/.claude/agent-base/understanding-first-protocol.md
+
+核心规则：
+1. 实质性操作前必须先输出理解
+2. 表达不确定性（百分比）
+3. 设计任务必须参考成熟产品
+"""
+
     def __init__(
         self,
         *,
@@ -106,7 +115,11 @@ class CodexRuntimeAdapter:
         self.cwd = cwd.resolve()
         self.state_store = state_store
         self.model = model
-        self.developer_instructions = developer_instructions
+        self.developer_instructions = (
+            developer_instructions
+            if developer_instructions is not None
+            else self.UNDERSTANDING_FIRST_PROTOCOL
+        )
         self._sdk_loader = sdk_loader
 
     async def send(self, message: str) -> RuntimeReply:

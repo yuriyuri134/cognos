@@ -21,7 +21,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-SYSTEM_PROMPT = """你正在进行一次真实运行调查。不要把模型猜测写成外部事实；不要声称已经执行了 action。
+SYSTEM_PROMPT = """理解优先协议：先明确你理解什么、有什么证据、不知道什么；再决定做什么。不要在没搞清现况的情况下执行 action。
+
+你正在进行一次真实运行调查。不要把模型猜测写成外部事实；不要声称已经执行了 action。
 每轮只输出一个 JSON 对象（不要 markdown），格式：
 {"understanding":"...","evidence":"...","unknown":"...","action":{"type":"READ","target":"...","reason":"..."},"why_next_action":"..."}
 READ 的结果由外部 controller 实际执行后返回给你；你收到的 [外部结果] 块才是真实世界观察，你自己不能制造外部结果。

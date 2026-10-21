@@ -178,6 +178,16 @@ def list_opencode_go_models() -> list[dict[str, str]]:
     return models
 
 
+UNDERSTANDING_FIRST_PROTOCOL = """
+参考协议：~/.claude/agent-base/understanding-first-protocol.md
+
+核心规则：
+1. 实质性操作前必须先输出理解
+2. 表达不确定性（百分比）
+3. 设计任务必须参考成熟产品
+"""
+
+
 class DeepSeekRuntimeAdapter:
     """OpenAI-completions 兼容端点适配器；只做对话连续性，不做工具执行。"""
 
@@ -189,7 +199,7 @@ class DeepSeekRuntimeAdapter:
         base_url: str = DEFAULT_BASE_URL,
         model: str = DEFAULT_MODEL,
         model_name: str = DEFAULT_MODEL_NAME,
-        developer_instructions: str | None = None,
+        developer_instructions: str | None = UNDERSTANDING_FIRST_PROTOCOL,
         timeout: float = 120.0,
     ) -> None:
         self.api_key = api_key.strip()

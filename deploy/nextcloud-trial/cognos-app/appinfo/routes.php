@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 return ['routes' => [
+    ['name'=>'home#index','url'=>'/','verb'=>'GET'],
     ['name'=>'home#index','url'=>'/home','verb'=>'GET'],
     ['name'=>'boardActivity#index','url'=>'/boards/{boardId}/events','verb'=>'GET'],
     ['name'=>'activity#participants','url'=>'/participants','verb'=>'GET'],

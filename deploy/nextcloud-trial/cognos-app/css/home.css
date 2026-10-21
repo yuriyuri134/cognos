@@ -1,9 +1,24 @@
 /* Cognos Home - 两大区域布局 */
 
+/* 覆盖 Nextcloud 默认布局限制 */
+#app {
+    width: 100%;
+    max-width: none;
+}
+
+#app-content {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+}
+
 #cognos-home {
-    max-width: 1200px;
+    width: 100%;
+    max-width: 1400px;
     margin: 0 auto;
-    padding: 48px 32px;
+    padding: 48px 64px;
+    box-sizing: border-box;
 }
 
 /* ===== 区域标题 ===== */

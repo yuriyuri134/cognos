@@ -37,7 +37,7 @@ final class CreationSpaceController extends Controller {
     #[NoCSRFRequired]
     public function detail(int $id): TemplateResponse {
         Util::addScript('cognos', 'creation-detail');
-        Util::addStyle('cognos', 'creation-space');
+        Util::addStyle('cognos', 'creation-detail');
         return new TemplateResponse('cognos', 'creation-detail', ['creationId' => $id]);
     }
 
@@ -112,14 +112,14 @@ final class CreationSpaceController extends Controller {
             // Save user message
             $userMessage = $this->creations->addMessage($id, $user->getUID(), 'user', $message);
 
+            // Get context for Agent
+            $context = $this->creations->getContext($id, $user->getUID());
+
             // Get Agent response
-            $agentResponse = $this->hermes->chat($message, [
-                'creation_id' => $id,
-                'context' => $this->creations->getContext($id, $user->getUID())
-            ]);
+            $agentResponse = $this->hermes->chatCreation($id, $message, $context);
 
             // Save Agent message
-            $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'agent', $agentResponse);
+            $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'assistant', $agentResponse);
 
             return new DataResponse([
                 'messages' => [$userMessage, $agentMessage]

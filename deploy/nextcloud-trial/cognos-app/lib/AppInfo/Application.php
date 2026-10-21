@@ -17,5 +17,11 @@ class Application extends App implements IBootstrap {
     public function register(IRegistrationContext $context): void {
         $context->registerEventListener(BeforeTemplateRenderedEvent::class, TaskFeedbackListener::class);
     }
-    public function boot(IBootContext $context): void {}
+    public function boot(IBootContext $context): void {
+        $server = $context->getServerContainer();
+
+        // Set Cognos as the default app
+        $config = $server->getConfig();
+        $config->setSystemValue('defaultapp', 'cognos');
+    }
 }

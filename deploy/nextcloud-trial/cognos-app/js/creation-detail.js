@@ -176,6 +176,9 @@
       .map(message => createMessageBubble(message))
       .join('');
 
+    // Attach understanding card button listeners
+    attachUnderstandingCardListeners();
+
     // Scroll to bottom
     requestAnimationFrame(() => {
       const container = document.getElementById('messages-container');
@@ -185,7 +188,70 @@
     });
   }
 
+  function attachUnderstandingCardListeners() {
+    const buttons = document.querySelectorAll('.understanding-btn');
+    buttons.forEach(btn => {
+      btn.addEventListener('click', handleUnderstandingAction);
+    });
+  }
+
+  async function handleUnderstandingAction(e) {
+    const action = e.currentTarget.dataset.action;
+
+    if (action === 'confirm') {
+      // Send "对" as confirmation
+      await sendUnderstandingResponse('对');
+    } else if (action === 'reject') {
+      // Clear input and focus for user to retype
+      elements.chatInput.value = '';
+      handleInputChange();
+      elements.chatInput.focus();
+    }
+  }
+
+  async function sendUnderstandingResponse(message) {
+    if (state.sending) return;
+
+    state.sending = true;
+    elements.sendBtn.disabled = true;
+    elements.sendBtn.style.display = 'none';
+    elements.stopBtn.style.display = 'flex';
+
+    try {
+      const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'requesttoken': OC.requestToken,
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
+
+      const data = await response.json();
+      state.messages.push(...data.messages);
+
+      renderMessages();
+    } catch (error) {
+      console.error('Send understanding response error:', error);
+      alert('发送失败，请重试');
+    } finally {
+      state.sending = false;
+      elements.sendBtn.disabled = false;
+      elements.sendBtn.style.display = 'flex';
+      elements.stopBtn.style.display = 'none';
+    }
+  }
+
   function createMessageBubble(message) {
+    // Handle understanding cards
+    if (message.type === 'understanding') {
+      return createUnderstandingCard(message);
+    }
+
     const role = message.role === 'user' ? 'user' : 'agent';
     const timestamp = new Date(message.created_at * 1000).toLocaleTimeString('zh-CN', {
       hour: '2-digit',
@@ -201,6 +267,66 @@
         <div class="cognos-message-content">${formatMessageContent(message.content)}</div>
       </div>
     `;
+  }
+
+  function createUnderstandingCard(message) {
+    const timestamp = new Date(message.created_at * 1000).toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    return `
+      <div class="cognos-message cognos-message-agent cognos-understanding-card">
+        <div class="cognos-message-header">
+          <span class="cognos-message-sender">Agent</span>
+          <span class="cognos-message-time">${timestamp}</span>
+        </div>
+        <div class="cognos-message-content">
+          <div class="understanding-content">${renderMarkdown(message.content)}</div>
+          <div class="understanding-actions">
+            <button class="understanding-btn understanding-btn-confirm" data-action="confirm">
+              <span class="btn-icon">✓</span>
+              <span class="btn-text">理解正确，继续</span>
+            </button>
+            <button class="understanding-btn understanding-btn-reject" data-action="reject">
+              <span class="btn-icon">✗</span>
+              <span class="btn-text">不对，我重新说</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderMarkdown(content) {
+    // Basic Markdown rendering
+    let html = escapeHtml(content);
+
+    // Headers
+    html = html.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
+
+    // Bold
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // Italic
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+    // Code blocks
+    html = html.replace(/```(.*?)```/gs, '<pre><code>$1</code></pre>');
+
+    // Inline code
+    html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+
+    // Lists
+    html = html.replace(/^- (.*?)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
   }
 
   function formatMessageContent(content) {

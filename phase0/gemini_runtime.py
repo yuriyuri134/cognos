@@ -66,6 +66,10 @@ class GeminiStateStore:
 class GeminiRuntimeAdapter:
     """直接调用 Google Gemini REST API 的极简异步适配器。"""
 
+    DEFAULT_DEVELOPER_INSTRUCTIONS = """理解优先协议：先明确你理解什么、有什么证据、不知道什么；再决定做什么。
+不要在没搞清现况的情况下执行 action。读取文件、检索代码、核查状态才是证据；猜测不是。
+遇到不确定时，用工具验证，而非用自信的语言掩盖不确定性。"""
+
     def __init__(
         self,
         *,
@@ -80,7 +84,10 @@ class GeminiRuntimeAdapter:
         self.api_key = api_key.strip()
         self.state_store = state_store
         self.model = model
-        self.developer_instructions = developer_instructions
+        self.developer_instructions = (
+            developer_instructions if developer_instructions is not None
+            else self.DEFAULT_DEVELOPER_INSTRUCTIONS
+        )
         self.timeout = timeout
         # 联网检索（Search Grounding）：开启后模型可基于实时搜索结果作答
         self.search = search

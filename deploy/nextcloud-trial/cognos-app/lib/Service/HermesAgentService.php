@@ -9,11 +9,216 @@ use OCP\IDBConnection;
 use OCP\IUserSession;
 
 final class HermesAgentService {
+    /** @var array<string, array{state: string, understanding: ?array, pendingMessage: ?string}> */
+    private array $sessionStates = [];
+
     public function __construct(
         private IDBConnection $db,
         private IUserSession $users,
         private IClientService $http,
     ) {
+    }
+
+    /**
+     * Chat in Creation Space context with understanding mode
+     */
+    public function chatCreation(int $creationId, string $message, array $context = []): string {
+        $user = $this->users->getUser();
+        if ($user === null) {
+            throw new \RuntimeException('Authentication required');
+        }
+
+        $message = trim($message);
+        if ($message === '') {
+            throw new \InvalidArgumentException('Message is required');
+        }
+
+        $sessionId = 'creation_' . $creationId;
+        $state = $this->getSessionState($sessionId);
+
+        // Check if we're in waiting_confirmation state
+        if ($state['state'] === 'waiting_confirmation') {
+            if ($this->isConfirmation($message)) {
+                // User confirmed, proceed with execution
+                $this->setSessionState($sessionId, 'executing', null, null);
+                return $this->executeWithUnderstanding($creationId, $state['pendingMessage'], $state['understanding'], $context);
+            } else {
+                // User corrected or provided more context, restart understanding
+                $this->setSessionState($sessionId, 'understanding', null, null);
+            }
+        }
+
+        // Perform understanding analysis
+        $understanding = $this->understand($message, $context);
+
+        // Check confidence threshold
+        if ($understanding['confidence'] < 70) {
+            // Low confidence, ask for confirmation
+            $this->setSessionState($sessionId, 'waiting_confirmation', $understanding, $message);
+            return $this->formatUnderstanding($understanding);
+        }
+
+        // High confidence, execute directly
+        $this->setSessionState($sessionId, 'executing', null, null);
+        return $this->executeWithUnderstanding($creationId, $message, $understanding, $context);
+    }
+
+    /**
+     * Extract intent and uncertainty from user message
+     */
+    private function understand(string $message, array $context): array {
+        $creation = $context['creation'] ?? [];
+        $systemPrompt = '你是意图理解模块。分析用户消息，提取：
+1. 意图类型（question/suggestion/reflection/critique/expansion）
+2. 置信度（0-100）
+3. 不确定性（需要澄清的地方）
+4. 关键实体
+
+创立标题：' . ($creation['title'] ?? '未命名创立') . '
+
+返回JSON格式：
+{
+  "intent": "question|suggestion|reflection|critique|expansion",
+  "confidence": 85,
+  "uncertainties": ["需要澄清的点1", "需要澄清的点2"],
+  "entities": ["关键词1", "关键词2"]
+}';
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => $message]
+        ];
+
+        try {
+            $response = $this->callHermes('understanding_temp', $messages, null, 'hermes-agent');
+            $content = trim($response['content']);
+
+            // Extract JSON from response (handle markdown code blocks)
+            if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/s', $content, $matches)) {
+                $content = $matches[1];
+            }
+
+            $parsed = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+
+            return [
+                'intent' => $parsed['intent'] ?? 'question',
+                'confidence' => (int)($parsed['confidence'] ?? 50),
+                'uncertainties' => $parsed['uncertainties'] ?? [],
+                'entities' => $parsed['entities'] ?? []
+            ];
+        } catch (\Throwable $e) {
+            // Fallback on parsing error
+            return [
+                'intent' => 'question',
+                'confidence' => 50,
+                'uncertainties' => ['无法准确理解意图'],
+                'entities' => []
+            ];
+        }
+    }
+
+    /**
+     * Check if message is a confirmation
+     */
+    private function isConfirmation(string $message): bool {
+        $message = mb_strtolower(trim($message));
+        $confirmationPatterns = [
+            '/^(是|对|好|可以|确认|没错|正确|yes|ok|yeah|correct|yep|确定)$/u',
+            '/^(嗯|嗯嗯|嗯对|对的|是的|好的|可以的|就是这样)$/u',
+        ];
+
+        foreach ($confirmationPatterns as $pattern) {
+            if (preg_match($pattern, $message)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Format understanding for user confirmation
+     */
+    private function formatUnderstanding(array $understanding): string {
+        $intentMap = [
+            'question' => '提问',
+            'suggestion' => '建议',
+            'reflection' => '反思',
+            'critique' => '批判',
+            'expansion' => '扩展'
+        ];
+
+        $intentLabel = $intentMap[$understanding['intent']] ?? '未知';
+
+        $output = "我理解你的意图是：**{$intentLabel}**\n";
+        $output .= "置信度：{$understanding['confidence']}%\n\n";
+
+        if (!empty($understanding['uncertainties'])) {
+            $output .= "不过我有些不确定的地方：\n";
+            foreach ($understanding['uncertainties'] as $uncertainty) {
+                $output .= "- {$uncertainty}\n";
+            }
+            $output .= "\n能帮我确认一下吗？或者提供更多信息？";
+        }
+
+        return $output;
+    }
+
+    /**
+     * Execute with confirmed understanding
+     */
+    private function executeWithUnderstanding(int $creationId, string $message, array $understanding, array $context): string {
+        $creation = $context['creation'] ?? [];
+        $systemPrompt = '你是 Cognos 的 Hermes Agent，专注于帮助用户探索和深化认识。' . "\n"
+            . '创立标题：' . ($creation['title'] ?? '未命名创立') . "\n"
+            . '这是一个创立空间（Creation Space），用户在这里与你深度对话，探索认识的生长。' . "\n"
+            . '你的角色是：' . "\n"
+            . '- 提出深入的问题，帮助用户理清思路' . "\n"
+            . '- 提供多角度的观点和候选理解' . "\n"
+            . '- 不要简单给答案，而是引导用户自己发现' . "\n"
+            . '- 区分候选建议和已确认的事实' . "\n\n"
+            . '意图分析：' . ($understanding['intent'] ?? 'unknown') . "\n"
+            . '关键实体：' . implode(', ', $understanding['entities'] ?? []);
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt]
+        ];
+
+        foreach (($context['messages'] ?? []) as $msg) {
+            $messages[] = [
+                'role' => $msg['role'],
+                'content' => $msg['content']
+            ];
+        }
+
+        $messages[] = ['role' => 'user', 'content' => $message];
+
+        $sessionId = 'creation_' . $creationId;
+        $response = $this->callHermes($sessionId, $messages, null, 'hermes-agent');
+
+        return $response['content'];
+    }
+
+    /**
+     * Get session state
+     */
+    private function getSessionState(string $sessionId): array {
+        return $this->sessionStates[$sessionId] ?? [
+            'state' => 'understanding',
+            'understanding' => null,
+            'pendingMessage' => null
+        ];
+    }
+
+    /**
+     * Set session state
+     */
+    private function setSessionState(string $sessionId, string $state, ?array $understanding, ?string $pendingMessage): void {
+        $this->sessionStates[$sessionId] = [
+            'state' => $state,
+            'understanding' => $understanding,
+            'pendingMessage' => $pendingMessage
+        ];
     }
 
     public function chat(string $activityId, array $messages, ?string $model = null, ?string $requestId = null): array {

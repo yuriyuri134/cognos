@@ -1,8 +1,6 @@
 <?php
 \OCP\Util::addScript('cognos', 'creation-detail');
 \OCP\Util::addStyle('cognos', 'creation-detail');
-// 加载 Markdown 渲染库
-\OCP\Util::addScript('cognos', '../../../core/vendor/marked/marked.min');
 ?>
 
 <div class="cognos-chat-app" data-creation-id="<?php p($_['creationId']); ?>">
