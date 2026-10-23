@@ -1,5 +1,7 @@
 # Cognos 项目指南
 
+> 先读 `PROJECT-OVERVIEW.md`（项目全貌）。
+
 ## 对话协议
 
 本项目遵循"理解优先"协议，详见：~/.claude/agent-base/understanding-first-protocol.md

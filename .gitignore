@@ -28,3 +28,6 @@ tools/bin/
 # OS
 Thumbs.db
 Desktop.ini
+
+# Windows reserved-name debris
+nul

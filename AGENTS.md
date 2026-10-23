@@ -1,4 +1,5 @@
 # Cognos working rule
+nFirst read `PROJECT-OVERVIEW.md` for the whole-project picture.
 
 Before substantial Cognos work, read `docs/Cognos-v3-施工台账.md` and `docs/Cognos-v3-行动思想.md` together.
 
