@@ -35,6 +35,7 @@ Cognos 是一个协助人和 AI 一起思考、完成任务、组织调度的系
 - master：首页两大部分改版、创立空间、Notes（含 1368 条 Obsidian 导入）、Activity + Hermes 对话、参与者路由。页面可正常打开。
 - 分支 `wip/agent-rag-memory`：10/21 未完成的 agent 工具调用 + RAG + 记忆 + Deck/Talk 深度集成。`HermesAgentService.php` 写到一半被截断（不能解析，缺 17 个方法），需要补完后再合并。
 - 用户最后的反馈（10/21）：UI 挤在左边、太简陋；每个部分点进去要先建空间——要删掉；要参考成熟产品重做四个部分；学习空间要做深。
+- 10/24：用户把**展开**（想法、笔记、项目思考、学习的展开）定为第一个核心点。讨论和原话整理在 `docs/空间与展开/`，动手设计前先读那里的 README，里面列了已经否掉、不要再提的方案。
 
 ## 工作约定
 
@@ -44,6 +45,8 @@ Cognos 是一个协助人和 AI 一起思考、完成任务、组织调度的系
 
 ## 相关资料位置
 
+- 想法与讨论（空间、展开、基础单位）：`docs/空间与展开/`
+- 设计思想来路：`docs/Cognos-总设计-v0.1-2026-09-10.md` §1（用户原话表）、`docs/Cognos-空间与认知架构-工作稿.md`、`docs/Cognos-v3-行动思想.md`
 - 详细施工记录：`docs/Cognos-v3-施工台账.md`、`docs/Cognos-Agent接续-交接-2026-10-16.md`
 - 验收标准：`PRODUCT.md`、`JOURNEYS.md`、`ACCEPTANCE.md`
 - Hermes 会话与记忆：WSL `~/.hermes/`（`state.db`、`memories/`）。注意 Windows 下 `C:\Users\lnp\.hermes` 是 6 月的旧安装，不是在用的那个。
