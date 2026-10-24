@@ -7,9 +7,7 @@ namespace OCA\Cognos\Service;
 use OCA\Cognos\Service\RAG\EmbeddingService;
 use OCA\Cognos\Service\RAG\RetrievalService;
 use OCA\Cognos\Service\RAG\VectorStoreService;
-use OCA\Cognos\Service\Memory\WorkingMemory;
-use OCA\Cognos\Service\Memory\LongTermMemory;
-use OCA\Cognos\Service\Memory\MemoryManager;
+use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\Http\Client\IClientService;
 use OCP\IDBConnection;
 use OCP\IUserSession;
@@ -17,6 +15,8 @@ use OCP\IConfig;
 use Psr\Log\LoggerInterface;
 
 final class HermesAgentService {
+    private const MAX_TOOL_ROUNDS = 4;
+
     /** @var array<string, array{state: string, understanding: ?array, pendingMessage: ?string}> */
     private array $sessionStates = [];
 
@@ -25,9 +25,6 @@ final class HermesAgentService {
 
     /** @var array<string, array> */
     private array $toolSchemas = [];
-
-    /** @var array<string, MemoryManager> */
-    private array $memoryManagers = [];
 
     private ?RetrievalService $retrievalService = null;
     private ?EmbeddingService $embeddingService = null;
@@ -38,6 +35,7 @@ final class HermesAgentService {
         private IDBConnection $db,
         private IUserSession $users,
         private IClientService $http,
+        private NotesService $notes,
         private IConfig $config,
         private LoggerInterface $logger,
     ) {
@@ -95,9 +93,9 @@ final class HermesAgentService {
                                 'type' => 'string',
                                 'description' => 'Note content in markdown format',
                             ],
-                            'category' => [
+                            'space_id' => [
                                 'type' => 'string',
-                                'description' => 'Optional category/folder for the note',
+                                'description' => 'Optional note space id; defaults to the most recently updated space',
                             ],
                         ],
                         'required' => ['title', 'content'],
@@ -168,28 +166,6 @@ final class HermesAgentService {
             ]);
             $this->ragEnabled = false;
         }
-    }
-
-    /**
-     * Get or create memory manager for a session
-     */
-    private function getMemoryManager(string $sessionId): MemoryManager {
-        if (!isset($this->memoryManagers[$sessionId])) {
-            $workingMemory = new WorkingMemory();
-            $longTermMemory = new LongTermMemory($this->db, $this->logger);
-
-            $this->memoryManagers[$sessionId] = new MemoryManager(
-                $sessionId,
-                $workingMemory,
-                $longTermMemory,
-                $this->logger
-            );
-
-            // Load recent messages into working memory
-            $this->memoryManagers[$sessionId]->loadWorkingMemory(20);
-        }
-
-        return $this->memoryManagers[$sessionId];
     }
 
     /**
@@ -329,28 +305,15 @@ final class HermesAgentService {
         }
 
         try {
-            $qb = $this->db->getQueryBuilder();
-            $qb->select('id', 'title', 'content', 'category', 'modified')
-                ->from('notes_notes')
-                ->where($qb->expr()->eq('user_id', $qb->createNamedParameter($user->getUID())))
-                ->andWhere(
-                    $qb->expr()->orX(
-                        $qb->expr()->like('title', $qb->createNamedParameter('%' . $this->db->escapeLikeParameter($query) . '%')),
-                        $qb->expr()->like('content', $qb->createNamedParameter('%' . $this->db->escapeLikeParameter($query) . '%'))
-                    )
-                )
-                ->orderBy('modified', 'DESC')
-                ->setMaxResults((int)$limit);
-
-            $results = $qb->executeQuery()->fetchAllAssociative();
+            $results = array_slice($this->notes->search((string)$query), 0, max(1, (int)$limit));
 
             $notes = array_map(function($row) {
                 return [
-                    'id' => (int)$row['id'],
+                    'id' => (string)$row['id'],
+                    'space_id' => (string)$row['space_id'],
                     'title' => (string)$row['title'],
-                    'preview' => mb_substr((string)$row['content'], 0, 200),
-                    'category' => (string)($row['category'] ?? ''),
-                    'modified_at' => (int)$row['modified'],
+                    'preview' => (string)($row['preview'] ?? ''),
+                    'modified_at' => (int)$row['updated_at'],
                 ];
             }, $results);
 
@@ -379,38 +342,30 @@ final class HermesAgentService {
             return ['success' => false, 'error' => 'Authentication required', 'data' => null];
         }
 
-        $title = $args['title'] ?? '';
-        $content = $args['content'] ?? '';
-        $category = $args['category'] ?? '';
+        $title = trim((string)($args['title'] ?? ''));
+        $content = (string)($args['content'] ?? '');
+        $spaceId = trim((string)($args['space_id'] ?? ''));
 
         if ($title === '' || $content === '') {
             return ['success' => false, 'error' => 'Title and content are required', 'data' => null];
         }
 
         try {
-            $noteId = (int)time();
-            $now = time();
-
-            $qb = $this->db->getQueryBuilder();
-            $qb->insert('notes_notes')
-                ->values([
-                    'id' => $qb->createNamedParameter($noteId),
-                    'user_id' => $qb->createNamedParameter($user->getUID()),
-                    'title' => $qb->createNamedParameter($title),
-                    'content' => $qb->createNamedParameter($content),
-                    'category' => $qb->createNamedParameter($category),
-                    'modified' => $qb->createNamedParameter($now),
-                    'favorite' => $qb->createNamedParameter(0),
-                ])
-                ->executeStatement();
+            if ($spaceId === '') {
+                $spaces = $this->notes->listSpaces();
+                if ($spaces === []) {
+                    return ['success' => false, 'error' => 'No note space exists yet', 'data' => null];
+                }
+                $spaceId = (string)$spaces[0]['id'];
+            }
+            $note = $this->notes->createNote($spaceId, $title, $content, ['type' => 'agent_tool']);
 
             return [
                 'success' => true,
                 'data' => [
-                    'id' => $noteId,
+                    'id' => (string)$note['id'],
+                    'space_id' => $spaceId,
                     'title' => $title,
-                    'category' => $category,
-                    'created_at' => $now,
                 ],
                 'error' => null,
                 'metadata' => [
@@ -439,10 +394,11 @@ final class HermesAgentService {
             $qb = $this->db->getQueryBuilder();
             $qb->select('id', 'title', 'archived', 'last_modified')
                 ->from('deck_boards')
-                ->where($qb->expr()->eq('owner', $qb->createNamedParameter($user->getUID())));
+                ->where($qb->expr()->eq('owner', $qb->createNamedParameter($user->getUID())))
+                ->andWhere($qb->expr()->eq('deleted_at', $qb->createNamedParameter(0)));
 
             if (!$includeArchived) {
-                $qb->andWhere($qb->expr()->eq('archived', $qb->createNamedParameter(0)));
+                $qb->andWhere($qb->expr()->eq('archived', $qb->createNamedParameter(false, IQueryBuilder::PARAM_BOOL)));
             }
 
             $qb->orderBy('last_modified', 'DESC');
@@ -706,9 +662,7 @@ final class HermesAgentService {
             throw new \InvalidArgumentException('Message is required');
         }
 
-        // Get memory manager and add user message
         $sessionId = $this->sessionId($activityId, $participantId);
-        $memoryManager = $this->getMemoryManager($sessionId);
 
         // Retrieve relevant context using RAG
         $ragContext = $this->retrieveContext($newUserMessage, 5);
@@ -721,9 +675,12 @@ final class HermesAgentService {
             ],
         ];
 
-        // Add conversation history from memory
-        foreach ($memoryManager->getRecentMessages() as $message) {
-            $requestMessages[] = $message;
+        // Conversation history lives in cognos_activity_messages; only replay completed turns
+        foreach ($this->buildConversationHistory($activityId) as $history) {
+            if (($history['state'] ?? 'succeeded') !== 'succeeded') {
+                continue;
+            }
+            $requestMessages[] = ['role' => (string)$history['role'], 'content' => (string)$history['content']];
         }
 
         // Add the new user message
@@ -766,10 +723,6 @@ final class HermesAgentService {
             $response = $this->chatWithTools($sessionId, $requestMessages, $routeModel, $participantId);
 
             $this->persistSuccessfulReply($activityId, $user->getUID(), $userMessageId, $response['content'], $participant);
-
-            // Save to memory
-            $memoryManager->addMessage('user', $newUserMessage);
-            $memoryManager->addMessage('assistant', $response['content']);
         } catch (\Throwable $error) {
             $this->markMessageFailed($userMessageId, $error->getMessage());
             throw new ActivityChatException('Hermes 暂时不可用；你的输入已保存，可以重试。', $userMessageId);
@@ -777,4 +730,386 @@ final class HermesAgentService {
         return $response;
     }
 
-<!-- MARKER_CONTINUE_1 -->
+    /**
+     * Call Hermes with the registered tools and run the tool calls it requests, for a bounded number of rounds
+     */
+    private function chatWithTools(string $sessionId, array $messages, ?string $model, ?string $participantId): array {
+        $tools = array_values($this->toolSchemas);
+        for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
+            $response = $this->callHermes($sessionId, $messages, $model, $participantId, $tools);
+            $toolCalls = $response['tool_calls'] ?? [];
+            if ($toolCalls === []) {
+                return $response;
+            }
+            $messages[] = ['role' => 'assistant', 'content' => $response['content'], 'tool_calls' => $toolCalls];
+            foreach ($toolCalls as $call) {
+                $arguments = json_decode((string)($call['function']['arguments'] ?? '{}'), true);
+                $result = $this->callTool((string)($call['function']['name'] ?? ''), is_array($arguments) ? $arguments : []);
+                $messages[] = [
+                    'role' => 'tool',
+                    'tool_call_id' => (string)($call['id'] ?? ''),
+                    'content' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                ];
+            }
+        }
+        // Out of rounds: ask for a final answer without offering tools again
+        return $this->callHermes($sessionId, $messages, $model, $participantId);
+    }
+
+    public function chatRoom(
+        string $roomToken,
+        string $message,
+        string $author,
+        string $authorId,
+        ?string $projectContext = null,
+    ): array {
+        $message = trim($message);
+        if ($message === '') {
+            throw new \InvalidArgumentException('Message is required');
+        }
+
+        $system = '你是 Cognos 的 Hermes 团队协作助手。' . "\n"
+            . '房间 token：' . $roomToken . "\n";
+        if ($projectContext !== null && trim($projectContext) !== '') {
+            $system .= '项目上下文：' . "\n" . $projectContext . "\n";
+        }
+        $system .= '只根据当前团队消息和提供的项目上下文回答；不要臆造成员权限或项目事实。' . "\n";
+
+        return $this->callHermes(
+            'talk_' . hash('sha256', $roomToken),
+            [
+                ['role' => 'system', 'content' => $system],
+                [
+                    'role' => 'user',
+                    'content' => '发言人：' . $author . '（' . $authorId . '）' . "\n" . $message,
+                ],
+            ],
+            null,
+        );
+    }
+
+    public function getMessages(string $activityId): array {
+        $user = $this->users->getUser();
+        if ($user === null || $this->getActivityForUser($activityId, $user->getUID()) === null) {
+            throw new \RuntimeException('Activity not found');
+        }
+        $query = $this->db->getQueryBuilder();
+        $query->select('*')->from('cognos_activity_messages')
+            ->where($query->expr()->eq('activity_id', $query->createNamedParameter($activityId)))
+            ->orderBy('created_at', 'ASC');
+        return $query->executeQuery()->fetchAllAssociative();
+    }
+
+    private function lastUserMessage(array $messages): string {
+        for ($index = count($messages) - 1; $index >= 0; $index--) {
+            if (($messages[$index]['role'] ?? '') === 'user') {
+                return trim((string)($messages[$index]['content'] ?? ''));
+            }
+        }
+        return '';
+    }
+
+    private function normalizeRequestId(?string $requestId): string {
+        $requestId = trim((string)$requestId);
+        if ($requestId === '') {
+            return bin2hex(random_bytes(16));
+        }
+        if (strlen($requestId) > 64 || !preg_match('/^[A-Za-z0-9._:-]+$/', $requestId)) {
+            throw new \InvalidArgumentException('Invalid request_id');
+        }
+        return $requestId;
+    }
+
+    private function findUserMessageByRequest(string $activityId, string $userId, string $requestId): ?array {
+        $query = $this->db->getQueryBuilder();
+        $query->select('*')
+            ->from('cognos_activity_messages')
+            ->where($query->expr()->eq('activity_id', $query->createNamedParameter($activityId)))
+            ->andWhere($query->expr()->eq('user_id', $query->createNamedParameter($userId)))
+            ->andWhere($query->expr()->eq('role', $query->createNamedParameter('user')))
+            ->andWhere($query->expr()->eq('request_id', $query->createNamedParameter($requestId)));
+        $row = $query->executeQuery()->fetchAssociative();
+        return $row ?: null;
+    }
+
+    private function replayExistingRequest(string $activityId, string $participantId, array $message): array {
+        $messageId = (string)$message['id'];
+        $state = (string)($message['state'] ?? 'pending');
+        if ($state === 'failed') {
+            throw new ActivityChatException('Hermes 暂时不可用；你的输入已保存，可以重试。', $messageId);
+        }
+        if ($state !== 'succeeded') {
+            throw new ActivityRequestInProgressException('这条消息正在处理中，请稍候。', $messageId);
+        }
+
+        $query = $this->db->getQueryBuilder();
+        $query->select('*')
+            ->from('cognos_activity_messages')
+            ->where($query->expr()->eq('activity_id', $query->createNamedParameter($activityId)))
+            ->andWhere($query->expr()->eq('reply_to', $query->createNamedParameter($messageId)))
+            ->andWhere($query->expr()->eq('role', $query->createNamedParameter('assistant')))
+            ->orderBy('created_at', 'DESC')
+            ->setMaxResults(1);
+        $reply = $query->executeQuery()->fetchAssociative();
+        if (!$reply) {
+            throw new \RuntimeException('已完成的消息缺少参与者回复');
+        }
+        return [
+            'content' => (string)$reply['content'],
+            'model' => $this->participantRouteModel($participantId),
+            'session_id' => $this->sessionId($activityId, $participantId),
+            'replayed' => true,
+        ];
+    }
+
+    public function retryFailedMessage(string $activityId, string $messageId): array {
+        $user = $this->users->getUser();
+        if ($user === null || $this->getActivityForUser($activityId, $user->getUID()) === null) throw new \RuntimeException('Activity not found');
+        $q = $this->db->getQueryBuilder();
+        $q->select('*')->from('cognos_activity_messages')
+            ->where($q->expr()->eq('id', $q->createNamedParameter($messageId)))
+            ->andWhere($q->expr()->eq('activity_id', $q->createNamedParameter($activityId)))
+            ->andWhere($q->expr()->eq('user_id', $q->createNamedParameter($user->getUID())))
+            ->andWhere($q->expr()->eq('role', $q->createNamedParameter('user')));
+        $message = $q->executeQuery()->fetchAssociative();
+        if (!$message || ($message['state'] ?? '') !== 'failed') throw new \InvalidArgumentException('Only a saved failed message can be retried');
+        $activity = $this->getActivityForUser($activityId, $user->getUID());
+        if ($activity === null) {
+            throw new \RuntimeException('Activity not found');
+        }
+        $messageParticipantId = trim((string)($message['participant_id'] ?? ''));
+        $retryRouteModel = trim((string)($this->participantRouteModel($messageParticipantId) ?: ''));
+        if ($retryRouteModel === '') {
+            throw new ParticipantRuntimeUnavailableException('Hermes runtime 未配置。');
+        }
+        $claimed = $this->db->getQueryBuilder();
+        $claimed->update('cognos_activity_messages')->set('state', $claimed->createNamedParameter('pending'))
+            ->set('error_text', $claimed->createNamedParameter(null))
+            ->where($claimed->expr()->eq('id', $claimed->createNamedParameter($messageId)))
+            ->andWhere($claimed->expr()->eq('state', $claimed->createNamedParameter('failed')));
+        if ($claimed->executeStatement() !== 1) {
+            throw new ActivityRequestInProgressException('重试已在进行中。');
+        }
+        $requestMessages = [['role'=>'system','content'=>$this->buildSystemPrompt($activity)]];
+        foreach ($this->buildConversationHistory($activityId) as $history) {
+            if (($history['id'] ?? '') === $messageId) continue;
+            if (($history['state'] ?? 'succeeded') !== 'succeeded') continue;
+            $requestMessages[] = ['role'=>(string)$history['role'],'content'=>(string)$history['content']];
+        }
+        $requestMessages[] = ['role'=>'user','content'=>(string)$message['content']];
+        $participant = [
+            'id' => $messageParticipantId,
+            'display_name' => (string)($message['participant_name'] ?? $messageParticipantId),
+        ];
+        try {
+            $response = $this->callHermes($this->sessionId($activityId, $messageParticipantId), $requestMessages, $retryRouteModel, $messageParticipantId);
+            $this->persistSuccessfulReply($activityId, $user->getUID(), $messageId, $response['content'], $participant);
+        } catch (\Throwable $error) {
+            $this->markMessageFailed($messageId, $error->getMessage());
+            throw new ActivityChatException('Hermes 暂时不可用；你的输入已保存，可以重试。', $messageId);
+        }
+        return ['response'=>$response,'messages'=>$this->getMessages($activityId)];
+    }
+
+    private function participantRouteModel(string $participantId): string {
+        $specific = trim((string)(getenv('HERMES_PARTICIPANT_ROUTE_' . strtoupper(str_replace('-', '_', $participantId))) ?: ''));
+        return $specific !== '' ? $specific : trim((string)(getenv('HERMES_API_MODEL') ?: 'hermes-cognos'));
+    }
+
+    private function sessionId(string $activityId, string $participantId): string {
+        return 'cognos_' . hash('sha256', $activityId . ':' . $participantId);
+    }
+
+    private function getActivityForUser(string $activityId, string $uid): ?array {
+        $query = $this->db->getQueryBuilder();
+        $query->select('*')
+            ->from('cognos_activities')
+            ->where($query->expr()->eq('id', $query->createNamedParameter($activityId)))
+            ->andWhere($query->expr()->eq('actor_uid', $query->createNamedParameter($uid)));
+        $row = $query->executeQuery()->fetchAssociative();
+        if (!$row) {
+            return null;
+        }
+
+        $row['source_snapshot'] = json_decode(
+            (string)$row['source_snapshot'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+        return $row;
+    }
+
+    private function buildSystemPrompt(array $activity): string {
+        $snapshot = is_array($activity['source_snapshot'] ?? null)
+            ? $activity['source_snapshot']
+            : [];
+        $sourceType = (string)($activity['source_type'] ?? 'unknown');
+        $participant = (string)($activity['participant_name'] ?? $activity['participant_id'] ?? '未命名参与者');
+
+        $prompt = '你是 Cognos 中被用户明确召唤的参与者：' . $participant . "\n"
+            . '你不是匿名助手，也不是已确认事实的发布者。' . "\n"
+            . '只把回答作为候选理解、提议或待验证问题；不要自动创建任务、决定或项目事实。' . "\n"
+            . 'Activity 标题：' . (string)($activity['title'] ?? '') . "\n"
+            . '来源类型：' . $sourceType . "\n";
+
+        if ($sourceType === 'note') {
+            $prompt .= '材料标题：' . (string)($snapshot['title'] ?? '') . "\n"
+                . '材料正文：' . "\n"
+                . (string)($snapshot['content'] ?? '') . "\n";
+        } elseif ($sourceType === 'nextcloud_deck_card') {
+            $prompt .= '项目/任务卡片标题：' . (string)($snapshot['title'] ?? '') . "\n"
+                . '卡片描述：' . (string)($snapshot['description'] ?? '') . "\n"
+                . '看板：' . (string)($snapshot['board_id'] ?? '')
+                . '，列表：' . (string)($snapshot['stack_title'] ?? '') . "\n";
+        }
+
+        return $prompt . '原始来源是上下文，不是已经确认的事实；请区分候选建议和用户已确认内容。';
+    }
+
+    private function buildConversationHistory(string $activityId): array {
+        $query = $this->db->getQueryBuilder();
+        $query->select('id', 'role', 'content', 'state', 'reply_to')
+            ->from('cognos_activity_messages')
+            ->where($query->expr()->eq('activity_id', $query->createNamedParameter($activityId)))
+            ->orderBy('created_at', 'ASC')
+            ->setMaxResults(50);
+
+        $rows = $query->executeQuery()->fetchAllAssociative();
+        return array_map(
+            static fn(array $row): array => [
+                'id' => (string)$row['id'],
+                'role' => (string)$row['role'],
+                'content' => (string)$row['content'],
+                'state' => (string)($row['state'] ?? 'succeeded'),
+                'reply_to' => $row['reply_to'] ?? null,
+            ],
+            $rows,
+        );
+    }
+
+    private function callHermes(string $sessionId, array $messages, ?string $model, ?string $participantId = null, array $tools = []): array {
+        $url = getenv('HERMES_API_URL') ?: 'http://host.docker.internal:8642/v1/chat/completions';
+        $keyFile = getenv('HERMES_API_KEY_FILE') ?: '/run/secrets/hermes_api_key';
+        $key = is_readable($keyFile)
+            ? trim((string)file_get_contents($keyFile))
+            : trim((string)(getenv('HERMES_API_KEY') ?: ''));
+        if ($key === '') {
+            throw new \RuntimeException('Hermes API is not configured');
+        }
+
+        $payload = [
+            'model' => $model ?: (getenv('HERMES_API_MODEL') ?: 'hermes-cognos'),
+            'messages' => $messages,
+            'stream' => false,
+        ];
+        if ($tools !== []) {
+            $payload['tools'] = $tools;
+        }
+
+        $response = $this->http->newClient()->post($url, [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $key,
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+                'X-Hermes-Session-Id' => $sessionId,
+                'X-Cognos-Participant-Id' => $participantId ?: 'unknown',
+            ],
+            'body' => json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+            'timeout' => 180,
+        ]);
+
+        $status = $response->getStatusCode();
+        $body = json_decode($response->getBody(), true);
+        if ($status < 200 || $status >= 300 || !is_array($body)) {
+            throw new \RuntimeException('Hermes API request failed');
+        }
+
+        $content = $body['choices'][0]['message']['content'] ?? null;
+        $toolCalls = $tools !== [] ? ($body['choices'][0]['message']['tool_calls'] ?? []) : [];
+        if (!is_array($toolCalls)) {
+            $toolCalls = [];
+        }
+        if ($toolCalls === [] && (!is_string($content) || trim($content) === '')) {
+            throw new \RuntimeException('Hermes returned no response');
+        }
+
+        return [
+            'content' => trim((string)$content),
+            'model' => (string)($body['model'] ?? $payload['model']),
+            'session_id' => (string)($response->getHeader('X-Hermes-Session-Id') ?: $sessionId),
+            'tool_calls' => $toolCalls,
+        ];
+    }
+
+    private function saveMessage(string $activityId, string $userId, string $role, string $content, string $state = 'succeeded', ?string $requestId = null, ?string $replyTo = null, ?array $participant = null): string {
+        $id = bin2hex(random_bytes(16));
+        $query = $this->db->getQueryBuilder();
+        $query->insert('cognos_activity_messages')->values([
+            'id' => $query->createNamedParameter($id),
+            'activity_id' => $query->createNamedParameter($activityId),
+            'user_id' => $query->createNamedParameter($userId),
+            'role' => $query->createNamedParameter($role),
+            'content' => $query->createNamedParameter($content),
+            'created_at' => $query->createNamedParameter(time()),
+            'state' => $query->createNamedParameter($state),
+            'request_id' => $requestId === null ? $query->createNamedParameter(null) : $query->createNamedParameter($requestId),
+            'error_text' => $query->createNamedParameter(null),
+            'reply_to' => $replyTo === null ? $query->createNamedParameter(null) : $query->createNamedParameter($replyTo),
+            'participant_id' => $query->createNamedParameter($participant['id'] ?? null),
+            'participant_name' => $query->createNamedParameter($participant['display_name'] ?? null),
+        ])->executeStatement();
+        return $id;
+    }
+
+    private function persistSuccessfulReply(string $activityId, string $userId, string $userMessageId, string $content, array $participant): void {
+        $this->db->beginTransaction();
+        try {
+            $query = $this->db->getQueryBuilder();
+            $updated = $query->update('cognos_activity_messages')
+                ->set('state', $query->createNamedParameter('succeeded'))
+                ->set('error_text', $query->createNamedParameter(null))
+                ->where($query->expr()->eq('id', $query->createNamedParameter($userMessageId)))
+                ->andWhere($query->expr()->eq('activity_id', $query->createNamedParameter($activityId)))
+                ->andWhere($query->expr()->eq('user_id', $query->createNamedParameter($userId)))
+                ->andWhere($query->expr()->eq('state', $query->createNamedParameter('pending')))
+                ->executeStatement();
+            if ($updated !== 1) {
+                throw new \RuntimeException('User message is no longer pending');
+            }
+            $this->saveMessage(
+                $activityId,
+                $userId,
+                'assistant',
+                $content,
+                'succeeded',
+                null,
+                $userMessageId,
+                $participant,
+            );
+            $this->db->commit();
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $error;
+        }
+    }
+
+    private function markMessageFailed(string $messageId, string $error): void {
+        $query = $this->db->getQueryBuilder();
+        $query->update('cognos_activity_messages')
+            ->set('state', $query->createNamedParameter('failed'))
+            ->set('error_text', $query->createNamedParameter(mb_substr($error, 0, 500)))
+            ->where($query->expr()->eq('id', $query->createNamedParameter($messageId)))
+            ->andWhere($query->expr()->eq('state', $query->createNamedParameter('pending')))
+            ->executeStatement();
+    }
+
+    /**
+     * Public wrapper for callHermes: 用于 ActivityRunService 等其他服务调用 Hermes API
+     */
+    public function callAgent(string $sessionId, array $messages, ?string $model = null, ?string $participantId = null): array {
+        return $this->callHermes($sessionId, $messages, $model, $participantId);
+    }
+}

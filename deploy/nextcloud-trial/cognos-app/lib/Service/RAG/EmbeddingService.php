@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace OCA\HermesAgent\Service\RAG;
+namespace OCA\Cognos\Service\RAG;
 
 use OCP\Http\Client\IClientService;
 use OCP\IConfig;
