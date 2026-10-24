@@ -6,12 +6,13 @@
   <header class="rd-header">
     <a href="/index.php/apps/cognos/home" class="rd-back">← 返回主页</a>
     <h1>主体空间 · <span id="rd-subject">…</span></h1>
+    <p class="rd-note rd-status">这是 10/24 的一次试验记录，不是方向。它的对象只有你一个人，衡量方式是「谁更能预料你的下一句话」。它证明了：原话不改、读法另存、矛盾攒够了就换切法，这样会推翻自己的旧读法，普通的总结记忆做不到。它没有碰到的有三处：三个空间里的其他东西（笔记、项目、组织、学习）；「对象本身也在生长」；你看见并参与这个过程。「预测」只是尝试的一种方式，在这里被当成了唯一的机制和标准，问题出在这里。</p>
     <p class="rd-lede">原始发生永远不改，读法可以换。异常攒够了，读法就重组；新旧读法并存，由后来的发生裁决。</p>
     <p class="rd-meta" id="rd-meta"></p>
   </header>
 
   <section class="rd-section">
-    <h2>对照检验：谁更能预料你的下一句话</h2>
+    <h2>对照检验（试验当时的衡量方式）</h2>
     <p class="rd-note">同一批 <em>训练截止之后</em> 的真实对话里，每次 agent 说完话，三种记忆各自预测你会怎么回应；评审在不知道来源的情况下对照你的真实回复打分（0–3）。</p>
     <div id="rd-eval" class="rd-eval"><div class="rd-loading">加载中…</div></div>
   </section>

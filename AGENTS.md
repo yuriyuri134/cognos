@@ -2,6 +2,8 @@
 
 First read `PROJECT-OVERVIEW.md` for the whole-project picture.
 
+Before deciding *what* to build, read sections 〇–二 of `PROJECT-OVERVIEW.md` (the six guiding questions, what the project is for in 小林's own words, and the mistakes AIs keep making here) and state which of those goals this step serves. The rules below govern *how* to deliver and verify; they do not decide what is worth doing. "Cognitive effect" evidence is not a score: a measurable proxy (e.g. prediction accuracy) must not stand in for the question 小林 actually asked.
+
 Before substantial Cognos work, read `docs/Cognos-v3-施工台账.md` and `docs/Cognos-v3-行动思想.md` together.
 
 The ledger records current construction state and evidence. The action-thought document records what the project process has changed in our understanding and therefore in how we act next. Do not collapse these into one kind of claim.
