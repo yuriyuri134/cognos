@@ -4,19 +4,429 @@ declare(strict_types=1);
 
 namespace OCA\Cognos\Service;
 
+use OCA\Cognos\Service\RAG\EmbeddingService;
+use OCA\Cognos\Service\RAG\RetrievalService;
+use OCA\Cognos\Service\RAG\VectorStoreService;
+use OCP\DB\QueryBuilder\IQueryBuilder;
 use OCP\Http\Client\IClientService;
 use OCP\IDBConnection;
 use OCP\IUserSession;
+use OCP\IConfig;
+use Psr\Log\LoggerInterface;
 
 final class HermesAgentService {
+    private const MAX_TOOL_ROUNDS = 4;
+
     /** @var array<string, array{state: string, understanding: ?array, pendingMessage: ?string}> */
     private array $sessionStates = [];
+
+    /** @var array<string, callable> */
+    private array $tools = [];
+
+    /** @var array<string, array> */
+    private array $toolSchemas = [];
+
+    private ?RetrievalService $retrievalService = null;
+    private ?EmbeddingService $embeddingService = null;
+    private ?VectorStoreService $vectorStore = null;
+    private bool $ragEnabled = false;
 
     public function __construct(
         private IDBConnection $db,
         private IUserSession $users,
         private IClientService $http,
+        private NotesService $notes,
+        private IConfig $config,
+        private LoggerInterface $logger,
     ) {
+        $this->initializeTools();
+        $this->initializeRAG();
+    }
+
+    /**
+     * Initialize built-in tools
+     */
+    private function initializeTools(): void {
+        // Register search_notes tool
+        $this->registerTool(
+            'search_notes',
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'search_notes',
+                    'description' => 'Search through notes by keyword. Returns matching notes with title, content preview, and metadata.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'query' => [
+                                'type' => 'string',
+                                'description' => 'Search query string',
+                            ],
+                            'limit' => [
+                                'type' => 'integer',
+                                'description' => 'Maximum number of results to return',
+                            ],
+                        ],
+                        'required' => ['query'],
+                    ],
+                ],
+            ],
+            [$this, 'toolSearchNotes']
+        );
+
+        // Register create_note tool
+        $this->registerTool(
+            'create_note',
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'create_note',
+                    'description' => 'Create a new note in Nextcloud Notes. Use this when the user wants to save information, create a document, or store text.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'title' => [
+                                'type' => 'string',
+                                'description' => 'Note title',
+                            ],
+                            'content' => [
+                                'type' => 'string',
+                                'description' => 'Note content in markdown format',
+                            ],
+                            'space_id' => [
+                                'type' => 'string',
+                                'description' => 'Optional note space id; defaults to the most recently updated space',
+                            ],
+                        ],
+                        'required' => ['title', 'content'],
+                    ],
+                ],
+            ],
+            [$this, 'toolCreateNote']
+        );
+
+        // Register list_projects tool
+        $this->registerTool(
+            'list_projects',
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'list_projects',
+                    'description' => 'List all projects/boards in Nextcloud Deck. Returns project ID, title, and status.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'archived' => [
+                                'type' => 'boolean',
+                                'description' => 'Include archived projects',
+                            ],
+                        ],
+                        'required' => [],
+                    ],
+                ],
+            ],
+            [$this, 'toolListProjects']
+        );
+    }
+
+    /**
+     * Initialize RAG system
+     */
+    private function initializeRAG(): void {
+        try {
+            $ragProvider = $this->config->getAppValue('cognos', 'rag_enabled', 'false');
+            if ($ragProvider !== 'true') {
+                $this->logger->info('RAG is disabled in config');
+                return;
+            }
+
+            $this->embeddingService = new EmbeddingService(
+                $this->http,
+                $this->config,
+                $this->logger
+            );
+
+            $this->vectorStore = new VectorStoreService(
+                $this->db,
+                $this->logger
+            );
+
+            $this->retrievalService = new RetrievalService(
+                $this->embeddingService,
+                $this->vectorStore,
+                $this->db,
+                $this->logger
+            );
+
+            $this->ragEnabled = true;
+            $this->logger->info('RAG system initialized');
+        } catch (\Throwable $e) {
+            $this->logger->warning('RAG initialization failed', [
+                'error' => $e->getMessage(),
+            ]);
+            $this->ragEnabled = false;
+        }
+    }
+
+    /**
+     * Register a tool for LLM usage
+     *
+     * @param string $name Tool name
+     * @param array $schema Tool schema in OpenAI/Anthropic format
+     * @param callable $handler Tool execution handler
+     */
+    public function registerTool(string $name, array $schema, callable $handler): void {
+        $this->tools[$name] = $handler;
+        $this->toolSchemas[$name] = $schema;
+        $this->logger->info('Tool registered', ['tool' => $name]);
+    }
+
+    /**
+     * Call a tool by name
+     *
+     * @param string $name Tool name
+     * @param array $arguments Tool arguments
+     * @return array Tool result with success, data, error
+     */
+    public function callTool(string $name, array $arguments): array {
+        $this->logger->info('Tool call requested', [
+            'tool' => $name,
+            'arguments' => $arguments,
+        ]);
+
+        if (!isset($this->tools[$name])) {
+            $this->logger->error('Tool not found', ['tool' => $name]);
+            return [
+                'success' => false,
+                'error' => "Tool not found: {$name}",
+                'data' => null,
+            ];
+        }
+
+        try {
+            $startTime = microtime(true);
+            $handler = $this->tools[$name];
+            $result = $handler($arguments);
+            $duration = microtime(true) - $startTime;
+
+            $this->logger->info('Tool execution completed', [
+                'tool' => $name,
+                'success' => $result['success'] ?? false,
+                'duration_ms' => round($duration * 1000, 2),
+            ]);
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->logger->error('Tool execution failed', [
+                'tool' => $name,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'data' => null,
+            ];
+        }
+    }
+
+    /**
+     * Retrieve relevant context using RAG
+     */
+    private function retrieveContext(string $query, int $limit = 5): array {
+        if (!$this->ragEnabled || $this->retrievalService === null) {
+            return [];
+        }
+
+        try {
+            $results = $this->retrievalService->search($query, $limit);
+
+            return array_map(function($result) {
+                return [
+                    'content' => $result['content'] ?? '',
+                    'score' => $result['retrieval_score'] ?? 0.0,
+                    'metadata' => $result['metadata'] ?? [],
+                ];
+            }, $results);
+        } catch (\Throwable $e) {
+            $this->logger->error('RAG retrieval failed', [
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Build system prompt with available tools and context
+     */
+    private function buildEnhancedSystemPrompt(array $activity, array $ragContext = []): string {
+        $basePrompt = $this->buildSystemPrompt($activity);
+
+        // Add tool information
+        $toolDescriptions = [];
+        foreach ($this->toolSchemas as $name => $schema) {
+            $func = $schema['function'] ?? [];
+            $description = $func['description'] ?? $name;
+            $toolDescriptions[] = "- {$name}: {$description}";
+        }
+
+        if (!empty($toolDescriptions)) {
+            $basePrompt .= "\n\n可用工具：\n" . implode("\n", $toolDescriptions);
+        }
+
+        // Add RAG context
+        if (!empty($ragContext)) {
+            $basePrompt .= "\n\n相关知识：\n";
+            foreach ($ragContext as $idx => $context) {
+                $content = $context['content'];
+                $score = round($context['score'], 2);
+                $basePrompt .= "[" . ($idx + 1) . "] (相关度: {$score})\n{$content}\n\n";
+            }
+        }
+
+        return $basePrompt;
+    }
+
+    /**
+     * Tool implementation: search_notes
+     */
+    private function toolSearchNotes(array $args): array {
+        $user = $this->users->getUser();
+        if ($user === null) {
+            return ['success' => false, 'error' => 'Authentication required', 'data' => null];
+        }
+
+        $query = $args['query'] ?? '';
+        $limit = $args['limit'] ?? 10;
+
+        if ($query === '') {
+            return ['success' => false, 'error' => 'Query is required', 'data' => null];
+        }
+
+        try {
+            $results = array_slice($this->notes->search((string)$query), 0, max(1, (int)$limit));
+
+            $notes = array_map(function($row) {
+                return [
+                    'id' => (string)$row['id'],
+                    'space_id' => (string)$row['space_id'],
+                    'title' => (string)$row['title'],
+                    'preview' => (string)($row['preview'] ?? ''),
+                    'modified_at' => (int)$row['updated_at'],
+                ];
+            }, $results);
+
+            return [
+                'success' => true,
+                'data' => $notes,
+                'error' => null,
+                'metadata' => [
+                    'query' => $query,
+                    'count' => count($notes),
+                    'limit' => $limit,
+                ],
+            ];
+        } catch (\Throwable $e) {
+            $this->logger->error('search_notes failed', ['error' => $e->getMessage()]);
+            return ['success' => false, 'error' => $e->getMessage(), 'data' => null];
+        }
+    }
+
+    /**
+     * Tool implementation: create_note
+     */
+    private function toolCreateNote(array $args): array {
+        $user = $this->users->getUser();
+        if ($user === null) {
+            return ['success' => false, 'error' => 'Authentication required', 'data' => null];
+        }
+
+        $title = trim((string)($args['title'] ?? ''));
+        $content = (string)($args['content'] ?? '');
+        $spaceId = trim((string)($args['space_id'] ?? ''));
+
+        if ($title === '' || $content === '') {
+            return ['success' => false, 'error' => 'Title and content are required', 'data' => null];
+        }
+
+        try {
+            if ($spaceId === '') {
+                $spaces = $this->notes->listSpaces();
+                if ($spaces === []) {
+                    return ['success' => false, 'error' => 'No note space exists yet', 'data' => null];
+                }
+                $spaceId = (string)$spaces[0]['id'];
+            }
+            $note = $this->notes->createNote($spaceId, $title, $content, ['type' => 'agent_tool']);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'id' => (string)$note['id'],
+                    'space_id' => $spaceId,
+                    'title' => $title,
+                ],
+                'error' => null,
+                'metadata' => [
+                    'operation' => 'create',
+                    'resource_type' => 'note',
+                ],
+            ];
+        } catch (\Throwable $e) {
+            $this->logger->error('create_note failed', ['error' => $e->getMessage()]);
+            return ['success' => false, 'error' => $e->getMessage(), 'data' => null];
+        }
+    }
+
+    /**
+     * Tool implementation: list_projects
+     */
+    private function toolListProjects(array $args): array {
+        $user = $this->users->getUser();
+        if ($user === null) {
+            return ['success' => false, 'error' => 'Authentication required', 'data' => null];
+        }
+
+        $includeArchived = $args['archived'] ?? false;
+
+        try {
+            $qb = $this->db->getQueryBuilder();
+            $qb->select('id', 'title', 'archived', 'last_modified')
+                ->from('deck_boards')
+                ->where($qb->expr()->eq('owner', $qb->createNamedParameter($user->getUID())))
+                ->andWhere($qb->expr()->eq('deleted_at', $qb->createNamedParameter(0)));
+
+            if (!$includeArchived) {
+                $qb->andWhere($qb->expr()->eq('archived', $qb->createNamedParameter(false, IQueryBuilder::PARAM_BOOL)));
+            }
+
+            $qb->orderBy('last_modified', 'DESC');
+
+            $results = $qb->executeQuery()->fetchAllAssociative();
+
+            $projects = array_map(function($row) {
+                return [
+                    'id' => (int)$row['id'],
+                    'title' => (string)$row['title'],
+                    'archived' => (bool)$row['archived'],
+                    'last_modified' => (int)$row['last_modified'],
+                ];
+            }, $results);
+
+            return [
+                'success' => true,
+                'data' => $projects,
+                'error' => null,
+                'metadata' => [
+                    'count' => count($projects),
+                    'include_archived' => $includeArchived,
+                ],
+            ];
+        } catch (\Throwable $e) {
+            $this->logger->error('list_projects failed', ['error' => $e->getMessage()]);
+            return ['success' => false, 'error' => $e->getMessage(), 'data' => null];
+        }
     }
 
     /**
@@ -221,6 +631,9 @@ final class HermesAgentService {
         ];
     }
 
+    /**
+     * Chat with tool use support
+     */
     public function chat(string $activityId, array $messages, ?string $model = null, ?string $requestId = null): array {
         $user = $this->users->getUser();
         if ($user === null) {
@@ -249,16 +662,28 @@ final class HermesAgentService {
             throw new \InvalidArgumentException('Message is required');
         }
 
+        $sessionId = $this->sessionId($activityId, $participantId);
+
+        // Retrieve relevant context using RAG
+        $ragContext = $this->retrieveContext($newUserMessage, 5);
+
+        // Build request messages with enhanced system prompt
         $requestMessages = [
             [
                 'role' => 'system',
-                'content' => $this->buildSystemPrompt($activity),
+                'content' => $this->buildEnhancedSystemPrompt($activity, $ragContext),
             ],
         ];
-        foreach ($this->buildConversationHistory($activityId) as $message) {
-            if (($message['state'] ?? 'succeeded') !== 'succeeded') continue;
-            $requestMessages[] = ['role' => (string)$message['role'], 'content' => (string)$message['content']];
+
+        // Conversation history lives in cognos_activity_messages; only replay completed turns
+        foreach ($this->buildConversationHistory($activityId) as $history) {
+            if (($history['state'] ?? 'succeeded') !== 'succeeded') {
+                continue;
+            }
+            $requestMessages[] = ['role' => (string)$history['role'], 'content' => (string)$history['content']];
         }
+
+        // Add the new user message
         $requestMessages[] = ['role' => 'user', 'content' => $newUserMessage];
 
         $requestId = $this->normalizeRequestId($requestId);
@@ -294,13 +719,41 @@ final class HermesAgentService {
         }
 
         try {
-            $response = $this->callHermes($this->sessionId($activityId, $participantId), $requestMessages, $routeModel, $participantId);
+            // Call with tool support
+            $response = $this->chatWithTools($sessionId, $requestMessages, $routeModel, $participantId);
+
             $this->persistSuccessfulReply($activityId, $user->getUID(), $userMessageId, $response['content'], $participant);
         } catch (\Throwable $error) {
             $this->markMessageFailed($userMessageId, $error->getMessage());
             throw new ActivityChatException('Hermes 暂时不可用；你的输入已保存，可以重试。', $userMessageId);
         }
         return $response;
+    }
+
+    /**
+     * Call Hermes with the registered tools and run the tool calls it requests, for a bounded number of rounds
+     */
+    private function chatWithTools(string $sessionId, array $messages, ?string $model, ?string $participantId): array {
+        $tools = array_values($this->toolSchemas);
+        for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
+            $response = $this->callHermes($sessionId, $messages, $model, $participantId, $tools);
+            $toolCalls = $response['tool_calls'] ?? [];
+            if ($toolCalls === []) {
+                return $response;
+            }
+            $messages[] = ['role' => 'assistant', 'content' => $response['content'], 'tool_calls' => $toolCalls];
+            foreach ($toolCalls as $call) {
+                $arguments = json_decode((string)($call['function']['arguments'] ?? '{}'), true);
+                $result = $this->callTool((string)($call['function']['name'] ?? ''), is_array($arguments) ? $arguments : []);
+                $messages[] = [
+                    'role' => 'tool',
+                    'tool_call_id' => (string)($call['id'] ?? ''),
+                    'content' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                ];
+            }
+        }
+        // Out of rounds: ask for a final answer without offering tools again
+        return $this->callHermes($sessionId, $messages, $model, $participantId);
     }
 
     public function chatRoom(
@@ -535,7 +988,7 @@ final class HermesAgentService {
         );
     }
 
-    private function callHermes(string $sessionId, array $messages, ?string $model, ?string $participantId = null): array {
+    private function callHermes(string $sessionId, array $messages, ?string $model, ?string $participantId = null, array $tools = []): array {
         $url = getenv('HERMES_API_URL') ?: 'http://host.docker.internal:8642/v1/chat/completions';
         $keyFile = getenv('HERMES_API_KEY_FILE') ?: '/run/secrets/hermes_api_key';
         $key = is_readable($keyFile)
@@ -550,6 +1003,9 @@ final class HermesAgentService {
             'messages' => $messages,
             'stream' => false,
         ];
+        if ($tools !== []) {
+            $payload['tools'] = $tools;
+        }
 
         $response = $this->http->newClient()->post($url, [
             'headers' => [
@@ -570,14 +1026,19 @@ final class HermesAgentService {
         }
 
         $content = $body['choices'][0]['message']['content'] ?? null;
-        if (!is_string($content) || trim($content) === '') {
+        $toolCalls = $tools !== [] ? ($body['choices'][0]['message']['tool_calls'] ?? []) : [];
+        if (!is_array($toolCalls)) {
+            $toolCalls = [];
+        }
+        if ($toolCalls === [] && (!is_string($content) || trim($content) === '')) {
             throw new \RuntimeException('Hermes returned no response');
         }
 
         return [
-            'content' => trim($content),
+            'content' => trim((string)$content),
             'model' => (string)($body['model'] ?? $payload['model']),
             'session_id' => (string)($response->getHeader('X-Hermes-Session-Id') ?: $sessionId),
+            'tool_calls' => $toolCalls,
         ];
     }
 
