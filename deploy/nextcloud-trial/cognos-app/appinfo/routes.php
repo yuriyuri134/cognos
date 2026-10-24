@@ -33,6 +33,8 @@ return ['routes' => [
     ['name' => 'notes#getGraph', 'url' => '/notes/spaces/{spaceId}/graph', 'verb' => 'GET'],
     ['name' => 'notes#startDiscussion', 'url' => '/notes/{noteId}/discuss', 'verb' => 'POST'],
     ['name' => 'notes#getReferences', 'url' => '/notes/{noteId}/references', 'verb' => 'GET'],
+    ['name' => 'readings#page', 'url' => '/readings', 'verb' => 'GET'],
+    ['name' => 'readings#data', 'url' => '/readings/data', 'verb' => 'GET'],
     ['name' => 'creationSpace#index', 'url' => '/creations', 'verb' => 'GET'],
     ['name' => 'creationSpace#detail', 'url' => '/creations/{id}', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#list', 'url' => '/creations/data', 'verb' => 'GET'],

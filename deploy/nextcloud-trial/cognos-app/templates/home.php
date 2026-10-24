@@ -67,6 +67,12 @@
                         <h3>学习</h3>
                         <p>个性化学习路径，深度理解</p>
                     </a>
+
+                    <a href="/index.php/apps/cognos/readings" class="demo-space-card">
+                        <div class="space-icon">🧭</div>
+                        <h3>主体空间（试验）</h3>
+                        <p>读法引擎：原话不改，读法可重组</p>
+                    </a>
                 </div>
             </section>
 
