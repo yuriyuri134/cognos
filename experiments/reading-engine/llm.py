@@ -1,10 +1,17 @@
-"""Minimal OpenAI-compatible chat client for the a6api relay (stdlib only)."""
+"""Minimal chat client (stdlib only): the a6api relay, or the local Claude Code CLI.
+
+READING_LLM_BACKEND=claude-cli routes every call through `claude -p` (the user's Claude
+subscription) instead of the relay; the model is READING_CLI_MODEL (default: sonnet).
+"""
 from __future__ import annotations
 
 import http.client
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -12,6 +19,10 @@ from pathlib import Path
 
 BASE = os.environ.get("READING_LLM_BASE", "https://api.a6api.com/v1")
 MODEL = os.environ.get("READING_LLM_MODEL", "claude-sonnet-5-5")
+BACKEND = os.environ.get("READING_LLM_BACKEND", "a6api")
+CLI_MODEL = os.environ.get("READING_CLI_MODEL", "sonnet")
+# Run the CLI outside any repo so no CLAUDE.md / project context leaks into the prompt
+CLI_CWD = tempfile.mkdtemp(prefix="reading-cli-")
 
 
 def _key() -> str:
@@ -27,7 +38,35 @@ def _key() -> str:
 KEY = None
 
 
+def _chat_cli(system: str, user: str, retries: int) -> str:
+    exe = shutil.which("claude.cmd") or shutil.which("claude")
+    if exe is None:
+        raise SystemExit("claude CLI not found on PATH")
+    # claude.cmd (a batch file) drops every argument after a newline, so the system prompt goes in a file
+    sys_file = Path(CLI_CWD) / "system.txt"
+    sys_file.write_text(system, encoding="utf-8")
+    cmd = [exe, "-p", "--model", CLI_MODEL, "--system-prompt-file", str(sys_file), "--tools", "",
+           "--no-session-persistence", "--strict-mcp-config", "--setting-sources", "",
+           "--output-format", "json"]
+    for attempt in range(retries):
+        p = subprocess.run(cmd, input=user, capture_output=True, text=True, encoding="utf-8",
+                           cwd=CLI_CWD, timeout=600)
+        try:
+            out = json.loads(p.stdout)
+            if not out.get("is_error") and out.get("result"):
+                return out["result"]
+            err = out.get("result") or out.get("subtype")
+        except json.JSONDecodeError:
+            err = (p.stderr or p.stdout)[-300:]
+        if attempt == retries - 1:
+            raise RuntimeError(f"claude CLI failed: {err}")
+        time.sleep(5 * (attempt + 1))
+    raise RuntimeError("unreachable")
+
+
 def chat(system: str, user: str, *, model: str = MODEL, max_tokens: int = 4000, retries: int = 4) -> str:
+    if BACKEND == "claude-cli":
+        return _chat_cli(system, user, retries)  # the CLI has no max_tokens knob
     global KEY
     KEY = KEY or _key()
     body = json.dumps({

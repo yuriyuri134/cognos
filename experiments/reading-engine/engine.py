@@ -202,8 +202,14 @@ class Engine:
             for m in members:
                 m["status"], m["retired_by"], m["retired_why"] = "merged", merged["id"], "合并为 " + merged["id"]
 
+    def resume(self):
+        """Continue from out/state.json: steps already saved are not replayed."""
+        st = json.loads((OUT / "state.json").read_text(encoding="utf-8"))
+        self.step, self.readings, self.events = st["step"], st["readings"], st["events"]
+        self.n = max((int(r["id"][1:]) for r in self.readings), default=0)
+
     def run(self, occs):
-        for i in range(0, len(occs), BATCH):
+        for i in range(self.step * BATCH, len(occs), BATCH):
             self.step += 1
             batch = occs[i:i + BATCH]
             self.observe(batch)
@@ -241,9 +247,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--until", required=True)
     ap.add_argument("--source", default="hermes")
+    ap.add_argument("--resume", action="store_true", help="continue from out/state.json")
     a = ap.parse_args()
     occs = [o for o in load_occurrences() if o["source"] == a.source and o["ts"] < a.until]
     e = Engine(load_occurrences())
+    if a.resume:
+        e.resume()
     e.run(occs)
     print(render_memory(json.loads((OUT / "state.json").read_text(encoding="utf-8")), e.occ)[:3000])
 

@@ -63,10 +63,15 @@ def run_one(o, memories):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--until", required=True)
-    ap.add_argument("--hermes-user-md", type=Path, required=True)
+    ap.add_argument("--until")
+    ap.add_argument("--hermes-user-md", type=Path)
     ap.add_argument("--per-source", type=int, default=60)
+    ap.add_argument("--resummarize", action="store_true", help="only recompute the summary of out/eval.json")
     a = ap.parse_args()
+    if a.resummarize:
+        return resummarize()
+    if not (a.until and a.hermes_user_md):
+        ap.error("--until and --hermes-user-md are required")
     random.seed(7)
 
     occs = load_occurrences()
@@ -92,17 +97,34 @@ def main():
             if i % 10 == 0:
                 print(f"  {i}/{len(tests)}", flush=True)
 
-    summary = {}
-    for src in ("hermes", "claude-code", "all"):
-        rs = [r for r in results if src == "all" or r["source"] == src]
-        if not rs:
-            continue
-        summary[src] = {"n": len(rs), **{m: round(sum(r["scores"].get(m, 0) for r in rs) / len(rs), 3) for m in memories},
-                        "B_beats_A": sum(r["scores"].get("B", 0) > r["scores"].get("A", 0) for r in rs),
-                        "A_beats_B": sum(r["scores"].get("A", 0) > r["scores"].get("B", 0) for r in rs)}
+    summary = summarize(results, memories)
     (OUT / "eval.json").write_text(json.dumps({"until": a.until, "memories": memories, "summary": summary,
                                                "results": results}, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=1))
+
+
+def summarize(results, memories):
+    """Averages over tests the judge scored on the 0-3 scale; it occasionally answers 12 or 90, those tests are dropped."""
+    valid = lambda r: all(r["scores"].get(m) in (0, 1, 2, 3) for m in memories)
+    summary = {}
+    for src in ("hermes", "claude-code", "all"):
+        rs = [r for r in results if (src == "all" or r["source"] == src) and valid(r)]
+        if not rs:
+            continue
+        summary[src] = {"n": len(rs), **{m: round(sum(r["scores"][m] for r in rs) / len(rs), 3) for m in memories},
+                        "B_beats_A": sum(r["scores"]["B"] > r["scores"]["A"] for r in rs),
+                        "A_beats_B": sum(r["scores"]["A"] > r["scores"]["B"] for r in rs),
+                        "dropped": sum(1 for r in results if (src == "all" or r["source"] == src) and not valid(r))}
+    return summary
+
+
+def resummarize():
+    """Recompute the summary of an existing out/eval.json without calling the model again."""
+    path = OUT / "eval.json"
+    ev = json.loads(path.read_text(encoding="utf-8"))
+    ev["summary"] = summarize(ev["results"], ev["memories"])
+    path.write_text(json.dumps(ev, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps(ev["summary"], ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":
