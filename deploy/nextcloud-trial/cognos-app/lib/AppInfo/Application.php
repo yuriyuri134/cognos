@@ -20,8 +20,10 @@ class Application extends App implements IBootstrap {
     public function boot(IBootContext $context): void {
         $server = $context->getServerContainer();
 
-        // Set Cognos as the default app
-        $config = $server->getConfig();
-        $config->setSystemValue('defaultapp', 'cognos');
+        // Set Cognos as the default app; only write config.php when it actually changes
+        $config = $server->get(\OCP\IConfig::class);
+        if ($config->getSystemValue('defaultapp', '') !== 'cognos') {
+            $config->setSystemValue('defaultapp', 'cognos');
+        }
     }
 }

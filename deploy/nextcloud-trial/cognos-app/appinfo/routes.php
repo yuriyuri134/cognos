@@ -2,7 +2,7 @@
 declare(strict_types=1);
 return ['routes' => [
     ['name'=>'home#index','url'=>'/','verb'=>'GET'],
-    ['name'=>'home#index','url'=>'/home','verb'=>'GET'],
+    ['name'=>'home#index','url'=>'/home','verb'=>'GET','postfix'=>'home'],
     ['name'=>'boardActivity#index','url'=>'/boards/{boardId}/events','verb'=>'GET'],
     ['name'=>'activity#participants','url'=>'/participants','verb'=>'GET'],
     ['name'=>'activity#createManual','url'=>'/activities/manual','verb'=>'POST'],
