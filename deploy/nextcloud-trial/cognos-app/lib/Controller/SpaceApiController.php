@@ -1,0 +1,147 @@
+<?php
+
+declare(strict_types=1);
+
+namespace OCA\Cognos\Controller;
+
+use OCA\Cognos\Service\CreationSpaceService;
+use OCA\Cognos\Service\SpaceEntryService;
+use OCA\Cognos\Service\SpaceService;
+use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\OCSController;
+use OCP\IRequest;
+use OCP\IUserSession;
+
+/**
+ * 外面的 agent（本机的 Claude Code、Codex……）走进一片空间用的接口，和 Hermes 在里面用的是同四个动作：
+ * 进来（拿到入口）、留下尝试、留下读法、在痕迹里找。
+ *
+ * agent 用交互对象的账号（应用密码）来调，但它写下的东西一律记为〔AI〕和它报的名字（subject），
+ * 不能代替交互对象写原话。
+ */
+final class SpaceApiController extends OCSController {
+    public function __construct(
+        IRequest $request,
+        private IUserSession $users,
+        private CreationSpaceService $creations,
+        private SpaceService $spaces,
+        private SpaceEntryService $entries,
+    ) {
+        parent::__construct('cognos', $request);
+    }
+
+    #[NoAdminRequired]
+    public function list(): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $spaces = array_map(static fn(array $c): array => [
+            'type' => 'creation',
+            'id' => (string)$c['id'],
+            'title' => (string)$c['title'],
+            'updated_at' => (int)$c['updated_at'],
+        ], $this->creations->list($uid));
+        return new DataResponse(['spaces' => $spaces]);
+    }
+
+    #[NoAdminRequired]
+    public function enter(string $spaceType, string $spaceId, string $subject = '', string $message = ''): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $space = $this->entries->resolve($spaceType, $spaceId, $uid);
+        if ($space === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $subject = $this->subject($subject);
+        $call = trim($message) !== '' ? ['caller' => $uid, 'message' => trim($message)] : null;
+        $entry = $this->entries->entry($space, $subject, $call, [
+            'search_traces：在这片空间留下的发生里找。',
+            'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你报的名字。',
+            'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
+            '你的其他能力（读文件、跑命令、上网）照你自己那边的权限，这片空间不知道，请在开头两三行里写明。',
+        ]);
+        $text = $this->entries->renderText($entry);
+        if ($call !== null) {
+            // 外面进来的没有对话记录，把这次的原话直接放进入口
+            $text .= "\n\n## 这次叫你来的原话\n" . $call['message'];
+        }
+        $this->spaces->markSeen($spaceType, $spaceId, $subject);
+        return new DataResponse(['subject' => $subject, 'text' => $text, 'entry' => $entry]);
+    }
+
+    #[NoAdminRequired]
+    public function searchTraces(string $spaceType, string $spaceId, string $q = '', int $limit = 20): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $this->entries->resolve($spaceType, $spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        return new DataResponse(['traces' => $this->spaces->searchTraces($spaceType, $spaceId, $q, max(1, min(50, $limit)))]);
+    }
+
+    #[NoAdminRequired]
+    public function addTrace(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $this->entries->resolve($spaceType, $spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $body = $this->body();
+        try {
+            $trace = $this->spaces->addTrace($spaceType, $spaceId, [
+                'kind' => (string)($body['kind'] ?? 'attempt'),
+                'source' => 'AI',
+                'author' => $this->subject((string)($body['subject'] ?? '')),
+                'content' => (string)($body['content'] ?? ''),
+                'about' => $body['about'] ?? null,
+                'stopped_at' => $body['stopped_at'] ?? null,
+                'touched_reality' => array_key_exists('touched_reality', $body) ? (bool)$body['touched_reality'] : null,
+                'act' => $body['act'] ?? null,
+                'confidence' => isset($body['confidence']) ? (int)$body['confidence'] : null,
+                'ref_id' => isset($body['ref_id']) ? (int)$body['ref_id'] : null,
+                'status' => (string)($body['status'] ?? 'said'),
+            ]);
+            return new DataResponse(['trace' => $trace], 201);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        }
+    }
+
+    #[NoAdminRequired]
+    public function addReading(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $this->entries->resolve($spaceType, $spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $body = $this->body();
+        try {
+            $reading = $this->spaces->addReading(
+                $spaceType,
+                $spaceId,
+                $this->subject((string)($body['subject'] ?? '')),
+                (string)($body['content'] ?? ''),
+                isset($body['confidence']) ? (int)$body['confidence'] : null,
+                is_array($body['refs'] ?? null) ? $body['refs'] : [],
+            );
+            return new DataResponse(['reading' => $reading], 201);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        }
+    }
+
+    private function uid(): ?string {
+        return $this->users->getUser()?->getUID();
+    }
+
+    private function subject(string $subject): string {
+        $subject = trim($subject);
+        return $subject === '' ? '未署名的 agent' : mb_substr($subject, 0, 128);
+    }
+
+    private function body(): array {
+        // Nextcloud 已把 JSON 请求体解析进参数里（Content-Type: application/json）
+        return $this->request->getParams();
+    }
+}

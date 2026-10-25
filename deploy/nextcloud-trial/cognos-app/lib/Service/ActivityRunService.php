@@ -228,7 +228,7 @@ class ActivityRunService {
 
 	private function buildSystemPrompt(string $activityId): string {
 		return <<<'PROMPT'
-你是 Cognos Activity 的协作参与者。
+这里是 Cognos 的一个 Activity。
 
 你的回复可以是：
 1. 纯文本消息

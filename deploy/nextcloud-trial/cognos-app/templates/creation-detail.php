@@ -1,4 +1,5 @@
 <?php
+\OCP\Util::addScript('cognos', 'space-panel');
 \OCP\Util::addScript('cognos', 'creation-detail');
 \OCP\Util::addStyle('cognos', 'creation-detail');
 ?>
@@ -51,6 +52,9 @@
         <h1 class="chat-title" id="chat-title" contenteditable="true" spellcheck="false">加载中...</h1>
       </div>
       <div class="header-actions">
+        <button class="space-panel-toggle" id="space-panel-toggle" aria-label="显示或收起「这里」" title="这片空间里有什么" aria-pressed="true">
+          这里
+        </button>
         <button class="icon-btn" id="share-btn" aria-label="分享" title="分享">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M15 6a2 2 0 100-4 2 2 0 000 4zM15 18a2 2 0 100-4 2 2 0 000 4zM5 12a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="2"/>
@@ -111,4 +115,22 @@
       </form>
     </footer>
   </main>
+
+  <!-- 右侧「这里」：这片空间的入口，和被叫进来的 agent 看到的是同一份 -->
+  <aside class="space-panel" id="space-panel" aria-label="这里">
+    <div class="space-panel-header">
+      <h2 class="space-panel-title">这里</h2>
+      <button class="icon-btn" id="space-panel-close" aria-label="收起">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+          <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="space-panel-body" id="space-panel-body">
+      <div class="loading-state">
+        <div class="spinner-small"></div>
+        <span>加载中...</span>
+      </div>
+    </div>
+  </aside>
 </div>

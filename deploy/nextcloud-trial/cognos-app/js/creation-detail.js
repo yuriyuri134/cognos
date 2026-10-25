@@ -26,6 +26,7 @@
     attachEventListeners();
     loadCreationsList();
     loadCreationAndMessages();
+    window.CognosSpacePanel?.init(state.creationId);
   }
 
   function cacheElements() {
@@ -52,6 +53,12 @@
     });
     elements.mobileMenuBtn?.addEventListener('click', toggleSidebar);
     elements.sidebarToggle?.addEventListener('click', toggleSidebar);
+    elements.messagesContainer?.addEventListener('click', (e) => {
+      const button = e.target.closest('.space-keep-btn');
+      if (!button) return;
+      const message = state.messages.find(m => String(m.id) === button.dataset.messageId);
+      if (message) window.CognosSpacePanel?.keep(message.content);
+    });
   }
 
   function toggleSidebar() {
@@ -176,9 +183,6 @@
       .map(message => createMessageBubble(message))
       .join('');
 
-    // Attach understanding card button listeners
-    attachUnderstandingCardListeners();
-
     // Scroll to bottom
     requestAnimationFrame(() => {
       const container = document.getElementById('messages-container');
@@ -188,70 +192,7 @@
     });
   }
 
-  function attachUnderstandingCardListeners() {
-    const buttons = document.querySelectorAll('.understanding-btn');
-    buttons.forEach(btn => {
-      btn.addEventListener('click', handleUnderstandingAction);
-    });
-  }
-
-  async function handleUnderstandingAction(e) {
-    const action = e.currentTarget.dataset.action;
-
-    if (action === 'confirm') {
-      // Send "对" as confirmation
-      await sendUnderstandingResponse('对');
-    } else if (action === 'reject') {
-      // Clear input and focus for user to retype
-      elements.chatInput.value = '';
-      handleInputChange();
-      elements.chatInput.focus();
-    }
-  }
-
-  async function sendUnderstandingResponse(message) {
-    if (state.sending) return;
-
-    state.sending = true;
-    elements.sendBtn.disabled = true;
-    elements.sendBtn.style.display = 'none';
-    elements.stopBtn.style.display = 'flex';
-
-    try {
-      const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'requesttoken': OC.requestToken,
-        },
-        body: JSON.stringify({ message }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to send message');
-      }
-
-      const data = await response.json();
-      state.messages.push(...data.messages);
-
-      renderMessages();
-    } catch (error) {
-      console.error('Send understanding response error:', error);
-      alert('发送失败，请重试');
-    } finally {
-      state.sending = false;
-      elements.sendBtn.disabled = false;
-      elements.sendBtn.style.display = 'flex';
-      elements.stopBtn.style.display = 'none';
-    }
-  }
-
   function createMessageBubble(message) {
-    // Handle understanding cards
-    if (message.type === 'understanding') {
-      return createUnderstandingCard(message);
-    }
-
     const role = message.role === 'user' ? 'user' : 'agent';
     const timestamp = new Date(message.created_at * 1000).toLocaleTimeString('zh-CN', {
       hour: '2-digit',
@@ -264,36 +205,8 @@
           <span class="cognos-message-sender">${role === 'user' ? '你' : 'Agent'}</span>
           <span class="cognos-message-time">${timestamp}</span>
         </div>
-        <div class="cognos-message-content">${formatMessageContent(message.content)}</div>
-      </div>
-    `;
-  }
-
-  function createUnderstandingCard(message) {
-    const timestamp = new Date(message.created_at * 1000).toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    return `
-      <div class="cognos-message cognos-message-agent cognos-understanding-card">
-        <div class="cognos-message-header">
-          <span class="cognos-message-sender">Agent</span>
-          <span class="cognos-message-time">${timestamp}</span>
-        </div>
-        <div class="cognos-message-content">
-          <div class="understanding-content">${renderMarkdown(message.content)}</div>
-          <div class="understanding-actions">
-            <button class="understanding-btn understanding-btn-confirm" data-action="confirm">
-              <span class="btn-icon">✓</span>
-              <span class="btn-text">理解正确，继续</span>
-            </button>
-            <button class="understanding-btn understanding-btn-reject" data-action="reject">
-              <span class="btn-icon">✗</span>
-              <span class="btn-text">不对，我重新说</span>
-            </button>
-          </div>
-        </div>
+        <div class="cognos-message-content">${role === 'user' ? formatMessageContent(message.content) : renderMarkdown(message.content)}</div>
+        ${role === 'user' ? `<button type="button" class="space-keep-btn" data-message-id="${message.id}" title="把这句原话留在空间里，作为意图或事实">留在空间里</button>` : ''}
       </div>
     `;
   }
@@ -371,6 +284,8 @@
       elements.chatInput.value = '';
       handleInputChange();
       renderMessages();
+      // 被叫进来的 agent 可能在这片空间里留下了尝试或读法
+      window.CognosSpacePanel?.reload();
     } catch (error) {
       console.error('Send message error:', error);
       alert('发送失败，请重试');
