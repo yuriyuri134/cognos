@@ -17,8 +17,14 @@ use Psr\Log\LoggerInterface;
 final class HermesAgentService {
     private const MAX_TOOL_ROUNDS = 4;
 
-    /** @var array<string, array{state: string, understanding: ?array, pendingMessage: ?string}> */
-    private array $sessionStates = [];
+    /** 在创立空间里被叫进来的参与者名，留下的痕迹记在这个名字下 */
+    private const CREATION_PARTICIPANT = 'Hermes';
+
+    /** 只在被叫进一片空间时提供的工具 @var array<string, array> */
+    private array $spaceToolSchemas = [];
+
+    /** @var ?array{type: string, id: string, author: string} 当前被叫进的空间 */
+    private ?array $activeSpace = null;
 
     /** @var array<string, callable> */
     private array $tools = [];
@@ -36,6 +42,8 @@ final class HermesAgentService {
         private IUserSession $users,
         private IClientService $http,
         private NotesService $notes,
+        private SpaceService $spaces,
+        private SpaceEntryService $entries,
         private IConfig $config,
         private LoggerInterface $logger,
     ) {
@@ -127,6 +135,58 @@ final class HermesAgentService {
             ],
             [$this, 'toolListProjects']
         );
+
+        // 空间里的工具：只在被叫进一片空间时提供（见 chatCreation），不进通用工具表
+        $this->registerSpaceTool(
+            'leave_trace',
+            '在这片空间里留下一条发生。你做了一次尝试（在模型上推，或者碰了现实），就用 kind=attempt 留下，写明停在哪、碰没碰过现实。来源固定记为 AI 和你的名字，不能代替交互对象写原话。',
+            [
+                'kind' => ['type' => 'string', 'description' => 'attempt（尝试，默认）、fact（推出来的事实）、material（材料）、correction（更正某一条，要带 ref_id 和 status）等，自由文本'],
+                'content' => ['type' => 'string', 'description' => '正文：你做了什么、看到了什么'],
+                'about' => ['type' => 'string', 'description' => '它和哪个意图有关，用入口里意图「标为」的那个词；不知道就不填'],
+                'stopped_at' => ['type' => 'string', 'description' => '尝试停在哪里、为什么停'],
+                'touched_reality' => ['type' => 'boolean', 'description' => '碰过现实为 true，只在模型上推为 false'],
+                'act' => ['type' => 'string', 'description' => '这条在做什么：陈述、推测、提问、举例……'],
+                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+                'ref_id' => ['type' => 'integer', 'description' => 'kind=correction 时，指向被更正的那一条的 #id'],
+                'status' => ['type' => 'string', 'description' => 'kind=correction 时，那一条的新状态：confirmed / rejected / withdrawn'],
+            ],
+            ['content', 'confidence'],
+            [$this, 'toolLeaveTrace']
+        );
+        $this->registerSpaceTool(
+            'add_reading',
+            '留下你对这片空间的读法：你怎么理解这里的意图、尝试和它们的关系。它和原话分开放，标是你的；你之前的读法不会被删，只会被标为已替换。',
+            [
+                'content' => ['type' => 'string', 'description' => '读法正文'],
+                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+                'refs' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => '它读的是哪几条（入口里的 #id）'],
+            ],
+            ['content', 'confidence'],
+            [$this, 'toolAddReading']
+        );
+        $this->registerSpaceTool(
+            'search_traces',
+            '在这片空间留下的全部发生里找（入口只列了最近的尝试）。',
+            [
+                'query' => ['type' => 'string', 'description' => '关键词；空字符串返回最近的'],
+                'limit' => ['type' => 'integer', 'description' => '最多返回几条，默认 20'],
+            ],
+            ['query'],
+            [$this, 'toolSearchTraces']
+        );
+    }
+
+    private function registerSpaceTool(string $name, string $description, array $properties, array $required, callable $handler): void {
+        $this->tools[$name] = $handler;
+        $this->spaceToolSchemas[$name] = [
+            'type' => 'function',
+            'function' => [
+                'name' => $name,
+                'description' => $description,
+                'parameters' => ['type' => 'object', 'properties' => $properties, 'required' => $required],
+            ],
+        ];
     }
 
     /**
@@ -430,7 +490,8 @@ final class HermesAgentService {
     }
 
     /**
-     * Chat in Creation Space context with understanding mode
+     * Hermes 被叫进一片创立空间。它拿到的是入口：它在哪、这里有什么、以前谁试过什么、停在哪、哪里还空着，
+     * 不是角色。它能搜材料，也能在这片空间里留下尝试和读法。
      */
     public function chatCreation(int $creationId, string $message, array $context = []): string {
         $user = $this->users->getUser();
@@ -443,186 +504,113 @@ final class HermesAgentService {
             throw new \InvalidArgumentException('Message is required');
         }
 
-        $sessionId = 'creation_' . $creationId;
-        $state = $this->getSessionState($sessionId);
-
-        // Check if we're in waiting_confirmation state
-        if ($state['state'] === 'waiting_confirmation') {
-            if ($this->isConfirmation($message)) {
-                // User confirmed, proceed with execution
-                $this->setSessionState($sessionId, 'executing', null, null);
-                return $this->executeWithUnderstanding($creationId, $state['pendingMessage'], $state['understanding'], $context);
-            } else {
-                // User corrected or provided more context, restart understanding
-                $this->setSessionState($sessionId, 'understanding', null, null);
-            }
+        $space = $this->entries->resolve('creation', (string)$creationId, $user->getUID());
+        if ($space === null) {
+            throw new \InvalidArgumentException('Creation not found or access denied');
         }
 
-        // Perform understanding analysis
-        $understanding = $this->understand($message, $context);
+        $subject = self::CREATION_PARTICIPANT;
+        $entry = $this->entries->entry(
+            $space,
+            $subject,
+            ['caller' => $user->getDisplayName() ?: $user->getUID(), 'message' => $message],
+            [
+                'search_notes：在材料（笔记）里找。',
+                'search_traces：在这片空间留下的发生里找。',
+                'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你的名字。',
+                'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
+                '够不着的：交互对象电脑上的文件、外部网页；Cognos 里别的空间这次也看不到。',
+            ],
+        );
 
-        // Check confidence threshold
-        if ($understanding['confidence'] < 70) {
-            // Low confidence, ask for confirmation
-            $this->setSessionState($sessionId, 'waiting_confirmation', $understanding, $message);
-            return $this->formatUnderstanding($understanding);
-        }
-
-        // High confidence, execute directly
-        $this->setSessionState($sessionId, 'executing', null, null);
-        return $this->executeWithUnderstanding($creationId, $message, $understanding, $context);
-    }
-
-    /**
-     * Extract intent and uncertainty from user message
-     */
-    private function understand(string $message, array $context): array {
-        $creation = $context['creation'] ?? [];
-        $systemPrompt = '你是意图理解模块。分析用户消息，提取：
-1. 意图类型（question/suggestion/reflection/critique/expansion）
-2. 置信度（0-100）
-3. 不确定性（需要澄清的地方）
-4. 关键实体
-
-创立标题：' . ($creation['title'] ?? '未命名创立') . '
-
-返回JSON格式：
-{
-  "intent": "question|suggestion|reflection|critique|expansion",
-  "confidence": 85,
-  "uncertainties": ["需要澄清的点1", "需要澄清的点2"],
-  "entities": ["关键词1", "关键词2"]
-}';
-
-        $messages = [
-            ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => $message]
-        ];
-
-        try {
-            $response = $this->callHermes('understanding_temp', $messages, null, 'hermes-agent');
-            $content = trim($response['content']);
-
-            // Extract JSON from response (handle markdown code blocks)
-            if (preg_match('/```(?:json)?\s*(\{.*?\})\s*```/s', $content, $matches)) {
-                $content = $matches[1];
-            }
-
-            $parsed = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
-
-            return [
-                'intent' => $parsed['intent'] ?? 'question',
-                'confidence' => (int)($parsed['confidence'] ?? 50),
-                'uncertainties' => $parsed['uncertainties'] ?? [],
-                'entities' => $parsed['entities'] ?? []
-            ];
-        } catch (\Throwable $e) {
-            // Fallback on parsing error
-            return [
-                'intent' => 'question',
-                'confidence' => 50,
-                'uncertainties' => ['无法准确理解意图'],
-                'entities' => []
-            ];
-        }
-    }
-
-    /**
-     * Check if message is a confirmation
-     */
-    private function isConfirmation(string $message): bool {
-        $message = mb_strtolower(trim($message));
-        $confirmationPatterns = [
-            '/^(是|对|好|可以|确认|没错|正确|yes|ok|yeah|correct|yep|确定)$/u',
-            '/^(嗯|嗯嗯|嗯对|对的|是的|好的|可以的|就是这样)$/u',
-        ];
-
-        foreach ($confirmationPatterns as $pattern) {
-            if (preg_match($pattern, $message)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Format understanding for user confirmation
-     */
-    private function formatUnderstanding(array $understanding): string {
-        $intentMap = [
-            'question' => '提问',
-            'suggestion' => '建议',
-            'reflection' => '反思',
-            'critique' => '批判',
-            'expansion' => '扩展'
-        ];
-
-        $intentLabel = $intentMap[$understanding['intent']] ?? '未知';
-
-        $output = "我理解你的意图是：**{$intentLabel}**\n";
-        $output .= "置信度：{$understanding['confidence']}%\n\n";
-
-        if (!empty($understanding['uncertainties'])) {
-            $output .= "不过我有些不确定的地方：\n";
-            foreach ($understanding['uncertainties'] as $uncertainty) {
-                $output .= "- {$uncertainty}\n";
-            }
-            $output .= "\n能帮我确认一下吗？或者提供更多信息？";
-        }
-
-        return $output;
-    }
-
-    /**
-     * Execute with confirmed understanding
-     */
-    private function executeWithUnderstanding(int $creationId, string $message, array $understanding, array $context): string {
-        $creation = $context['creation'] ?? [];
-        $systemPrompt = '这里是 Cognos 的创立空间。' . "\n"
-            . '创立标题：' . ($creation['title'] ?? '未命名创立') . "\n\n"
-            . '意图分析：' . ($understanding['intent'] ?? 'unknown') . "\n"
-            . '关键实体：' . implode(', ', $understanding['entities'] ?? []);
-
-        $messages = [
-            ['role' => 'system', 'content' => $systemPrompt]
-        ];
-
+        $messages = [['role' => 'system', 'content' => $this->entries->renderText($entry)]];
         foreach (($context['messages'] ?? []) as $msg) {
             $messages[] = [
                 'role' => $msg['role'],
-                'content' => $msg['content']
+                'content' => $msg['content'],
             ];
         }
+        // controller 先存了这条用户消息再取上下文，它多半已经是最后一条
+        $last = end($messages);
+        if (($last['role'] ?? '') !== 'user' || trim((string)($last['content'] ?? '')) !== $message) {
+            $messages[] = ['role' => 'user', 'content' => $message];
+        }
 
-        $messages[] = ['role' => 'user', 'content' => $message];
-
-        $sessionId = 'creation_' . $creationId;
-        $response = $this->callHermes($sessionId, $messages, null, 'hermes-agent');
+        $tools = array_merge([$this->toolSchemas['search_notes']], array_values($this->spaceToolSchemas));
+        $this->activeSpace = ['type' => 'creation', 'id' => (string)$creationId, 'author' => $subject];
+        try {
+            $response = $this->chatWithTools('creation_' . $creationId, $messages, null, 'hermes-agent', $tools);
+        } finally {
+            $this->activeSpace = null;
+        }
+        $this->spaces->markSeen('creation', (string)$creationId, $subject);
 
         return $response['content'];
     }
 
     /**
-     * Get session state
+     * Tool implementation: leave_trace（只在被叫进一片空间时可用）
      */
-    private function getSessionState(string $sessionId): array {
-        return $this->sessionStates[$sessionId] ?? [
-            'state' => 'understanding',
-            'understanding' => null,
-            'pendingMessage' => null
-        ];
+    private function toolLeaveTrace(array $args): array {
+        if ($this->activeSpace === null) {
+            return ['success' => false, 'error' => 'leave_trace 只能在一片空间里用', 'data' => null];
+        }
+        try {
+            $trace = $this->spaces->addTrace($this->activeSpace['type'], $this->activeSpace['id'], [
+                'kind' => (string)($args['kind'] ?? 'attempt'),
+                'source' => 'AI',
+                'author' => $this->activeSpace['author'],
+                'content' => (string)($args['content'] ?? ''),
+                'about' => $args['about'] ?? null,
+                'stopped_at' => $args['stopped_at'] ?? null,
+                'touched_reality' => array_key_exists('touched_reality', $args) ? (bool)$args['touched_reality'] : null,
+                'act' => $args['act'] ?? null,
+                'confidence' => isset($args['confidence']) ? (int)$args['confidence'] : null,
+                'ref_id' => isset($args['ref_id']) ? (int)$args['ref_id'] : null,
+                'status' => (string)($args['status'] ?? 'said'),
+            ]);
+            return ['success' => true, 'data' => $trace, 'error' => null];
+        } catch (\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage(), 'data' => null];
+        }
     }
 
     /**
-     * Set session state
+     * Tool implementation: add_reading（只在被叫进一片空间时可用）
      */
-    private function setSessionState(string $sessionId, string $state, ?array $understanding, ?string $pendingMessage): void {
-        $this->sessionStates[$sessionId] = [
-            'state' => $state,
-            'understanding' => $understanding,
-            'pendingMessage' => $pendingMessage
-        ];
+    private function toolAddReading(array $args): array {
+        if ($this->activeSpace === null) {
+            return ['success' => false, 'error' => 'add_reading 只能在一片空间里用', 'data' => null];
+        }
+        try {
+            $reading = $this->spaces->addReading(
+                $this->activeSpace['type'],
+                $this->activeSpace['id'],
+                $this->activeSpace['author'],
+                (string)($args['content'] ?? ''),
+                isset($args['confidence']) ? (int)$args['confidence'] : null,
+                is_array($args['refs'] ?? null) ? $args['refs'] : [],
+            );
+            return ['success' => true, 'data' => $reading, 'error' => null];
+        } catch (\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage(), 'data' => null];
+        }
+    }
+
+    /**
+     * Tool implementation: search_traces（只在被叫进一片空间时可用）
+     */
+    private function toolSearchTraces(array $args): array {
+        if ($this->activeSpace === null) {
+            return ['success' => false, 'error' => 'search_traces 只能在一片空间里用', 'data' => null];
+        }
+        $hits = $this->spaces->searchTraces(
+            $this->activeSpace['type'],
+            $this->activeSpace['id'],
+            (string)($args['query'] ?? ''),
+            max(1, min(50, (int)($args['limit'] ?? 20))),
+        );
+        return ['success' => true, 'data' => $hits, 'error' => null, 'metadata' => ['count' => count($hits)]];
     }
 
     /**
@@ -727,8 +715,8 @@ final class HermesAgentService {
     /**
      * Call Hermes with the registered tools and run the tool calls it requests, for a bounded number of rounds
      */
-    private function chatWithTools(string $sessionId, array $messages, ?string $model, ?string $participantId): array {
-        $tools = array_values($this->toolSchemas);
+    private function chatWithTools(string $sessionId, array $messages, ?string $model, ?string $participantId, ?array $tools = null): array {
+        $tools ??= array_values($this->toolSchemas);
         for ($round = 0; $round < self::MAX_TOOL_ROUNDS; $round++) {
             $response = $this->callHermes($sessionId, $messages, $model, $participantId, $tools);
             $toolCalls = $response['tool_calls'] ?? [];

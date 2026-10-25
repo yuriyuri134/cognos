@@ -42,9 +42,17 @@ return ['routes' => [
     ['name' => 'creationSpace#get', 'url' => '/creations/{id}/data', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#sendMessage', 'url' => '/creations/{id}/messages', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#getMessages', 'url' => '/creations/{id}/messages', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
+    ['name' => 'creationSpace#space', 'url' => '/creations/{id}/space', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
+    ['name' => 'creationSpace#addSpaceTrace', 'url' => '/creations/{id}/space/traces', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+']],
 ], 'ocs' => [
     ['name'=>'edit#edit','url'=>'/api/v1.0/cards/{cardId}','verb'=>'PUT'],
     ['name'=>'assignment#assign','url'=>'/api/v1.0/cards/{cardId}/assign','verb'=>'POST'],
     ['name'=>'assignment#unassign','url'=>'/api/v1.0/cards/{cardId}/unassign','verb'=>'PUT'],
     ['name' => 'task#create', 'url' => '/api/v1.0/cards', 'verb' => 'POST'],
+    // 外面的 agent 走进一片空间（见 tools/cognos-space-mcp）
+    ['name' => 'spaceApi#list', 'url' => '/api/v1.0/spaces', 'verb' => 'GET'],
+    ['name' => 'spaceApi#enter', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/enter', 'verb' => 'GET'],
+    ['name' => 'spaceApi#searchTraces', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/traces', 'verb' => 'GET'],
+    ['name' => 'spaceApi#addTrace', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/traces', 'verb' => 'POST'],
+    ['name' => 'spaceApi#addReading', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/readings', 'verb' => 'POST'],
 ]];

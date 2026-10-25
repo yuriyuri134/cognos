@@ -672,3 +672,326 @@
   }
 }
 
+
+/* ===== 「这里」：这片空间的入口 ===== */
+.cognos-chat-app {
+  --space-panel-width: 380px;
+  grid-template-columns: var(--sidebar-width) 1fr var(--space-panel-width);
+}
+
+.cognos-chat-app.space-panel-collapsed {
+  grid-template-columns: var(--sidebar-width) 1fr;
+}
+
+.cognos-chat-app.space-panel-collapsed .space-panel {
+  display: none;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.space-panel-toggle {
+  height: 32px;
+  padding: 0 var(--space-sm);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-main-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.space-panel-toggle[aria-pressed="true"] {
+  background: var(--color-primary-element-light, var(--color-background-hover));
+  border-color: var(--color-primary-element);
+}
+
+.space-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-main-background);
+  overflow: hidden;
+}
+
+.space-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--header-height);
+  padding: 0 var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.space-panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.space-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.space-where {
+  padding-bottom: var(--space-md);
+  margin-bottom: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.space-where-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: var(--space-xs);
+}
+
+.space-purpose,
+.space-gaps,
+.space-subjects,
+.space-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.space-purpose li {
+  color: var(--color-text-maxcontrast);
+  padding: 2px 0;
+}
+
+.space-section {
+  margin-bottom: var(--space-lg);
+}
+
+.space-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-maxcontrast);
+  margin: 0 0 var(--space-xs);
+}
+
+.space-section-since {
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-element-light, var(--color-background-hover));
+}
+
+.space-note {
+  margin: 0;
+  color: var(--color-text-maxcontrast);
+}
+
+.space-gaps li,
+.space-subjects li {
+  padding: 4px 0 4px 12px;
+  border-left: 2px solid var(--color-border);
+  margin-bottom: 4px;
+}
+
+.space-item {
+  padding: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.space-item-closed .space-item-content {
+  text-decoration: line-through;
+  color: var(--color-text-maxcontrast);
+}
+
+.space-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.space-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+}
+
+.space-tag-yuan { color: var(--color-primary-element); }
+.space-tag-shi { color: var(--color-success, #46ba61); }
+.space-tag-ai { color: var(--color-warning, #e9a23b); }
+
+.space-item-id {
+  font-size: 11px;
+  color: var(--color-text-maxcontrast);
+}
+
+.space-new {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-primary-element);
+  color: var(--color-primary-element-text);
+}
+
+.space-status {
+  font-size: 11px;
+  color: var(--color-text-maxcontrast);
+}
+
+.space-status-rejected,
+.space-status-withdrawn {
+  color: var(--color-error, #e9322d);
+}
+
+.space-item-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.space-item-meta,
+.space-item-attempt,
+.space-correction {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-maxcontrast);
+}
+
+.space-item-attempt span + span,
+.space-item-attempt span {
+  margin-left: 0;
+}
+
+.space-missing {
+  color: var(--color-warning, #e9a23b);
+}
+
+.space-item-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.space-item:hover .space-item-actions,
+.space-item:focus-within .space-item-actions {
+  opacity: 1;
+}
+
+.space-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--color-primary-element);
+  cursor: pointer;
+}
+
+.space-link-btn:hover {
+  text-decoration: underline;
+}
+
+.space-reject-form {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: 6px;
+}
+
+.space-reject-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.space-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.space-add-row {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.space-add-row select,
+.space-add-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.space-add-form textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
+.space-add-form:not(:has(select option[value="attempt"]:checked)) .space-attempt-only {
+  display: none;
+}
+
+.space-submit-btn {
+  align-self: flex-end;
+  padding: 6px var(--space-md);
+  background: var(--color-primary-element);
+  color: var(--color-primary-element-text);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.space-legend {
+  margin-top: var(--space-lg);
+  font-size: 11px;
+  color: var(--color-text-maxcontrast);
+}
+
+.space-keep-btn {
+  align-self: flex-end;
+  margin-top: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--color-text-maxcontrast);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.cognos-message:hover .space-keep-btn,
+.space-keep-btn:focus {
+  opacity: 1;
+}
+
+@media (max-width: 1100px) {
+  .cognos-chat-app,
+  .cognos-chat-app.space-panel-collapsed {
+    grid-template-columns: var(--sidebar-width) 1fr;
+  }
+
+  .space-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(var(--space-panel-width), 92vw);
+    z-index: 90;
+    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
+  }
+}
+
+@media (max-width: 768px) {
+  .cognos-chat-app,
+  .cognos-chat-app.space-panel-collapsed {
+    grid-template-columns: 1fr;
+  }
+}
