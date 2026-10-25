@@ -116,7 +116,7 @@
     </footer>
   </main>
 
-  <!-- 右侧「这里」：这片空间的入口，和 Hermes 进来时看到的是同一份 -->
+  <!-- 右侧「这里」：这片空间的入口，和被叫进来的 agent 看到的是同一份 -->
   <aside class="space-panel" id="space-panel" aria-label="这里">
     <div class="space-panel-header">
       <h2 class="space-panel-title">这里</h2>

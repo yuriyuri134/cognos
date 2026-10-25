@@ -33,3 +33,22 @@ Codex 等别的 agent 也一样，各自报自己的 `COGNOS_SUBJECT`。
 | `search_traces` | 在全部痕迹里找 |
 
 后台走的是 OCS 接口 `/ocs/v2.php/apps/cognos/api/v1.0/spaces/...`，见 `deploy/nextcloud-trial/cognos-app/lib/Controller/SpaceApiController.php`。
+
+## 让 Claude Code 当被叫进来的那位（`claude_bridge.py`）
+
+上面是 Claude Code 自己走进来。反过来，在创立空间里发消息时，也可以不叫 Hermes，改叫本机的 Claude Code：
+
+1. 在 `deploy/nextcloud-trial/.secrets/` 下放两个文件（这个目录不入库）：
+   - `claude-bridge-token`：随便一串长的随机字符，Cognos 调用时带着它；
+   - `claude-code-app-password`：给 Claude Code 用的 Nextcloud 应用密码（可以用 `occ user:auth-tokens:add cognos-admin` 生成）。
+2. 在本机起桥（要能在 PATH 里找到 `claude`）：`python tools\cognos-space-mcp\claude_bridge.py`，默认听 `127.0.0.1:8643`。
+3. 告诉 Cognos 换人：
+
+```powershell
+docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cognos creation_agent --value=claude-code
+docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cognos claude_bridge_token --value=<同一串口令>
+```
+
+换回 Hermes：`creation_agent` 设成 `hermes`。容器里连不到 `127.0.0.1` 时，起桥前设 `COGNOS_BRIDGE_HOST=0.0.0.0`。
+
+每次被叫，桥起一次 `claude -p`：入口作为系统提示（和 Hermes 拿到的是同一份，主体换成 Claude Code），之前的对话和这次的原话作为输入，只开 `leave_trace`、`add_reading`、`search_traces` 三个工具，读写文件和命令行都关着。它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度。

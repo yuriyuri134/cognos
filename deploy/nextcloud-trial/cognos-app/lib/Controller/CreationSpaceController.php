@@ -156,7 +156,7 @@ final class CreationSpaceController extends Controller {
     }
 
     /**
-     * 侧栏「这里」：和 Hermes 被叫进来时拿到的是同一份入口。看过就记下这次来的时间。
+     * 侧栏「这里」：和被叫进来的 agent（Hermes 或 Claude Code）拿到的是同一份入口。看过就记下这次来的时间。
      */
     #[NoAdminRequired]
     public function space(int $id): DataResponse {

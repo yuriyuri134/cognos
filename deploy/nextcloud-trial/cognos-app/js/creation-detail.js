@@ -284,7 +284,7 @@
       elements.chatInput.value = '';
       handleInputChange();
       renderMessages();
-      // Hermes 可能在这片空间里留下了尝试或读法
+      // 被叫进来的 agent 可能在这片空间里留下了尝试或读法
       window.CognosSpacePanel?.reload();
     } catch (error) {
       console.error('Send message error:', error);

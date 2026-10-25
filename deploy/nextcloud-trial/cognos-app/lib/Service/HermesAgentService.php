@@ -19,6 +19,7 @@ final class HermesAgentService {
 
     /** 在创立空间里被叫进来的参与者名，留下的痕迹记在这个名字下 */
     private const CREATION_PARTICIPANT = 'Hermes';
+    private const CLAUDE_CODE_PARTICIPANT = 'Claude Code';
 
     /** 只在被叫进一片空间时提供的工具 @var array<string, array> */
     private array $spaceToolSchemas = [];
@@ -509,11 +510,45 @@ final class HermesAgentService {
             throw new \InvalidArgumentException('Creation not found or access denied');
         }
 
+        $caller = $user->getDisplayName() ?: $user->getUID();
+        $history = [];
+        foreach (($context['messages'] ?? []) as $msg) {
+            $history[] = [
+                'role' => $msg['role'],
+                'content' => $msg['content'],
+            ];
+        }
+        // controller 先存了这条用户消息再取上下文，它多半已经是最后一条
+        $last = end($history);
+        if ($last !== false && ($last['role'] ?? '') === 'user' && trim((string)($last['content'] ?? '')) === $message) {
+            array_pop($history);
+        }
+
+        // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
+        if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
+            $subject = self::CLAUDE_CODE_PARTICIPANT;
+            $entry = $this->entries->entry(
+                $space,
+                $subject,
+                ['caller' => $caller, 'message' => $message],
+                [
+                    'search_traces：在这片空间留下的发生里找。',
+                    'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你的名字。',
+                    'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
+                    '这三个工具都要填 space_id：这里是 ' . $creationId . '，space_type 是 creation。',
+                    '够不着的：笔记（这次没接给你）、交互对象电脑上的文件、外部网页、命令行；Cognos 里别的空间这次也看不到。',
+                ],
+            );
+            $content = $this->callClaudeBridge($subject, $this->entries->renderText($entry), $history, $message, $caller);
+            $this->spaces->markSeen('creation', (string)$creationId, $subject);
+            return $content;
+        }
+
         $subject = self::CREATION_PARTICIPANT;
         $entry = $this->entries->entry(
             $space,
             $subject,
-            ['caller' => $user->getDisplayName() ?: $user->getUID(), 'message' => $message],
+            ['caller' => $caller, 'message' => $message],
             [
                 'search_notes：在材料（笔记）里找。',
                 'search_traces：在这片空间留下的发生里找。',
@@ -523,18 +558,11 @@ final class HermesAgentService {
             ],
         );
 
-        $messages = [['role' => 'system', 'content' => $this->entries->renderText($entry)]];
-        foreach (($context['messages'] ?? []) as $msg) {
-            $messages[] = [
-                'role' => $msg['role'],
-                'content' => $msg['content'],
-            ];
-        }
-        // controller 先存了这条用户消息再取上下文，它多半已经是最后一条
-        $last = end($messages);
-        if (($last['role'] ?? '') !== 'user' || trim((string)($last['content'] ?? '')) !== $message) {
-            $messages[] = ['role' => 'user', 'content' => $message];
-        }
+        $messages = array_merge(
+            [['role' => 'system', 'content' => $this->entries->renderText($entry)]],
+            $history,
+            [['role' => 'user', 'content' => $message]],
+        );
 
         $tools = array_merge([$this->toolSchemas['search_notes']], array_values($this->spaceToolSchemas));
         $this->activeSpace = ['type' => 'creation', 'id' => (string)$creationId, 'author' => $subject];
@@ -967,6 +995,48 @@ final class HermesAgentService {
             ],
             $rows,
         );
+    }
+
+    /**
+     * 请本机的 Claude Code 进来。它在空间里留东西走 MCP（同一套 OCS 接口），这里只拿它的回答。
+     */
+    private function callClaudeBridge(string $subject, string $system, array $history, string $message, string $caller): string {
+        $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
+        $token = $this->config->getAppValue('cognos', 'claude_bridge_token', '');
+        if ($token === '') {
+            throw new \RuntimeException('Claude Code 桥没有配置口令（occ config:app:set cognos claude_bridge_token）');
+        }
+
+        $response = $this->http->newClient()->post($url, [
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+                'X-Cognos-Bridge-Token' => $token,
+            ],
+            'body' => json_encode([
+                'subject' => $subject,
+                'system' => $system,
+                'history' => $history,
+                'message' => $message,
+                'caller' => $caller,
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+            'timeout' => 300,
+            'http_errors' => false,
+            // 桥跑在本机（host.docker.internal），Nextcloud 默认不让连内网地址
+            'nextcloud' => ['allow_local_address' => true],
+        ]);
+
+        $body = json_decode((string)$response->getBody(), true);
+        $status = $response->getStatusCode();
+        if ($status < 200 || $status >= 300 || !is_array($body)) {
+            $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
+            throw new \RuntimeException('Claude Code 没有回答' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'));
+        }
+        $content = trim((string)($body['content'] ?? ''));
+        if ($content === '') {
+            throw new \RuntimeException('Claude Code 返回了空回答');
+        }
+        return $content;
     }
 
     private function callHermes(string $sessionId, array $messages, ?string $model, ?string $participantId = null, array $tools = []): array {
