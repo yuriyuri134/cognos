@@ -9,6 +9,7 @@
   COGNOS_USER          Nextcloud 用户，默认 cognos-admin
   COGNOS_APP_PASSWORD  Nextcloud「设置 → 安全」里建的应用密码（必填）
   COGNOS_SUBJECT       走进来的主体叫什么，默认 Claude Code
+  COGNOS_TOOLS         只开哪几个工具，逗号分隔；不设就全开（claude_bridge.py 用它藏掉 enter_space，入口已经给了）
 """
 from __future__ import annotations
 
@@ -106,6 +107,10 @@ TOOLS = [
     },
 ]
 
+ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
+if ONLY:
+    TOOLS = [t for t in TOOLS if t["name"] in ONLY]
+
 
 def call_api(method: str, path: str, params: dict | None = None, body: dict | None = None):
     if not PASSWORD:
@@ -141,6 +146,8 @@ def space_path(args: dict) -> str:
 
 
 def run_tool(name: str, args: dict) -> str:
+    if ONLY and name not in ONLY:
+        raise RuntimeError(f"这里没开这个工具：{name}")
     if name == "list_spaces":
         spaces = call_api("GET", "")["spaces"]
         if not spaces:

@@ -82,6 +82,7 @@ def run_claude(subject: str, system: str, prompt: str) -> str:
                 "COGNOS_USER": COGNOS_USER,
                 "COGNOS_APP_PASSWORD": APP_PASSWORD,
                 "COGNOS_SUBJECT": subject,
+                "COGNOS_TOOLS": ",".join(TOOLS),
             },
         }}}, ensure_ascii=False), encoding="utf-8")
         cmd = [exe, "-p", "--system-prompt-file", str(workdir / "system.txt"),
@@ -144,6 +145,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    # Windows 控制台默认 GBK，日志重定向到文件时中文会乱
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     if not TOKEN:
         raise SystemExit("没有口令：设 COGNOS_BRIDGE_TOKEN，或写到 deploy/nextcloud-trial/.secrets/claude-bridge-token")
     if not APP_PASSWORD:
