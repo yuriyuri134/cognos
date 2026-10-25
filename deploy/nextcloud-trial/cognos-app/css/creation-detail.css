@@ -676,6 +676,8 @@
 /* ===== 「这里」：这片空间的入口 ===== */
 .cognos-chat-app {
   --space-panel-width: 380px;
+  /* 撑满 #content，不然三栏挤在左边、右边露出 Nextcloud 背景 */
+  width: 100%;
   grid-template-columns: var(--sidebar-width) 1fr var(--space-panel-width);
 }
 
