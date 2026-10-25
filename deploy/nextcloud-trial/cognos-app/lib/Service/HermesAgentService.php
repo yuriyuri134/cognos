@@ -998,6 +998,8 @@ final class HermesAgentService {
             ],
             'body' => json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
             'timeout' => 180,
+            // Hermes 跑在本机（host.docker.internal），Nextcloud 默认不让连内网地址
+            'nextcloud' => ['allow_local_address' => true],
         ]);
 
         $status = $response->getStatusCode();
