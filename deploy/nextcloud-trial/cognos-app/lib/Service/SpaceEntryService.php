@@ -282,7 +282,7 @@ final class SpaceEntryService {
             return [];
         }
         $lines = [];
-        foreach (preg_split('/\R/', (string)file_get_contents($path)) as $line) {
+        foreach (preg_split('/\R/u', (string)file_get_contents($path)) as $line) {
             $line = trim($line);
             if (str_starts_with($line, '- ')) {
                 $lines[] = substr($line, 2);
