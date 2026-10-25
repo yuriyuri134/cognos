@@ -579,14 +579,8 @@ final class HermesAgentService {
      */
     private function executeWithUnderstanding(int $creationId, string $message, array $understanding, array $context): string {
         $creation = $context['creation'] ?? [];
-        $systemPrompt = '你是 Cognos 的 Hermes Agent，专注于帮助用户探索和深化认识。' . "\n"
-            . '创立标题：' . ($creation['title'] ?? '未命名创立') . "\n"
-            . '这是一个创立空间（Creation Space），用户在这里与你深度对话，探索认识的生长。' . "\n"
-            . '你的角色是：' . "\n"
-            . '- 提出深入的问题，帮助用户理清思路' . "\n"
-            . '- 提供多角度的观点和候选理解' . "\n"
-            . '- 不要简单给答案，而是引导用户自己发现' . "\n"
-            . '- 区分候选建议和已确认的事实' . "\n\n"
+        $systemPrompt = '这里是 Cognos 的创立空间。' . "\n"
+            . '创立标题：' . ($creation['title'] ?? '未命名创立') . "\n\n"
             . '意图分析：' . ($understanding['intent'] ?? 'unknown') . "\n"
             . '关键实体：' . implode(', ', $understanding['entities'] ?? []);
 
@@ -768,7 +762,7 @@ final class HermesAgentService {
             throw new \InvalidArgumentException('Message is required');
         }
 
-        $system = '你是 Cognos 的 Hermes 团队协作助手。' . "\n"
+        $system = '这里是 Cognos 的团队对话。' . "\n"
             . '房间 token：' . $roomToken . "\n";
         if ($projectContext !== null && trim($projectContext) !== '') {
             $system .= '项目上下文：' . "\n" . $projectContext . "\n";
@@ -947,9 +941,8 @@ final class HermesAgentService {
         $sourceType = (string)($activity['source_type'] ?? 'unknown');
         $participant = (string)($activity['participant_name'] ?? $activity['participant_id'] ?? '未命名参与者');
 
-        $prompt = '你是 Cognos 中被用户明确召唤的参与者：' . $participant . "\n"
-            . '你不是匿名助手，也不是已确认事实的发布者。' . "\n"
-            . '只把回答作为候选理解、提议或待验证问题；不要自动创建任务、决定或项目事实。' . "\n"
+        $prompt = '这里是 Cognos 的一个 Activity，用户在这里叫了：' . $participant . "\n"
+            . '不要自动创建任务、决定或项目事实。' . "\n"
             . 'Activity 标题：' . (string)($activity['title'] ?? '') . "\n"
             . '来源类型：' . $sourceType . "\n";
 
@@ -964,7 +957,7 @@ final class HermesAgentService {
                 . '，列表：' . (string)($snapshot['stack_title'] ?? '') . "\n";
         }
 
-        return $prompt . '原始来源是上下文，不是已经确认的事实；请区分候选建议和用户已确认内容。';
+        return $prompt . '原始来源是材料，不是已经确认的事实。';
     }
 
     private function buildConversationHistory(string $activityId): array {
