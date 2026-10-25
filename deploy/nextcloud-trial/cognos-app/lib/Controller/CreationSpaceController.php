@@ -67,7 +67,7 @@ final class CreationSpaceController extends Controller {
             return new DataResponse(['message' => 'Authentication required'], 401);
         }
         try {
-            $body = json_decode($this->request->getContent(), true) ?? [];
+            $body = $this->request->getParams();
             $title = (string)($body['title'] ?? '');
             $initialMessage = (string)($body['initialMessage'] ?? '');
 
@@ -108,7 +108,7 @@ final class CreationSpaceController extends Controller {
             return new DataResponse(['message' => 'Authentication required'], 401);
         }
         try {
-            $body = json_decode($this->request->getContent(), true) ?? [];
+            $body = $this->request->getParams();
             $message = (string)($body['message'] ?? '');
 
             if (empty($message)) {
@@ -190,7 +190,7 @@ final class CreationSpaceController extends Controller {
         if ($this->entries->resolve('creation', (string)$id, $user->getUID()) === null) {
             return new DataResponse(['message' => 'Creation not found'], 404);
         }
-        $body = json_decode($this->request->getContent(), true) ?? [];
+        $body = $this->request->getParams();
         $source = (string)($body['source'] ?? '原');
         if (!in_array($source, ['原', '世'], true)) {
             return new DataResponse(['message' => 'source must be 原 or 世'], 422);
