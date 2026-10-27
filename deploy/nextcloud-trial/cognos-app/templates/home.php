@@ -50,7 +50,7 @@
                         <p>在笔记中组织思考，与 Agent 讨论</p>
                     </a>
 
-                    <a href="/index.php/apps/talk/" class="demo-space-card">
+                    <a href="/index.php/apps/spreed/" class="demo-space-card">
                         <div class="space-icon">🏢</div>
                         <h3>组织</h3>
                         <p>组织知识，建立共识</p>
