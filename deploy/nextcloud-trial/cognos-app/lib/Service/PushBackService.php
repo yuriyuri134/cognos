@@ -24,6 +24,7 @@ use Psr\Log\LoggerInterface;
  * - 站住了：别人可以顶这个站住（hit 指向那条 answer），算又顶了一下那条前提，押的那位还会被叫回来。
  * - 重新切了：在仓库副本里做的，桥带回改了哪些文件；新前提 governs 写到的文件一个都没动，
  *   afterReturn 记一条 unchanged（〔世〕）指向新前提——只改了说法。只看动没动，不看改得对不对。
+ *   「动」只算这一位自己的提交（桥按开始的提交往后、自己那条线算），合进来的别的分支不算（#100 顶出来的）。
  */
 final class PushBackService {
     /** 押着前提、被顶到时能经本机桥叫回来的主体 */
@@ -110,7 +111,7 @@ final class PushBackService {
      * 没面对，就记一条 unanswered 指向那一下——不是谁的读法，是现实碰回来的（〔世〕）。
      * 不自动再叫第二次（不做循环）；那一下还开着，下次谁再顶、或它下次进来，都看得见它躲过几次。
      */
-    public function afterReturn(string $spaceType, string $spaceId, string $subject, int $hitId, ?array $changedFiles = null): ?array {
+    public function afterReturn(string $spaceType, string $spaceId, string $subject, int $hitId, ?array $changedFiles = null, array $mergedFiles = []): ?array {
         $hit = $this->spaces->getTrace($spaceType, $spaceId, $hitId);
         if ($hit === null || $hit['kind'] !== 'hit') {
             return null;
@@ -118,7 +119,7 @@ final class PushBackService {
         // 重新切了：governs 写到的文件，这次改没改。只有在仓库副本里做的（桥带回改了哪些文件）才查得了。
         $recut = $this->spaces->recutOf($spaceType, $spaceId, $hitId, $subject);
         if ($recut !== null) {
-            return $changedFiles === null ? null : $this->checkRecut($spaceType, $spaceId, $subject, $hitId, $recut, $changedFiles);
+            return $changedFiles === null ? null : $this->checkRecut($spaceType, $spaceId, $subject, $hitId, $recut, $changedFiles, $mergedFiles);
         }
         $premiseId = $this->spaces->premiseIdOfHit($spaceType, $spaceId, $hit);
         $premise = $premiseId === null ? null : $this->spaces->premiseState($spaceType, $spaceId, $premiseId);
@@ -144,14 +145,23 @@ final class PushBackService {
      * 不判对错（也许那段代码本来就对），只让它看得见：谁都可以拿这条去顶新前提。
      * governs 里没写文件（只写了做法）的，查不了，不记。
      *
+     * $changedFiles 是这一位自己改的（桥按它自己的提交算）；$mergedFiles 是分支上动了、可只是合进来的。
+     * 合进来的不算（#100：合一条没长进身体的分支，就能把 governs 里的文件全变成「动了」），但写出来：
+     * governs 里的文件只在合进来的里面，就照实说「动了，不是你动的」。
+     *
      * @param list<string> $changedFiles
+     * @param list<string> $mergedFiles
      */
-    private function checkRecut(string $spaceType, string $spaceId, string $subject, int $hitId, array $recut, array $changedFiles): ?array {
+    private function checkRecut(string $spaceType, string $spaceId, string $subject, int $hitId, array $recut, array $changedFiles, array $mergedFiles = []): ?array {
         $check = SpaceService::touchedGoverned($recut['governs'], $changedFiles);
         if ($check['governed'] === [] || $check['touched'] !== []) {
             return null;
         }
-        $changed = $changedFiles === [] ? '这次分支上什么都没改' : '这次改的是 ' . implode('、', array_slice($changedFiles, 0, 8)) . (count($changedFiles) > 8 ? ' 等' : '');
+        $changed = $changedFiles === [] ? '这次它自己什么都没改' : '这次它自己改的是 ' . implode('、', array_slice($changedFiles, 0, 8)) . (count($changedFiles) > 8 ? ' 等' : '');
+        $viaMerge = SpaceService::touchedGoverned($recut['governs'], $mergedFiles)['touched'];
+        if ($viaMerge !== []) {
+            $changed .= '；' . implode('、', $viaMerge) . ' 在分支上动了，可那是合进来的，不是它写的';
+        }
         return $this->spaces->addTrace($spaceType, $spaceId, [
             'kind' => 'unchanged',
             'source' => '世',

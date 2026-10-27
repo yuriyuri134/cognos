@@ -151,7 +151,52 @@ def open_worktree(space_type: str, space_id: str, hit_id, base_branch: str | Non
     path = workdir_for(space_type, space_id) / "worktrees" / branch.replace("/", "-")
     path.parent.mkdir(parents=True, exist_ok=True)
     git("worktree", "add", "-q", "-b", branch, str(path), base)
-    return {"path": path, "branch": branch, "base": base, **body_state(base)}
+    # 记下这一位从哪个提交开始：算「这次它自己改了什么」从这里算，不从身体算（#100）
+    start = git("rev-parse", "HEAD", cwd=path)
+    return {"path": path, "branch": branch, "base": base, "start": start, **body_state(base)}
+
+
+def own_changes(path: Path, start: str) -> tuple[list[str], list[str]]:
+    """这一位在副本里自己改了的文件，和只是合进来的文件（#100 顶出来的）。
+
+    分支比身体多出来的文件，不等于这一位改的：合一条还没长进身体的分支，那条分支改过的就全进来了。
+    自己改的 = 从开始的提交往后、沿着这条分支自己的线（--ancestry-path --first-parent）：
+      - 不是合并的提交，改到的文件；
+      - 合并提交里，和每一个父提交都不一样的文件（git diff-tree --cc：解冲突时自己写的，不是照搬哪一边）。
+    再去掉最后内容和某条别的 cognos-self/* 分支、或身体里一模一样的文件（checkout 别人的文件、squash 合进来的）。
+    HEAD 不再是开始那个提交的后代（reset 到了别处），就一个都不算自己的。
+    """
+    try:
+        git("merge-base", "--is-ancestor", start, "HEAD", cwd=path)
+    except RuntimeError:
+        return [], []
+    own: set[str] = set()
+    commits = git("rev-list", "--ancestry-path", "--first-parent", f"{start}..HEAD", cwd=path).split()
+    for c in commits:
+        parents = git("rev-list", "--parents", "-n", "1", c, cwd=path).split()[1:]
+        if len(parents) > 1:
+            out = git("diff-tree", "--cc", "--name-only", "--no-commit-id", c, cwd=path)
+        else:
+            out = git("diff-tree", "-r", "--name-only", "--no-commit-id", c, cwd=path)
+        own.update(f for f in out.splitlines() if f.strip())
+    since = {f for f in git("diff", "--name-only", start, "HEAD", cwd=path).splitlines() if f.strip()}
+    own &= since  # 改了又改回去的不算
+    others = [b.strip(" *+") for b in git("branch", "--list", "cognos-self/*", cwd=path).splitlines() if b.strip()]
+    mine = git("rev-parse", "--abbrev-ref", "HEAD", cwd=path)
+    refs = [git("rev-parse", "HEAD")] + [b for b in others if b != mine]
+    for f in sorted(own):
+        try:
+            blob = git("rev-parse", f"HEAD:{f}", cwd=path)
+        except RuntimeError:
+            continue  # 删掉的文件：算自己改的
+        for ref in refs:
+            try:
+                if git("rev-parse", f"{ref}:{f}", cwd=path) == blob:
+                    own.discard(f)
+                    break
+            except RuntimeError:
+                continue
+    return sorted(own), sorted(since - own)
 
 
 def body_state(base: str) -> dict:
@@ -172,11 +217,11 @@ def body_state(base: str) -> dict:
     return {"body": head, "pending": pending, "behind": behind}
 
 
-def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | None, dict | None, list[str]]:
+def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | None, dict | None, dict]:
     """有改动就提交到那条分支（不推），对改过的文件跑检查；没改就把分支和副本收掉。
 
-    返回（接在回答后面的一句，下一次从哪条分支接着，检查结果，这条分支比跑着的身体多改了的文件）。
-    改了的文件带回 Cognos：重新切了却没碰 governs 里的文件，会被记下来。
+    返回（接在回答后面的一句，下一次从哪条分支接着，检查结果，{"own": 这一位自己改的文件, "merged": 只是合进来的}）。
+    自己改的文件带回 Cognos：重新切了却没碰 governs 里的文件，会被记下来；合进来的不算（#100）。
     """
     path, branch, base = wt["path"], wt["branch"], wt["base"]
     if git("status", "--porcelain", cwd=path):
@@ -186,8 +231,12 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
     # 它自己提交了、自己合了别的分支，工作区是干净的，也算改了：看分支比起点多了提交没有
     if int(git("rev-list", "--count", f"{base}..HEAD", cwd=path) or "0") > 0:
         commit = git("rev-parse", "--short", "HEAD", cwd=path)
-        # 比的是跑着的身体，不是起点：副本里合进来的身体自己的提交不算这次改的
-        changed = [f for f in git("diff", "--name-only", "HEAD..." + commit).splitlines() if f.strip()]
+        # 算的是这一位自己改的，不是分支比身体多的：合进来的别的分支不算（#100）
+        try:
+            own, merged = own_changes(path, wt.get("start") or git("rev-parse", base))
+        except RuntimeError:
+            own, merged = [], []
+        changed = {"own": own, "merged": merged}
         try:
             checks = check_changes(path, base)
         except Exception as error:  # 检查本身坏了也要说出来，不能当成过了
@@ -206,7 +255,7 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
     git("branch", "-D", branch)
     # 没改：下一次还从这一次的起点接着
     keep = base if base.startswith("cognos-self/") else None
-    return "\n\n---\n这次没有改代码。", keep, None, []
+    return "\n\n---\n这次没有改代码。", keep, None, {"own": [], "merged": []}
 
 
 def grow(branch: str) -> dict:
@@ -472,10 +521,15 @@ def post_back(space_type: str, space_id: str, subject: str, content: str, reply_
 
     reply_to：回的是对话里哪一句；被顶叫回来的是 0（不回任何一句）。
     hit_id：被叫回来面对一下顶的，带回去：Cognos 看它面对了没有，没面对就记一条 unanswered。
-    changed_files：在仓库副本里做的，这次改了哪些文件：重新切了却没碰 governs 里的文件，记一条 unchanged。
+    changed_files：在仓库副本里做的，{"own": 这一位自己改的文件, "merged": 只是合进来的}（close_worktree）。
+      own 发成 changed_files：重新切了却没碰 governs 里的文件，记一条 unchanged；merged 另发 merged_files，
+      只用来说清「这些动了，可不是你动的」（#100）。
     """
     body = {"content": content, "subject": subject, "reply_to": reply_to, "hit_id": hit_id, **(extra or {})}
-    if changed_files is not None:
+    if isinstance(changed_files, dict):
+        body["changed_files"] = changed_files.get("own", [])
+        body["merged_files"] = changed_files.get("merged", [])
+    elif changed_files is not None:
         body["changed_files"] = changed_files
     url = (COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/spaces/"
            + urllib.parse.quote(space_type, safe="") + "/" + urllib.parse.quote(space_id, safe="") + "/messages")
