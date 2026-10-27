@@ -5,6 +5,7 @@ namespace OCA\Cognos\Command;
 
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\SpaceService;
+use OCP\IConfig;
 use OCP\IUserManager;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -17,15 +18,20 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * 格式：{"title": "...", "traces": [{"key": "t1", "kind": "intent", "source": "原", "author": "...",
  *   "content": "...", "said_at": "2026-10-24 07:01", "act": "...", "confidence": 50, "about": "...",
- *   "stopped_at": "...", "touched_reality": true, "ref": "t0", "status": "withdrawn"}],
+ *   "stopped_at": "...", "touched_reality": true, "ref": "t0", "status": "withdrawn", "governs": "..."}],
  *   "readings": [{"reader": "...", "content": "...", "confidence": 60, "refs": ["t1"]}]}
  * ref / refs 用种子里的 key 指向前面的条目；更正就是 kind=correction 加 ref 加 status。
+ * 押着的前提是 kind=premise（governs 写它管着什么），顶是 kind=hit 加 ref，面对是 kind=answer 加 ref 加 act。
+ *
+ * --as-self：这片空间就是 Cognos 自己（种子见 seeds/cognos-self.json）。在这里被叫回来的那位，
+ * 工作目录是 Cognos 仓库的副本，重新切前提就是改代码（见 tools/cognos-space-mcp/claude_bridge.py）。
  */
 final class ImportSpace extends Command {
     public function __construct(
         private CreationSpaceService $creations,
         private SpaceService $spaces,
         private IUserManager $users,
+        private IConfig $config,
     ) {
         parent::__construct();
     }
@@ -36,7 +42,8 @@ final class ImportSpace extends Command {
             ->addArgument('file', InputArgument::REQUIRED, 'Seed JSON file')
             ->addOption('user', null, InputOption::VALUE_REQUIRED, 'Nextcloud owner UID', 'cognos-admin')
             ->addOption('creation', null, InputOption::VALUE_REQUIRED, 'Existing creation id; omitted = create one from the seed title')
-            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Validate and report without writing');
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Validate and report without writing')
+            ->addOption('as-self', null, InputOption::VALUE_NONE, 'This space is Cognos itself: agents called back here work on a branch of the Cognos repo');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int {
@@ -104,6 +111,7 @@ final class ImportSpace extends Command {
                     'stopped_at' => $t['stopped_at'] ?? null,
                     'touched_reality' => array_key_exists('touched_reality', $t) ? $t['touched_reality'] : null,
                     'ref_id' => isset($t['ref']) ? $ids[$t['ref']] : null,
+                    'governs' => $t['governs'] ?? null,
                 ]);
             } catch (\InvalidArgumentException $e) {
                 $output->writeln(sprintf('<error>trace %d: %s</error>', $i, $e->getMessage()));
@@ -116,6 +124,10 @@ final class ImportSpace extends Command {
         foreach ($readings as $r) {
             $refs = array_values(array_filter(array_map(static fn($k) => $ids[$k] ?? null, (array)($r['refs'] ?? []))));
             $this->spaces->addReading('creation', $spaceId, (string)($r['reader'] ?? 'AI'), (string)($r['content'] ?? ''), isset($r['confidence']) ? (int)$r['confidence'] : null, $refs);
+        }
+        if ($input->getOption('as-self')) {
+            $this->config->setAppValue('cognos', 'self_creation_id', $spaceId);
+            $output->writeln(sprintf('Creation %s is now Cognos itself (self_creation_id).', $spaceId));
         }
         $output->writeln(sprintf('Imported into creation %s. Open /apps/cognos/creations/%s', $spaceId, $spaceId));
         return Command::SUCCESS;

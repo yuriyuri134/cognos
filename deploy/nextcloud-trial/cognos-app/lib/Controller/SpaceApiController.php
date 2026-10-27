@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\Cognos\Controller;
 
 use OCA\Cognos\Service\CreationSpaceService;
+use OCA\Cognos\Service\PushBackService;
 use OCA\Cognos\Service\SpaceEntryService;
 use OCA\Cognos\Service\SpaceService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -15,8 +16,8 @@ use OCP\IRequest;
 use OCP\IUserSession;
 
 /**
- * 外面的 agent（本机的 Claude Code、Codex……）走进一片空间用的接口，和 Hermes 在里面用的是同四个动作：
- * 进来（拿到入口）、留下尝试、留下读法、在痕迹里找。
+ * 外面的 agent（本机的 Claude Code、Codex……）走进一片空间用的接口，和 Hermes 在里面用的是同一套动作：
+ * 进来（拿到入口）、留下尝试、留下读法、在痕迹里找，押上前提、顶别人押着的、面对顶到自己的。
  *
  * agent 用交互对象的账号（应用密码）来调，但它写下的东西一律记为〔AI〕和它报的名字（subject），
  * 不能代替交互对象写原话。
@@ -28,6 +29,7 @@ final class SpaceApiController extends OCSController {
         private CreationSpaceService $creations,
         private SpaceService $spaces,
         private SpaceEntryService $entries,
+        private PushBackService $pushBack,
         private IConfig $config,
     ) {
         parent::__construct('cognos', $request);
@@ -91,6 +93,9 @@ final class SpaceApiController extends OCSController {
             return new DataResponse(['message' => 'Space not found'], 404);
         }
         $body = $this->body();
+        if (($body['kind'] ?? '') === 'answer') {
+            return new DataResponse(['message' => '面对一下顶，用 answer_hit（/hits/{hitId}/answer）'], 422);
+        }
         try {
             $trace = $this->spaces->addTrace($spaceType, $spaceId, [
                 'kind' => (string)($body['kind'] ?? 'attempt'),
@@ -104,8 +109,11 @@ final class SpaceApiController extends OCSController {
                 'confidence' => isset($body['confidence']) ? (int)$body['confidence'] : null,
                 'ref_id' => isset($body['ref_id']) ? (int)$body['ref_id'] : null,
                 'status' => (string)($body['status'] ?? 'said'),
+                'governs' => $body['governs'] ?? null,
             ]);
-            return new DataResponse(['trace' => $trace], 201);
+            // 顶到一条押着的前提：去找押的那位
+            $pushback = $trace['kind'] === 'hit' ? $this->pushBack->afterHit($spaceType, $spaceId, $uid, $trace) : null;
+            return new DataResponse(['trace' => $trace, 'pushback' => $pushback], 201);
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
         }
@@ -134,7 +142,37 @@ final class SpaceApiController extends OCSController {
     }
 
     /**
+     * 押着前提的那位面对顶到它的一下：站住、碎了、或重新切。只有押的那位（subject）能面对。
+     */
+    #[NoAdminRequired]
+    public function answerHit(string $spaceType, string $spaceId, int $hitId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $this->entries->resolve($spaceType, $spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $body = $this->body();
+        try {
+            $result = $this->spaces->answerHit(
+                $spaceType,
+                $spaceId,
+                $hitId,
+                'AI',
+                $this->subject((string)($body['subject'] ?? '')),
+                (string)($body['act'] ?? ''),
+                (string)($body['content'] ?? ''),
+                isset($body['confidence']) ? (int)$body['confidence'] : null,
+                isset($body['new_premise']) ? (string)$body['new_premise'] : null,
+                isset($body['governs']) ? (string)$body['governs'] : null,
+            );
+            return new DataResponse($result, 201);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        }
+    }
+
+    /**
      * 被叫进来、在本机接着做的 agent（claude_bridge.py）做完以后，把回答发回这段对话。
+     * 它做的时候又有顶排着，就接着叫下一位。
      */
     #[NoAdminRequired]
     public function addMessage(string $spaceType, string $spaceId): DataResponse {
@@ -148,6 +186,7 @@ final class SpaceApiController extends OCSController {
         }
         $message = $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content);
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
+        $this->pushBack->drain($spaceType, $spaceId, $uid);
         return new DataResponse(['message' => $message], 201);
     }
 

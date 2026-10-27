@@ -44,6 +44,7 @@ return ['routes' => [
     ['name' => 'creationSpace#getMessages', 'url' => '/creations/{id}/messages', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#space', 'url' => '/creations/{id}/space', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#addSpaceTrace', 'url' => '/creations/{id}/space/traces', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+']],
+    ['name' => 'creationSpace#answerHit', 'url' => '/creations/{id}/space/hits/{hitId}/answer', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+', 'hitId' => '[0-9]+']],
 ], 'ocs' => [
     ['name'=>'edit#edit','url'=>'/api/v1.0/cards/{cardId}','verb'=>'PUT'],
     ['name'=>'assignment#assign','url'=>'/api/v1.0/cards/{cardId}/assign','verb'=>'POST'],
@@ -55,5 +56,6 @@ return ['routes' => [
     ['name' => 'spaceApi#searchTraces', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/traces', 'verb' => 'GET'],
     ['name' => 'spaceApi#addTrace', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/traces', 'verb' => 'POST'],
     ['name' => 'spaceApi#addReading', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/readings', 'verb' => 'POST'],
+    ['name' => 'spaceApi#answerHit', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/hits/{hitId}/answer', 'verb' => 'POST', 'requirements' => ['hitId' => '[0-9]+']],
     ['name' => 'spaceApi#addMessage', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/messages', 'verb' => 'POST'],
 ]];

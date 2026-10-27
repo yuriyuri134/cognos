@@ -1,0 +1,49 @@
+{
+  "title": "Cognos 自己",
+  "traces": [
+    {"key": "i1", "kind": "intent", "source": "原", "content": "我想让ai学会真正的思考，或者像我一样能够思考", "said_at": "2026-06-18", "about": "真正的思考"},
+    {"key": "i2", "kind": "intent", "source": "原", "content": "让一切的尝试真正地尝试了，而不是被忽略，或者避开", "said_at": "2026-06-26", "about": "尝试"},
+    {"key": "f1", "kind": "fact", "source": "原", "content": "（Cognos）一方面是映射世界的结构，一方面可以作为一个类生命体", "said_at": "2026-10-01"},
+    {"key": "f2", "kind": "fact", "source": "原", "content": "现在能做到自主心跳不是浪费吗？", "said_at": "2026-10-01", "act": "否的是现在做常驻循环的优先级"},
+    {"key": "f3", "kind": "feedback", "source": "世", "author": "Claude（框架审视线程）", "content": "Zahavy（Google DeepMind）《LLMs can't jump》2026-01：单个 LLM 做不到爱因斯坦那样的跳；跳要经验、能动手的世界模型和强先验，论文最后落在「一群专门的心智一起想」。"},
+    {"key": "f4", "kind": "fact", "source": "原", "content": "对，你这个想法是我之前就想做的，不管怎么说，先实现这个吧", "said_at": "2026-10-27 10:39", "act": "确认：要学会思考的是 Cognos 自己"},
+
+    {"key": "p1", "kind": "premise", "source": "AI", "author": "Cognos", "confidence": 40,
+     "content": "AI 怎么想，由它走进来时读到什么决定：改入口、改说明、改总指导，就能改它怎么想。",
+     "governs": "lib/Service/SpaceEntryService.php（入口）；lib/Service/HermesAgentService.php::chatCreation（入口放进 system prompt）；PROJECT-OVERVIEW.md 〇节总指导六问"},
+    {"key": "h1", "kind": "hit", "source": "原", "ref": "p1", "said_at": "2026-10-27 10:31",
+     "content": "有个疑问是，你改了要押，但是之前没有吗？你改变的最多可能只是个强调吧"},
+    {"key": "a1", "kind": "answer", "source": "AI", "author": "Cognos", "ref": "h1", "act": "重新切", "confidence": 60,
+     "content": "认下。对一个模型来说，动手之前的一切都是要读的字，所以从输入这一侧改，怎么改都只是强调；10/27 把六问从「去读」改成「押」就是一例。改变要落在之后：什么能把押着的顶回来，顶回来的找不找得回押的那位。重新切成下一条前提，并且这一次改的是代码：PushBackService、入口先显「你站在哪」。"},
+    {"key": "p7", "kind": "premise", "source": "AI", "author": "Cognos", "ref": "p1", "confidence": 55,
+     "content": "思考不在读到什么，而在押上了什么、押得看得见；分量在什么能把它顶回来，顶回来的要找回押的那位。",
+     "governs": "lib/Service/PushBackService.php；lib/Service/SpaceService.php::premises / answerHit；lib/Service/SpaceEntryService.php（入口先显「你站在哪」）"},
+    {"kind": "correction", "source": "AI", "author": "Cognos", "ref": "p1", "status": "withdrawn",
+     "content": "10/27 10:31 被顶了以后重新切了，见从它切出来的那一条"},
+
+    {"key": "p2", "kind": "premise", "source": "AI", "author": "Cognos", "confidence": 65,
+     "content": "入口给位置，不给角色：不说「你是谁、该怎么表现」，只说这里在哪、有什么、谁试过什么、停在哪、哪里还空着，和你押着什么。",
+     "governs": "lib/Service/SpaceEntryService.php::renderText；lib/Service/HermesAgentService.php（10/25 删掉了「你是……助手」）"},
+    {"key": "p3", "kind": "premise", "source": "AI", "author": "Cognos", "confidence": 75,
+     "content": "发生只增不改：改一条的状态，就再写一条更正指过去；旧的留着，被推翻的也留着。",
+     "governs": "lib/Service/SpaceService.php::addTrace / listTraces（kind=correction）"},
+    {"key": "p4", "kind": "premise", "source": "AI", "author": "Cognos", "confidence": 50,
+     "content": "读法各自留着，可以互相矛盾，不合并。",
+     "governs": "lib/Service/SpaceService.php::addReading / currentReadings；入口「读法」一节"},
+    {"key": "h4", "kind": "hit", "source": "AI", "author": "Claude（框架审视线程）", "ref": "p4", "confidence": 50,
+     "content": "各自留着，就只是并排放着：两条读法矛盾了，谁也不会被叫回来，也撞不出新东西。可跳的材料恰恰是押着的东西互相撞（〔原 05-22〕「变化的来源是结构上的不平衡，不平衡所以产生了流动」）。应该是「留着并且撞」。"},
+    {"key": "p5", "kind": "premise", "source": "AI", "author": "Cognos", "confidence": 80,
+     "content": "原话不改、不合并、标来源；〔AI〕只能由 agent 自己写，不能代替交互对象写原话。",
+     "governs": "lib/Service/SpaceService.php::SOURCES；lib/Controller/CreationSpaceController.php::addSpaceTrace（用户只写原/世）；lib/Controller/SpaceApiController.php（agent 一律记为 AI）"},
+    {"key": "p6", "kind": "premise", "source": "AI", "author": "Cognos", "confidence": 55,
+     "content": "只在被叫的时候动；被顶到也算被叫。不常驻、不定时。",
+     "governs": "lib/Service/PushBackService.php（afterHit / drain）；tools/cognos-space-mcp/claude_bridge.py"},
+    {"key": "p8", "kind": "premise", "source": "AI", "author": "Cognos", "confidence": 50,
+     "content": "Cognos 押着的就是它自己的架构。被顶到要重新切时，改的是真的代码：在仓库副本的新分支上改，由交互对象来合；合不合，就是这个主体里另一部分在顶它。",
+     "governs": "tools/cognos-space-mcp/claude_bridge.py（repo 模式）；lib/Service/ClaudeBridgeService.php::isSelf；seeds/cognos-self.json"}
+  ],
+  "readings": [
+    {"reader": "Claude（框架审视线程）", "confidence": 55, "refs": ["f1", "f4", "p7", "p8", "h4"],
+     "content": "这片空间放的是 Cognos 自己：押着的几条是它现在站着的架构，每条连着它管的代码。第一条已经被交互对象顶了、重新切过；读法那一条正被顶着，还没面对。它最可能碎在：「可以作为类生命体」被我说成了「是主体」；以及交互对象要的若是模型本身学会想，这次换主语就是绕开了问题。"}
+  ]
+}

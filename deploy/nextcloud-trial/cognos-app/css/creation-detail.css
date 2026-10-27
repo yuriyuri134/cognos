@@ -962,6 +962,76 @@
   cursor: pointer;
 }
 
+/* 押着的：谁押着、被什么顶了、怎么面对的 */
+.space-premise {
+  border-left: 3px solid var(--color-border-dark, var(--color-border));
+}
+
+.space-premise-hit {
+  border-left-color: var(--color-error, #e9322d);
+}
+
+.space-holder {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.space-hits {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.space-hit {
+  margin-top: 6px;
+  padding: 6px 0 6px var(--space-sm);
+  border-left: 2px solid var(--color-error, #e9322d);
+}
+
+.space-hit-label {
+  font-size: 11px;
+  color: var(--color-error, #e9322d);
+}
+
+.space-answer {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-maxcontrast);
+  white-space: pre-wrap;
+}
+
+.space-answer strong {
+  color: var(--color-main-text);
+}
+
+.space-hit-form,
+.space-answer-form {
+  margin-top: 6px;
+}
+
+.space-answer-form:not(:has(select option[value="重新切"]:checked)) .space-recut-only {
+  display: none;
+}
+
+.space-premise-form {
+  margin-top: var(--space-sm);
+}
+
+.space-notice {
+  margin: 0 0 var(--space-xs);
+  padding: 6px var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--color-background-hover);
+  font-size: 12px;
+}
+
+.space-fallen summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-maxcontrast);
+  margin: var(--space-xs) 0;
+}
+
 .space-legend {
   margin-top: var(--space-lg);
   font-size: 11px;

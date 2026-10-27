@@ -113,6 +113,8 @@ Cognos 是什么：〔原 10/23〕「想创造一个东西，让这个东西协�
 
 - 10/25：删掉了 Hermes 进来时拿到的角色提示词（「你是……助手」），开始做第一片空间：创立空间里多了「发生」和「读法」两张表、一个入口（`SpaceEntryService`，Hermes 进来时拿到的和页面右侧「这里」显的是同一份）、Hermes 能在空间里留下尝试和读法，外面的 agent 经 `tools/cognos-space-mcp/` 走进同一片空间。被叫进来的那位也可以换成本机的 Claude Code（`creation_agent=claude-code`，经 `tools/cognos-space-mcp/claude_bridge.py`），〔原 10/25〕「都是agent，换claude code不就好了？」。10/27 起它有手也有时间：能上网、有这片空间自己的工作目录、能跑命令（小林选了打开），回完话接着做，做完把回答发回对话，因为〔原 10/27〕「那为什么agent没有自己顺着继续想下去呢？这个阶段ai恰恰能做的最多吧？」。桥用 `tools/cognos-space-mcp/start-bridge.ps1` 起，`-Register` 后登录时自动起。第一个对象是盈利循环，种子数据在项目文件里（含个人信息，不进仓库）。设计在项目文件 `空间入口/`。
 
+- 10/27：〔原 10/27〕「对，你这个想法是我之前就想做的，不管怎么说，先实现这个吧」。〔AI 55%〕要学会思考的「AI」是 Cognos 自己，它押着的就是它的架构（来路见项目文件 `框架审视/会不会全错-2026-10-27.md` 第十、十一节）。做了：空间里多了三种发生，押着的前提（`premise`，`governs` 连着它管的代码）、顶（`hit`）、面对（`answer`：站住 / 碎了 / 重新切）；一条前提被顶到，`PushBackService` 把押的那位经本机桥叫回来，第一件事面对这一下（被碰醒，不是到点醒：没有心跳和定时，桥忙就排着，agent 之间互相顶每天有上限）；入口和侧栏最上面先显「你站在哪、押着什么、被顶了什么」。Cognos 自己是一片创立空间（`occ cognos:space:import /var/www/html/custom_apps/cognos/seeds/cognos-self.json --as-self`），在那里被叫回来的 Claude Code 工作目录是仓库副本的新分支，重新切就是改代码，桥提交到 `cognos-self/...` 分支，由小林来合。
+
 ## 开发方式
 
 代码结构：
