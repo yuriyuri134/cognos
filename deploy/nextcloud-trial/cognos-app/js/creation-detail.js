@@ -329,6 +329,9 @@
     // Italic
     html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
+    // 链接：只认站内路径和 http(s)
+    html = html.replace(/\[([^\]]+)\]\(((?:\/|https?:\/\/)[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
     // Inline code
     html = html.replace(/`(.*?)`/g, '<code>$1</code>');
 

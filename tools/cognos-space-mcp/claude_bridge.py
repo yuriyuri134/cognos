@@ -81,7 +81,7 @@ COMMANDS = os.environ.get("COGNOS_BRIDGE_COMMANDS", "") == "1"
 TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
 REPO = Path(os.environ.get("COGNOS_REPO") or HERE.parent.parent)
 SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "master")
-# 改了代码时，对话里最多贴多少字的 diff
+# 报告存不进 Nextcloud 时，对话里最多贴多少字的 diff
 DIFF_LIMIT = 12000
 
 # 同一片空间同时只做一件事，免得两次叫进来的互相踩着工作目录
@@ -121,30 +121,82 @@ def open_worktree(space_type: str, space_id: str, hit_id) -> dict:
     return {"path": path, "branch": branch, "base": base}
 
 
-def close_worktree(wt: dict, subject: str, summary: str) -> str:
-    """有改动就提交到那条分支（不合、不推），返回接在回答后面的一句；没改就把分支和副本收掉。"""
+def close_worktree(wt: dict, subject: str, summary: str) -> dict | None:
+    """有改动就提交到那条分支（不合、不推），返回这次改了什么；没改就把分支和副本收掉，返回 None。"""
     path, branch, base = wt["path"], wt["branch"], wt["base"]
-    if git("status", "--porcelain", cwd=path):
-        git("add", "-A", cwd=path)
-        message = f"{subject} 在 Cognos 自己的空间里改的\n\n{summary[:1500]}"
-        git("-c", "user.name=Cognos", "-c", "user.email=cognos@localhost", "commit", "-q", "-m", message, cwd=path)
-        commit = git("rev-parse", "--short", "HEAD", cwd=path)
-        stat = git("show", "--stat", "--format=", "HEAD", cwd=path)
-        diff = git("show", "--format=", "HEAD", cwd=path)
-        # 整份改动另存一份在这片空间的工作目录里，对话里放得下就整份贴，放不下贴开头
-        changes = path.parent.parent / "changes"
-        changes.mkdir(parents=True, exist_ok=True)
-        saved = changes / (branch.replace("/", "-") + ".diff")
-        saved.write_text(diff + "\n", encoding="utf-8")
-        git("worktree", "remove", str(path))
-        shown = diff if len(diff) <= DIFF_LIMIT else diff[:DIFF_LIMIT] + f"\n…（还有 {len(diff) - DIFF_LIMIT} 个字符，整份在下面那个文件里）"
-        return (f"\n\n---\n改动提交在本机分支 `{branch}`（{commit}），从 `{base}` 切出来，没有合、也没有推，由你来看、来合。\n\n"
-                f"改了哪些文件：\n```\n{stat}\n```\n\n"
-                f"怎么改的：\n```diff\n{shown}\n```\n\n"
-                f"整份改动也存在你电脑上：`{saved}`；在仓库里看：`git diff {base}...{branch}`。")
-    git("worktree", "remove", "--force", str(path))
-    git("branch", "-D", branch)
-    return "\n\n---\n这次没有改代码。"
+    if not git("status", "--porcelain", cwd=path):
+        git("worktree", "remove", "--force", str(path))
+        git("branch", "-D", branch)
+        return None
+    git("add", "-A", cwd=path)
+    message = f"{subject} 在 Cognos 自己的空间里改的\n\n{summary[:1500]}"
+    git("-c", "user.name=Cognos", "-c", "user.email=cognos@localhost", "commit", "-q", "-m", message, cwd=path)
+    change = {
+        "branch": branch,
+        "base": base,
+        "commit": git("rev-parse", "--short", "HEAD", cwd=path),
+        "stat": git("show", "--stat", "--format=", "HEAD", cwd=path),
+        "diff": git("show", "--format=", "HEAD", cwd=path),
+    }
+    git("worktree", "remove", str(path))
+    return change
+
+
+def change_report(subject: str, answer: str, change: dict) -> str:
+    """改了代码时的报告（Markdown）：它自己的回答（里面有「改了什么」），改了哪些文件，整份 diff。"""
+    return "\n".join([
+        f"# {subject} 改了什么",
+        "",
+        f"- 分支：`{change['branch']}`（{change['commit']}），从 `{change['base']}` 切出来，没有合、也没有推",
+        f"- 时间：{time.strftime('%Y-%m-%d %H:%M')}",
+        f"- 在仓库里看：`git diff {change['base']}...{change['branch']}`",
+        "",
+        "## 它的回答",
+        "",
+        answer.strip(),
+        "",
+        "## 改了哪些文件",
+        "",
+        "```",
+        change["stat"],
+        "```",
+        "",
+        "## 怎么改的",
+        "",
+        "```diff",
+        change["diff"],
+        "```",
+        "",
+    ])
+
+
+def dav(method: str, path: str, data: bytes | None = None):
+    """交互对象 Nextcloud 文件里的一个路径（WebDAV）。"""
+    url = (COGNOS_URL.rstrip("/") + "/remote.php/dav/files/" + urllib.parse.quote(COGNOS_USER, safe="")
+           + "/" + urllib.parse.quote(path.strip("/")))
+    token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
+    headers = {"Authorization": "Basic " + token}
+    if data is not None:
+        headers["Content-Type"] = "text/markdown; charset=utf-8"
+    return urllib.request.urlopen(urllib.request.Request(url, method=method, data=data, headers=headers), timeout=60)
+
+
+def save_report(space_type: str, space_id: str, name: str, report: str) -> str:
+    """报告存进交互对象的 Nextcloud 文件（Cognos/改动报告/<空间>/），返回在 Cognos 里打开它的链接。"""
+    folder = ""
+    for part in ("Cognos", "改动报告", f"{space_type}-{space_id}"):
+        folder += "/" + part
+        try:
+            dav("MKCOL", folder).read()
+        except urllib.error.HTTPError as error:
+            if error.code != 405:  # 405：已经有了
+                raise
+    with dav("PUT", f"{folder}/{name}", report.encode("utf-8")) as response:
+        file_id = response.headers.get("OC-FileId", "")
+    digits = "".join(ch for ch in file_id.split("oc")[0] if ch.isdigit())
+    if digits:
+        return f"/index.php/f/{int(digits)}"
+    return "/index.php/apps/files/?dir=" + urllib.parse.quote(folder)
 
 
 def hands(workdir: Path, wt: dict | None = None) -> str:
@@ -161,7 +213,7 @@ def hands(workdir: Path, wt: dict | None = None) -> str:
             "- 你押着的前提，governs 写着它管着这里的哪段代码。被顶了要重新切，就去改那段代码；只改说法不算。"
             "改完不用提交：你做完以后桥会把改动提交到这条分支，由交互对象来看、来合。不要切别的分支，不要推。",
             "- 改了代码，回答最后写一节「改了什么」：每个文件一两句，改了什么、为什么、和哪条前提有关，"
-            "交互对象不读代码也要看得懂。桥会在回答后面再贴上改了哪些文件和整份 diff。",
+            "交互对象不读代码也要看得懂。桥会把你的回答、改了哪些文件和整份 diff 写成一份报告，回答末尾附上链接。",
         ]
     else:
         lines.append(f"- 这片空间自己的工作目录：{workdir}。只能在这里面读写文件；做出来的东西放这里，下次进来还在。")
@@ -274,6 +326,30 @@ def post_back(space_type: str, space_id: str, subject: str, content: str, reply_
         response.read()
 
 
+def attach_change(space_type: str, space_id: str, subject: str, answer: str, wt: dict) -> str:
+    """收好仓库副本；改了代码就写一份报告，回答末尾只附它的链接（报告存不进 Nextcloud 时才把 diff 贴进来）。"""
+    try:
+        change = close_worktree(wt, subject, answer)
+    except Exception as error:
+        return f"\n\n---\n仓库副本 {wt['path']}（分支 {wt['branch']}）没收好：{error}。改动还在那里。"
+    if change is None:
+        return "\n\n---\n这次没有改代码。"
+    report = change_report(subject, answer, change)
+    name = change["branch"].replace("/", "-") + ".md"
+    # 本机这片空间的工作目录里也留一份
+    local = workdir_for(space_type, space_id) / "changes" / name
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_text(report, encoding="utf-8")
+    head = f"\n\n---\n改了代码，提交在本机分支 `{change['branch']}`，没有合、也没有推，由你来看、来合。"
+    try:
+        link = save_report(space_type, space_id, name, report)
+        return head + f"\n\n报告：[{name}]({link})"
+    except (urllib.error.URLError, OSError) as error:
+        diff = change["diff"] if len(change["diff"]) <= DIFF_LIMIT else change["diff"][:DIFF_LIMIT] + "\n…"
+        return (head + f"\n\n（报告没存进 Nextcloud：{error}。在你电脑上：`{local}`）"
+                f"\n\n改了哪些文件：\n```\n{change['stat']}\n```\n\n怎么改的：\n```diff\n{diff}\n```")
+
+
 def work(job: dict) -> None:
     space_type, space_id, subject = job["space_type"], job["space_id"], job["subject"]
     key = f"{space_type}/{space_id}"
@@ -289,10 +365,7 @@ def work(job: dict) -> None:
         except Exception as error:  # 出错也要让交互对象在对话里看到
             content = f"（{subject} 这次没做完：{error}）"
         if wt is not None:
-            try:
-                content += close_worktree(wt, subject, content)
-            except Exception as error:
-                content += f"\n\n---\n仓库副本 {wt['path']}（分支 {wt['branch']}）没收好：{error}。改动还在那里。"
+            content += attach_change(space_type, space_id, subject, content, wt)
         # 先放开这片空间：回答发回去时，排着的下一下顶会接着叫进来
         with BUSY_LOCK:
             BUSY.discard(key)
