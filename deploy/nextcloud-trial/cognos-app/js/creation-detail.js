@@ -179,7 +179,8 @@
   function renderMessages() {
     if (!elements.messagesContainer) return;
 
-    if (state.messages.length === 0) {
+    // 空对话里也可能有人被叫进来（比如顶了一下押着的前提），那就显状态，不显「开始对话」
+    if (state.messages.length === 0 && !state.pending && !state.notice) {
       elements.messagesContainer.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">💭</div>
