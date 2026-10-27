@@ -8,7 +8,13 @@
     creations: [],
     loading: false,
     sending: false,
+    // 叫来的 agent 还在本机接着做：{ since: 发出那条的时间, timer }，或者一条没叫来的原因 { error }
+    pending: null,
+    notice: null,
   };
+
+  const PENDING_POLL_MS = 5000;
+  const PENDING_MAX_MS = 40 * 60 * 1000;
 
   const elements = {};
 
@@ -152,6 +158,7 @@
 
       renderCreation();
       renderMessages();
+      resumePendingIfWaiting(messagesData.pending);
     } catch (error) {
       console.error('Load error:', error);
       elements.chatTitle.textContent = '加载失败';
@@ -181,7 +188,7 @@
 
     elements.messagesContainer.innerHTML = state.messages
       .map(message => createMessageBubble(message))
-      .join('');
+      .join('') + createStatusBubble();
 
     // Scroll to bottom
     requestAnimationFrame(() => {
@@ -209,6 +216,71 @@
         ${role === 'user' ? `<button type="button" class="space-keep-btn" data-message-id="${message.id}" title="把这句原话留在空间里，作为意图或事实">留在空间里</button>` : ''}
       </div>
     `;
+  }
+
+  function createStatusBubble() {
+    if (state.notice) {
+      return `
+        <div class="cognos-message cognos-message-agent cognos-message-status cognos-message-error">
+          <div class="cognos-message-content">没叫来：${escapeHtml(state.notice)}<br>你的话已经留下了，不用重发；把上面的问题处理好以后，再说一句就会重新叫。</div>
+        </div>
+      `;
+    }
+    if (state.pending) {
+      return `
+        <div class="cognos-message cognos-message-agent cognos-message-status">
+          <div class="cognos-message-content">Claude Code 进来了，在接着做。做完的回答会出现在这里；它留下的尝试和读法，右侧「这里」会陆续出现。可以先离开，回来再看。</div>
+        </div>
+      `;
+    }
+    return '';
+  }
+
+  function startPending(since) {
+    stopPending();
+    state.pending = { since, timer: window.setInterval(pollPending, PENDING_POLL_MS) };
+  }
+
+  function stopPending() {
+    if (state.pending?.timer) {
+      window.clearInterval(state.pending.timer);
+    }
+    state.pending = null;
+  }
+
+  async function pollPending() {
+    if (!state.pending) return;
+    const since = state.pending.since;
+    if (Date.now() - since * 1000 > PENDING_MAX_MS) {
+      stopPending();
+      renderMessages();
+      return;
+    }
+    try {
+      const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages`, {
+        headers: { 'requesttoken': OC.requestToken },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      const messages = data.messages || [];
+      const answered = messages.some(m => m.role !== 'user' && m.created_at >= since);
+      window.CognosSpacePanel?.reload();
+      if (answered || !data.pending) {
+        state.messages = messages;
+        stopPending();
+        renderMessages();
+      }
+    } catch (error) {
+      console.error('Poll error:', error);
+    }
+  }
+
+  function resumePendingIfWaiting(pending) {
+    // 刷新页面以后：服务器说叫来的 agent 还在做，就接着等它
+    if (!pending) return;
+    const lastUser = [...state.messages].reverse().find(m => m.role === 'user');
+    startPending(lastUser ? lastUser.created_at : Math.floor(Date.now() / 1000));
+    renderMessages();
   }
 
   function renderMarkdown(content) {
@@ -274,12 +346,17 @@
         body: JSON.stringify({ message }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to send message');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok && !(data.messages && data.messages.length)) {
+        throw new Error(data.message || `HTTP ${response.status}`);
       }
 
-      const data = await response.json();
-      state.messages.push(...data.messages);
+      state.messages.push(...(data.messages || []));
+      state.notice = response.ok ? null : (data.message || `HTTP ${response.status}`);
+      if (data.pending) {
+        const sent = data.messages?.[0]?.created_at || Math.floor(Date.now() / 1000);
+        startPending(sent);
+      }
 
       elements.chatInput.value = '';
       handleInputChange();
@@ -288,7 +365,7 @@
       window.CognosSpacePanel?.reload();
     } catch (error) {
       console.error('Send message error:', error);
-      alert('发送失败，请重试');
+      alert('发送失败：' + error.message);
     } finally {
       state.sending = false;
       elements.sendBtn.disabled = false;

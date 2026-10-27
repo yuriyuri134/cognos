@@ -10,6 +10,7 @@ use OCA\Cognos\Service\SpaceService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
+use OCP\IConfig;
 use OCP\IRequest;
 use OCP\IUserSession;
 
@@ -27,6 +28,7 @@ final class SpaceApiController extends OCSController {
         private CreationSpaceService $creations,
         private SpaceService $spaces,
         private SpaceEntryService $entries,
+        private IConfig $config,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -129,6 +131,24 @@ final class SpaceApiController extends OCSController {
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
         }
+    }
+
+    /**
+     * 被叫进来、在本机接着做的 agent（claude_bridge.py）做完以后，把回答发回这段对话。
+     */
+    #[NoAdminRequired]
+    public function addMessage(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $spaceType !== 'creation' || $this->creations->get((int)$spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $content = trim((string)($this->body()['content'] ?? ''));
+        if ($content === '') {
+            return new DataResponse(['message' => 'content is required'], 422);
+        }
+        $message = $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content);
+        $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
+        return new DataResponse(['message' => $message], 201);
     }
 
     private function uid(): ?string {

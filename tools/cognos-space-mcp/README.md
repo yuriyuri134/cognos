@@ -51,4 +51,19 @@ docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cogn
 
 换回 Hermes：`creation_agent` 设成 `hermes`。容器里连不到 `127.0.0.1` 时，起桥前设 `COGNOS_BRIDGE_HOST=0.0.0.0`。
 
-每次被叫，桥起一次 `claude -p`：入口作为系统提示（和 Hermes 拿到的是同一份，主体换成 Claude Code），之前的对话和这次的原话作为输入，只开 `leave_trace`、`add_reading`、`search_traces` 三个工具，读写文件和命令行都关着。它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度。
+每次被叫，桥马上回「收到」，然后在后台起一次 `claude -p`：入口作为系统提示（和 Hermes 拿到的是同一份，主体换成 Claude Code），之前的对话和这次的原话作为输入。它回完话不用马上走，能自己做的先做到够不着为止（默认最多 30 分钟），做完把回答发回这段对话；页面上会显示「Claude Code 进来了，在接着做」，它留下的尝试和读法侧栏里会陆续出现。
+
+它手里有：
+- 空间里的 `leave_trace`、`add_reading`、`search_traces`；
+- 上网：WebSearch、WebFetch；
+- 这片空间自己的工作目录 `~/Documents/cognos-spaces/creation-<id>`（`COGNOS_SPACES_DIR` 可改）。读写文件只限这个目录，目录外的会被 Claude Code 拒掉；
+- 跑命令：起桥前设 `COGNOS_BRIDGE_COMMANDS=1` 才开。命令不受目录限制，Windows 上没有沙箱，只是从工作目录起步。8780 经 `start-public.ps1` 开到公网时（有 `deploy/nextcloud-trial/.public-access-state.json`），桥自动不开命令。
+
+它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度。同一片空间同时只做一件事，还在做时再叫会提示「还在做上一件事」。
+
+带命令起桥（PowerShell）：
+
+```powershell
+cd C:\Users\lnp\Documents\Playground\cognos
+$env:PYTHONIOENCODING='utf-8'; $env:COGNOS_BRIDGE_COMMANDS='1'; python tools\cognos-space-mcp\claude_bridge.py
+```

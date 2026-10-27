@@ -13,6 +13,7 @@ use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Http\TemplateResponse;
+use OCP\IConfig;
 use OCP\IRequest;
 use OCP\IUserSession;
 use OCP\Util;
@@ -25,6 +26,7 @@ final class CreationSpaceController extends Controller {
         private HermesAgentService $hermes,
         private SpaceService $spaces,
         private SpaceEntryService $entries,
+        private IConfig $config,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -125,10 +127,21 @@ final class CreationSpaceController extends Controller {
             // Get context for Agent
             $context = $this->creations->getContext($id, $user->getUID());
 
-            // Get Agent response
-            $agentResponse = $this->hermes->chatCreation($id, $message, $context);
+            try {
+                $agentResponse = $this->hermes->chatCreation($id, $message, $context);
+            } catch (\Throwable $error) {
+                // 原话已经留下了，只是没叫来人：把它和原因一起回给页面，别让人以为没发出去再发一遍
+                return new DataResponse([
+                    'messages' => [$userMessage],
+                    'message' => $error->getMessage(),
+                ], 502);
+            }
 
-            // Save Agent message
+            if ($agentResponse === null) {
+                // Claude Code 在本机接着做，做完自己把回答发回来
+                return new DataResponse(['messages' => [$userMessage], 'pending' => true]);
+            }
+
             $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'assistant', $agentResponse);
 
             return new DataResponse([
@@ -149,7 +162,10 @@ final class CreationSpaceController extends Controller {
         }
         try {
             $messages = $this->creations->getMessages($id, $user->getUID());
-            return new DataResponse(['messages' => $messages]);
+            // 叫来的 agent 还在本机接着做（40 分钟以上就当它没做完、也没发回来）
+            $since = (int)$this->config->getAppValue('cognos', 'agent_pending_creation_' . $id, '0');
+            $pending = $since > 0 && time() - $since < 40 * 60;
+            return new DataResponse(['messages' => $messages, 'pending' => $pending]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch messages'], 500);
         }

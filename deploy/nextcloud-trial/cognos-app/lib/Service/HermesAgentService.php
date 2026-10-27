@@ -494,7 +494,10 @@ final class HermesAgentService {
      * Hermes 被叫进一片创立空间。它拿到的是入口：它在哪、这里有什么、以前谁试过什么、停在哪、哪里还空着，
      * 不是角色。它能搜材料，也能在这片空间里留下尝试和读法。
      */
-    public function chatCreation(int $creationId, string $message, array $context = []): string {
+    /**
+     * @return string|null Hermes 的回答；叫的是 Claude Code 时返回 null，它在本机接着做，做完自己把回答发回这段对话
+     */
+    public function chatCreation(int $creationId, string $message, array $context = []): ?string {
         $user = $this->users->getUser();
         if ($user === null) {
             throw new \RuntimeException('Authentication required');
@@ -536,12 +539,14 @@ final class HermesAgentService {
                     'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你的名字。',
                     'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
                     '这三个工具都要填 space_id：这里是 ' . $creationId . '，space_type 是 creation。',
-                    '够不着的：笔记（这次没接给你）、交互对象电脑上的文件、外部网页、命令行；Cognos 里别的空间这次也看不到。',
+                    '够不着的：笔记（这次没接给你）、交互对象电脑上工作目录以外的文件；Cognos 里别的空间这次也看不到。',
                 ],
             );
-            $content = $this->callClaudeBridge($subject, $this->entries->renderText($entry), $history, $message, $caller);
+            $this->callClaudeBridge('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller);
+            // 页面刷新后靠它知道还有人在做；回答发回来时（SpaceApiController::addMessage）清掉
+            $this->config->setAppValue('cognos', 'agent_pending_creation_' . $creationId, (string)time());
             $this->spaces->markSeen('creation', (string)$creationId, $subject);
-            return $content;
+            return null;
         }
 
         $subject = self::CREATION_PARTICIPANT;
@@ -998,45 +1003,48 @@ final class HermesAgentService {
     }
 
     /**
-     * 请本机的 Claude Code 进来。它在空间里留东西走 MCP（同一套 OCS 接口），这里只拿它的回答。
+     * 请本机的 Claude Code 进来。桥收下就回 202，它在本机接着做，做完经 SpaceApiController::addMessage 把回答发回来。
+     * 它在空间里留东西走 MCP（同一套 OCS 接口）。
      */
-    private function callClaudeBridge(string $subject, string $system, array $history, string $message, string $caller): string {
+    private function callClaudeBridge(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller): void {
         $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
         $token = $this->config->getAppValue('cognos', 'claude_bridge_token', '');
         if ($token === '') {
             throw new \RuntimeException('Claude Code 桥没有配置口令（occ config:app:set cognos claude_bridge_token）');
         }
 
-        $response = $this->http->newClient()->post($url, [
-            'headers' => [
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-                'X-Cognos-Bridge-Token' => $token,
-            ],
-            'body' => json_encode([
-                'subject' => $subject,
-                'system' => $system,
-                'history' => $history,
-                'message' => $message,
-                'caller' => $caller,
-            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
-            'timeout' => 300,
-            'http_errors' => false,
-            // 桥跑在本机（host.docker.internal），Nextcloud 默认不让连内网地址
-            'nextcloud' => ['allow_local_address' => true],
-        ]);
+        try {
+            $response = $this->http->newClient()->post($url, [
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json',
+                    'X-Cognos-Bridge-Token' => $token,
+                ],
+                'body' => json_encode([
+                    'space_type' => $spaceType,
+                    'space_id' => $spaceId,
+                    'subject' => $subject,
+                    'system' => $system,
+                    'history' => $history,
+                    'message' => $message,
+                    'caller' => $caller,
+                ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+                'timeout' => 30,
+                'http_errors' => false,
+                // 桥跑在本机（host.docker.internal），Nextcloud 默认不让连内网地址
+                'nextcloud' => ['allow_local_address' => true],
+            ]);
+        } catch (\Throwable $error) {
+            throw new \RuntimeException('连不上本机的 Claude Code 桥（' . $url . '）：桥可能没起来，在仓库目录跑 python tools\\cognos-space-mcp\\claude_bridge.py');
+        }
 
-        $body = json_decode((string)$response->getBody(), true);
         $status = $response->getStatusCode();
-        if ($status < 200 || $status >= 300 || !is_array($body)) {
-            $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
-            throw new \RuntimeException('Claude Code 没有回答' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'));
+        if ($status === 202) {
+            return;
         }
-        $content = trim((string)($body['content'] ?? ''));
-        if ($content === '') {
-            throw new \RuntimeException('Claude Code 返回了空回答');
-        }
-        return $content;
+        $body = json_decode((string)$response->getBody(), true);
+        $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
+        throw new \RuntimeException('Claude Code 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'));
     }
 
     private function callHermes(string $sessionId, array $messages, ?string $model, ?string $participantId = null, array $tools = []): array {
