@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Cognos 空间的 MCP server：让外面的 agent（Claude Code、Codex……）走进 Cognos 里的一片空间。
 
-和 Hermes 在 Cognos 里用的是同四个动作：进来（拿到入口）、留下尝试、留下读法、在痕迹里找。
+和 Hermes 在 Cognos 里用的是同一套动作：进来（拿到入口）、留下尝试、留下读法、在痕迹里找，
+押上前提（hold_premise）、顶别人押着的（hit_premise）、面对顶到自己的（answer_hit）。
 它写下的东西一律记为〔AI〕和 COGNOS_SUBJECT 这个名字，不能代替交互对象写原话。
 
 只用标准库，stdio 上一行一个 JSON-RPC 消息。环境变量：
@@ -107,6 +108,66 @@ TOOLS = [
     },
 ]
 
+TOOLS += [
+    {
+        "name": "hold_premise",
+        "description": (
+            "押上一条你自己的前提：你凭它在想、在做的那一条，连上它管着的代码或做法（governs）。"
+            "押着的东西能被顶回来；被顶到时你会被叫回来面对它。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "content": {"type": "string", "description": "前提本身，一句话说清"},
+                "governs": {"type": "string", "description": "它管着什么：哪段代码（路径、类、方法）、哪个做法、哪个判断"},
+                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+            },
+            "required": ["space_id", "content", "confidence"],
+        },
+    },
+    {
+        "name": "hit_premise",
+        "description": (
+            "顶这片空间里别人押着的一条前提（入口「这里别人押着的」里的 #id），写清是什么把它顶回来的："
+            "事实、矛盾、反例、现实的结果。押的那位会被叫回来面对。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "ref_id": {"type": "integer", "description": "被顶的那条前提的 #id"},
+                "content": {"type": "string", "description": "顶回来的是什么"},
+                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+            },
+            "required": ["space_id", "ref_id", "content", "confidence"],
+        },
+    },
+    {
+        "name": "answer_hit",
+        "description": (
+            "面对顶到你押着的前提的一下：站住（写清凭什么还站得住）、碎了（写清碎在哪）、"
+            "重新切（写出新的前提；在 Cognos 自己的空间里，还要去改它管着的代码）。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "hit_id": {"type": "integer", "description": "那一下的 #id"},
+                "act": {"type": "string", "enum": ["站住", "碎了", "重新切"]},
+                "content": {"type": "string", "description": "你怎么面对的，这一下之后什么变了"},
+                "new_premise": {"type": "string", "description": "act=重新切 时，新的前提"},
+                "governs": {"type": "string", "description": "act=重新切 时新前提管着什么；不填就沿用旧的"},
+                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+            },
+            "required": ["space_id", "hit_id", "act", "content", "confidence"],
+        },
+    },
+]
+
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
 if ONLY:
     TOOLS = [t for t in TOOLS if t["name"] in ONLY]
@@ -166,6 +227,25 @@ def run_tool(name: str, args: dict) -> str:
         body["subject"] = SUBJECT
         reading = call_api("POST", space_path(args) + "/readings", body=body)["reading"]
         return f"已留下读法 #{reading['id']}。"
+    if name == "hold_premise":
+        body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
+        body.update({"kind": "premise", "subject": SUBJECT})
+        trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
+        return f"已押上 #{trace['id']}（〔AI {SUBJECT}〕）。被顶到时你会被叫回来面对它。"
+    if name == "hit_premise":
+        body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
+        body.update({"kind": "hit", "subject": SUBJECT})
+        data = call_api("POST", space_path(args) + "/traces", body=body)
+        pushback = data.get("pushback") or {}
+        return f"已顶 #{body.get('ref_id')}，记为 #{data['trace']['id']}。{pushback.get('message', '')}"
+    if name == "answer_hit":
+        body = {k: v for k, v in args.items() if k not in ("space_id", "space_type", "hit_id")}
+        body["subject"] = SUBJECT
+        data = call_api("POST", space_path(args) + f"/hits/{int(args['hit_id'])}/answer", body=body)
+        text = f"已面对 #{int(args['hit_id'])}：{data['answer']['act']}（#{data['answer']['id']}）。"
+        if data.get("premise"):
+            text += f"新的前提是 #{data['premise']['id']}。"
+        return text
     if name == "search_traces":
         traces = call_api("GET", space_path(args) + "/traces", {"q": args.get("query", ""), "limit": args.get("limit", 20)})["traces"]
         if not traces:

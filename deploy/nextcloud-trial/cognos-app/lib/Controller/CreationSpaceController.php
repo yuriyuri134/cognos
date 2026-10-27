@@ -6,6 +6,7 @@ namespace OCA\Cognos\Controller;
 
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\HermesAgentService;
+use OCA\Cognos\Service\PushBackService;
 use OCA\Cognos\Service\SpaceEntryService;
 use OCA\Cognos\Service\SpaceService;
 use OCP\AppFramework\Controller;
@@ -26,6 +27,7 @@ final class CreationSpaceController extends Controller {
         private HermesAgentService $hermes,
         private SpaceService $spaces,
         private SpaceEntryService $entries,
+        private PushBackService $pushBack,
         private IConfig $config,
     ) {
         parent::__construct('cognos', $request);
@@ -230,6 +232,9 @@ final class CreationSpaceController extends Controller {
         if (!in_array($source, ['原', '世'], true)) {
             return new DataResponse(['message' => 'source must be 原 or 世'], 422);
         }
+        if (($body['kind'] ?? '') === 'answer') {
+            return new DataResponse(['message' => '面对一下顶，用 /space/hits/{hitId}/answer'], 422);
+        }
         try {
             $trace = $this->spaces->addTrace('creation', (string)$id, [
                 'kind' => (string)($body['kind'] ?? ''),
@@ -243,12 +248,47 @@ final class CreationSpaceController extends Controller {
                 'status' => (string)($body['status'] ?? 'said'),
                 'stopped_at' => $body['stopped_at'] ?? null,
                 'touched_reality' => array_key_exists('touched_reality', $body) ? (bool)$body['touched_reality'] : null,
+                'governs' => $body['governs'] ?? null,
             ]);
-            return new DataResponse(['trace' => $trace], 201);
+            // 顶到一条押着的前提：去找押的那位
+            $pushback = $trace['kind'] === 'hit' ? $this->pushBack->afterHit('creation', (string)$id, $user->getUID(), $trace) : null;
+            return new DataResponse(['trace' => $trace, 'pushback' => $pushback], 201);
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to add trace'], 500);
+        }
+    }
+
+    /**
+     * 交互对象面对顶到自己押着的前提的一下：站住、碎了、或重新切。
+     */
+    #[NoAdminRequired]
+    public function answerHit(int $id, int $hitId): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        if ($this->entries->resolve('creation', (string)$id, $user->getUID()) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        $body = $this->request->getParams();
+        try {
+            $result = $this->spaces->answerHit(
+                'creation',
+                (string)$id,
+                $hitId,
+                '原',
+                $user->getUID(),
+                (string)($body['act'] ?? ''),
+                (string)($body['content'] ?? ''),
+                null,
+                isset($body['new_premise']) ? (string)$body['new_premise'] : null,
+                isset($body['governs']) ? (string)$body['governs'] : null,
+            );
+            return new DataResponse($result, 201);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
         }
     }
 }

@@ -242,16 +242,16 @@
     if (state.pending) {
       return `
         <div class="cognos-message cognos-message-agent cognos-message-status">
-          <div class="cognos-message-content">Claude Code 进来了，在接着做。做完的回答会出现在这里；它留下的尝试和读法，右侧「这里」会陆续出现。可以先离开，回来再看。</div>
+          <div class="cognos-message-content">${escapeHtml(state.pending.who || 'Claude Code')} 进来了，在接着做。做完的回答会出现在这里；它留下的尝试和读法，右侧「这里」会陆续出现。可以先离开，回来再看。</div>
         </div>
       `;
     }
     return '';
   }
 
-  function startPending(since) {
+  function startPending(since, who = null) {
     stopPending();
-    state.pending = { since, timer: window.setInterval(pollPending, PENDING_POLL_MS) };
+    state.pending = { since, who, timer: window.setInterval(pollPending, PENDING_POLL_MS) };
   }
 
   function stopPending() {
@@ -404,6 +404,15 @@
     div.textContent = str;
     return div.innerHTML;
   }
+
+  // 侧栏里顶了一下、押的那位被叫回来时，对话这边也开始等它的回答
+  window.CognosCreationDetail = {
+    waitForAgent(who) {
+      if (state.pending) return;
+      startPending(Math.floor(Date.now() / 1000) - 5, who || null);
+      renderMessages();
+    },
+  };
 
   // Initialize when DOM is ready
   if (document.readyState === 'loading') {

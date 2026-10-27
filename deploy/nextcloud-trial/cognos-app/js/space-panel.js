@@ -1,5 +1,7 @@
 // 侧栏「这里」：一片空间的入口。和 Hermes 被叫进来时拿到的是同一份内容。
 // 设计见项目文件 空间入口/第一片空间-实现说明.md 第五节。
+// 位置就是立场：最上面是这里押着的（谁押着、管着什么、被什么顶了、怎么面对的），
+// 顶一下会把押的那位叫回来（见 PushBackService）。框架审视/会不会全错-2026-10-27.md 第十一节。
 (function() {
   'use strict';
 
@@ -11,6 +13,7 @@
     material: '材料',
   };
   const STATUS_LABELS = { said: '说过', confirmed: '确认', rejected: '被否', withdrawn: '撤回' };
+  const ANSWER_ACTS = ['站住', '碎了', '重新切'];
 
   const panel = {
     creationId: null,
@@ -18,6 +21,8 @@
     root: null,
     body: null,
     collapsed: false,
+    // 顶了一下以后，押的那位叫没叫回来
+    notice: null,
   };
 
   function init(creationId) {
@@ -81,6 +86,8 @@
         <p class="space-note">上次是 ${formatDate(e.since.last_seen)}。多了 ${e.since.traces.length} 条发生、${e.since.readings.length} 条读法，下面标「新」的就是。</p>
       `, 'space-section-since'));
     }
+
+    parts.push(section('押着的', stanceHtml(e, newIds), 'space-section-stance'));
 
     parts.push(section('意图', list([...e.intents, ...e.intents_closed], t => traceItem(t, newIds)), '', '这里还没有写下意图。'));
 
@@ -182,6 +189,79 @@
     `;
   }
 
+  function stanceHtml(e, newIds) {
+    const premises = [...(e.held || []), ...(e.held_elsewhere || [])];
+    const notice = panel.notice ? `<p class="space-notice">${escapeHtml(panel.notice)}</p>` : '';
+    const items = premises.length
+      ? `<ul class="space-list">${premises.map(p => premiseItem(p, e.subject, newIds)).join('')}</ul>`
+      : '<p class="space-note">这里还没有谁押上什么。押着的东西才能被顶回来。</p>';
+    const fallen = (e.fallen || []).length ? `
+      <details class="space-fallen">
+        <summary>已经不押了的 ${e.fallen.length} 条</summary>
+        <ul class="space-list">${e.fallen.map(p => `
+          <li class="space-item space-item-closed">
+            <div class="space-item-head">${sourceTag(p)}<span class="space-item-id">#${p.id}</span>
+              <span class="space-status space-status-withdrawn">${p.recut_to ? `重新切成 #${p.recut_to}` : '不押了'}</span></div>
+            <div class="space-item-content">${escapeHtml(p.content)}</div>
+          </li>`).join('')}</ul>
+      </details>` : '';
+    return notice + items + fallen + premiseForm();
+  }
+
+  function premiseItem(p, me, newIds) {
+    const mine = p.holder === me;
+    const hits = (p.hits || []).map(h => hitItem(h, p, mine, newIds)).join('');
+    const meta = [];
+    if (p.governs) meta.push(`管着：${escapeHtml(p.governs)}`);
+    if (p.recut_from) meta.push(`从 #${p.recut_from} 重新切出来`);
+    return `
+      <li class="space-item space-premise ${p.open_hits ? 'space-premise-hit' : ''}" data-trace-id="${p.id}">
+        <div class="space-item-head">
+          ${newIds.has(p.id) ? '<span class="space-new">新</span>' : ''}
+          <span class="space-holder">${mine ? '你押着' : `${escapeHtml(p.holder)} 押着`}</span>
+          ${sourceTag(p)}
+          <span class="space-item-id">#${p.id}</span>
+          ${p.open_hits ? `<span class="space-status space-status-rejected">被顶了 ${p.open_hits} 下，还没面对</span>` : ''}
+        </div>
+        <div class="space-item-content">${escapeHtml(p.content)}</div>
+        ${meta.length ? `<div class="space-item-meta">${meta.join(' · ')}</div>` : ''}
+        ${hits ? `<ul class="space-hits">${hits}</ul>` : ''}
+        <div class="space-item-actions">
+          <button type="button" class="space-link-btn" data-action="hit">顶一下</button>
+        </div>
+      </li>
+    `;
+  }
+
+  function hitItem(h, p, mine, newIds) {
+    const answer = h.answer ? `
+      <div class="space-answer"><strong>${escapeHtml(h.answer.act)}</strong>（${escapeHtml(p.holder)}）${escapeHtml(h.answer.content)}</div>`
+      : `<div class="space-item-meta space-missing">还没面对</div>`;
+    const face = !h.answer && mine && p.standing
+      ? '<button type="button" class="space-link-btn" data-action="answer">面对这一下</button>' : '';
+    return `
+      <li class="space-hit" data-trace-id="${h.id}">
+        <div class="space-item-head">
+          ${newIds.has(h.id) ? '<span class="space-new">新</span>' : ''}
+          <span class="space-hit-label">被顶</span>${sourceTag(h)}<span class="space-item-id">#${h.id}</span>
+        </div>
+        <div class="space-item-content">${escapeHtml(h.content)}</div>
+        ${answer}
+        ${face}
+      </li>
+    `;
+  }
+
+  function premiseForm() {
+    return `
+      <form class="space-add-form space-premise-form" id="space-premise-form">
+        <textarea name="content" rows="2" placeholder="我押一条：你凭着在想、在做的那条前提" required></textarea>
+        <input type="text" name="governs" placeholder="它管着什么（哪段代码、哪个做法，可不填）">
+        <button type="submit" class="space-submit-btn">押上</button>
+      </form>
+    `;
+  }
+
   function addForm(prefill = '') {
     return `
       <form class="space-add-form" id="space-add-form">
@@ -201,8 +281,12 @@
     `;
   }
 
-  async function post(body) {
-    const response = await fetch(`/index.php/apps/cognos/creations/${panel.creationId}/space/traces`, {
+  function post(body) {
+    return postTo('/space/traces', body);
+  }
+
+  async function postTo(path, body) {
+    const response = await fetch(`/index.php/apps/cognos/creations/${panel.creationId}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'requesttoken': OC.requestToken },
       body: JSON.stringify(body),
@@ -225,6 +309,36 @@
     if (action === 'confirm') {
       await correct(refId, 'confirmed', '确认');
       return;
+    }
+    if (action === 'hit') {
+      if (item.querySelector(':scope > .space-hit-form')) return;
+      item.insertAdjacentHTML('beforeend', `
+        <form class="space-add-form space-hit-form" data-ref-id="${refId}">
+          <textarea name="content" rows="2" placeholder="是什么把它顶回来的：事实、矛盾、反例、现实的结果" required></textarea>
+          <div class="space-add-row">
+            <select name="source" aria-label="这一下从哪来">
+              <option value="原">我说的</option>
+              <option value="世">现实碰回来的</option>
+            </select>
+            <button type="submit" class="space-submit-btn">顶</button>
+          </div>
+        </form>
+      `);
+      item.querySelector(':scope > .space-hit-form textarea')?.focus();
+      return;
+    }
+    if (action === 'answer') {
+      if (item.querySelector('.space-answer-form')) return;
+      item.insertAdjacentHTML('beforeend', `
+        <form class="space-add-form space-answer-form" data-hit-id="${refId}">
+          <select name="act" aria-label="怎么面对">${ANSWER_ACTS.map(a => `<option value="${a}">${a}</option>`).join('')}</select>
+          <textarea name="content" rows="2" placeholder="凭什么站得住 / 碎在哪 / 为什么这样切；这一下之后什么变了" required></textarea>
+          <textarea name="new_premise" rows="2" class="space-recut-only" placeholder="新的前提"></textarea>
+          <input type="text" name="governs" class="space-recut-only" placeholder="新前提管着什么（不填就沿用）">
+          <button type="submit" class="space-submit-btn">留下</button>
+        </form>
+      `);
+      item.querySelector('.space-answer-form textarea')?.focus();
     }
     if (action === 'reject') {
       if (item.querySelector('.space-reject-form')) return;
@@ -250,6 +364,59 @@
 
   async function handleSubmit(event) {
     const form = event.target;
+    if (form.classList.contains('space-hit-form')) {
+      event.preventDefault();
+      const data = new FormData(form);
+      const content = String(data.get('content') || '').trim();
+      if (!content) return;
+      try {
+        const result = await post({ kind: 'hit', source: data.get('source') || '原', ref_id: parseInt(form.dataset.refId, 10), content });
+        panel.notice = result.pushback?.message || null;
+        if (result.pushback?.called) {
+          // 对话那边开始等押的那位把回答发回来
+          window.CognosCreationDetail?.waitForAgent(result.pushback.holder);
+        }
+        await reload();
+      } catch (error) {
+        console.error('Hit error:', error);
+        window.alert('没顶上：' + error.message);
+      }
+      return;
+    }
+    if (form.classList.contains('space-answer-form')) {
+      event.preventDefault();
+      const data = new FormData(form);
+      const body = {
+        act: data.get('act'),
+        content: String(data.get('content') || '').trim(),
+        new_premise: String(data.get('new_premise') || '').trim() || null,
+        governs: String(data.get('governs') || '').trim() || null,
+      };
+      if (!body.content) return;
+      try {
+        await postTo(`/space/hits/${parseInt(form.dataset.hitId, 10)}/answer`, body);
+        panel.notice = null;
+        await reload();
+      } catch (error) {
+        console.error('Answer error:', error);
+        window.alert('没留下：' + error.message);
+      }
+      return;
+    }
+    if (form.id === 'space-premise-form') {
+      event.preventDefault();
+      const data = new FormData(form);
+      const content = String(data.get('content') || '').trim();
+      if (!content) return;
+      try {
+        await post({ kind: 'premise', source: '原', content, governs: String(data.get('governs') || '').trim() || null });
+        await reload();
+      } catch (error) {
+        console.error('Premise error:', error);
+        window.alert('没押上：' + error.message);
+      }
+      return;
+    }
     if (form.classList.contains('space-reject-form')) {
       event.preventDefault();
       const reason = form.querySelector('input[name="reason"]').value.trim();
