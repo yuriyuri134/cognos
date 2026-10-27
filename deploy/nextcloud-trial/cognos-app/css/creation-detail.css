@@ -993,6 +993,13 @@
   opacity: 1;
 }
 
+/* 没人回的那句要一眼看得到，不能等鼠标移上去才出现 */
+.space-keep-btn.recall-btn {
+  opacity: 1;
+  color: var(--color-primary-element);
+  font-weight: 600;
+}
+
 @media (max-width: 1100px) {
   .cognos-chat-app,
   .cognos-chat-app.space-panel-collapsed {
