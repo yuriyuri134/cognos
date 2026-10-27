@@ -216,13 +216,14 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
     return out["result"]
 
 
-def post_back(space_type: str, space_id: str, subject: str, content: str) -> None:
+def post_back(space_type: str, space_id: str, subject: str, content: str, hit_id=None) -> None:
     """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。"""
+    # 被叫回来面对一下顶的，把 hit_id 带回去：Cognos 看它面对了没有，没面对就记一条 unanswered
     url = (COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/spaces/"
            + urllib.parse.quote(space_type, safe="") + "/" + urllib.parse.quote(space_id, safe="") + "/messages")
     token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(url, method="POST", data=json.dumps(
-        {"content": content, "subject": subject}, ensure_ascii=False).encode("utf-8"), headers={
+        {"content": content, "subject": subject, "hit_id": hit_id}, ensure_ascii=False).encode("utf-8"), headers={
         "Authorization": "Basic " + token,
         "OCS-APIRequest": "true",
         "Accept": "application/json",
@@ -254,7 +255,7 @@ def work(job: dict) -> None:
         # 先放开这片空间：回答发回去时，排着的下一下顶会接着叫进来
         with BUSY_LOCK:
             BUSY.discard(key)
-        post_back(space_type, space_id, subject, content)
+        post_back(space_type, space_id, subject, content, job.get("hit_id"))
     except (urllib.error.URLError, OSError) as error:
         sys.stderr.write(f"[claude-bridge] 回答发不回 Cognos：{error}\n")
     finally:

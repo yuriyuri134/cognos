@@ -16,6 +16,11 @@ use Psr\Log\LoggerInterface;
  *
  * 现在叫得回来的只有经本机桥进来的那几位（Claude Code，和在 Cognos 自己那片空间里替 Cognos 站着的那位）。
  * Hermes 和交互对象押着的，被顶了不另叫，排在它下次进来时入口的最前面。
+ *
+ * 分量不在入口怎么排（那还是给模型读的字），也不只在叫回来（叫回来的话也还是字）：
+ * 在叫回来以后，面对没面对、怎么面对，都成了别人看得见、能再顶的发生（#77 顶了以后这么切的）。
+ * - 叫回来了、做完走了却没 answer_hit：afterReturn 记一条 unanswered（〔世〕），躲开的留着。
+ * - 站住了：别人可以顶这个站住（hit 指向那条 answer），算又顶了一下那条前提，押的那位还会被叫回来。
  */
 final class PushBackService {
     /** 押着前提、被顶到时能经本机桥叫回来的主体 */
@@ -38,7 +43,8 @@ final class PushBackService {
      * @return array{called: bool, holder: ?string, message: string}
      */
     public function afterHit(string $spaceType, string $spaceId, string $uid, array $hit): array {
-        $premise = $this->spaces->premiseState($spaceType, $spaceId, (int)$hit['ref_id']);
+        $premiseId = $this->spaces->premiseIdOfHit($spaceType, $spaceId, $hit);
+        $premise = $premiseId === null ? null : $this->spaces->premiseState($spaceType, $spaceId, $premiseId);
         if ($premise === null) {
             return $this->result(false, null, '顶的那条不是押着的前提。');
         }
@@ -66,7 +72,8 @@ final class PushBackService {
             $hitId = array_shift($queue);
             $this->saveQueue($spaceType, $spaceId, $queue);
             $hit = $this->spaces->getTrace($spaceType, $spaceId, $hitId);
-            $premise = $hit === null ? null : $this->spaces->premiseState($spaceType, $spaceId, (int)$hit['ref_id']);
+            $premiseId = $hit === null ? null : $this->spaces->premiseIdOfHit($spaceType, $spaceId, $hit);
+            $premise = $premiseId === null ? null : $this->spaces->premiseState($spaceType, $spaceId, $premiseId);
             if ($premise === null || !$premise['standing']) {
                 continue;
             }
@@ -79,6 +86,35 @@ final class PushBackService {
         }
     }
 
+    /**
+     * 被叫回来面对某一下的那位做完了、回答发回来时：它面对了没有。
+     * 没面对，就记一条 unanswered 指向那一下——不是谁的读法，是现实碰回来的（〔世〕）。
+     * 不自动再叫第二次（不做循环）；那一下还开着，下次谁再顶、或它下次进来，都看得见它躲过几次。
+     */
+    public function afterReturn(string $spaceType, string $spaceId, string $subject, int $hitId): ?array {
+        $hit = $this->spaces->getTrace($spaceType, $spaceId, $hitId);
+        if ($hit === null || $hit['kind'] !== 'hit') {
+            return null;
+        }
+        $premiseId = $this->spaces->premiseIdOfHit($spaceType, $spaceId, $hit);
+        $premise = $premiseId === null ? null : $this->spaces->premiseState($spaceType, $spaceId, $premiseId);
+        if ($premise === null || $premise['holder'] !== $subject || !$premise['standing']) {
+            return null;
+        }
+        $open = array_values(array_filter($premise['hits'], static fn(array $h): bool => $h['id'] === $hitId && $h['answer'] === null));
+        if ($open === []) {
+            return null;
+        }
+        return $this->spaces->addTrace($spaceType, $spaceId, [
+            'kind' => 'unanswered',
+            'source' => '世',
+            'author' => '叫回来的记录',
+            'content' => sprintf('%s 被叫回来面对 #%d（顶的是它押着的 #%d），做完走了，没有面对。这是第 %d 次。', $subject, $hitId, $premise['id'], $open[0]['evaded'] + 1),
+            'ref_id' => $hitId,
+            'said_at' => time(),
+        ]);
+    }
+
     private function call(string $spaceType, string $spaceId, string $uid, array $premise, array $hit): array {
         $holder = $premise['holder'];
         $space = $this->entries->resolve($spaceType, $spaceId, $uid);
@@ -89,13 +125,17 @@ final class PushBackService {
             return $this->result(false, $holder, sprintf('本机的桥没配置，叫不回 %s；这一下排在它下次进来时入口的最前面。', $holder));
         }
         $hitter = $hit['source'] === '世' ? '现实（' . $hit['author'] . ' 记下的）' : $hit['author'];
+        $against = (int)$hit['ref_id'] !== (int)$premise['id'] ? sprintf('，顶的是你对它的那次站住 #%d', $hit['ref_id']) : '';
+        $evaded = $premise['evaded'] > 0 ? sprintf("\n\n（你押着的这条，以前被叫回来过 %d 次，做完走了没面对，那几次都记着。）", $premise['evaded']) : '';
         $message = sprintf(
-            "你押着的 #%d「%s」被 %s 顶了（#%d）：\n\n%s\n\n先面对这一下，再做别的：用 answer_hit（hit_id=%d）留下你怎么面对。站住，就写清凭什么还站得住；碎了，就写清碎在哪；重新切，就写出新的前提%s。不要只改说法：要说清这一下之后，什么变了。",
+            "你押着的 #%d「%s」被 %s 顶了（#%d%s）：\n\n%s%s\n\n先面对这一下，再做别的：用 answer_hit（hit_id=%d）留下你怎么面对。站住，就写清凭什么还站得住；碎了，就写清碎在哪；重新切，就写出新的前提%s。不要只改说法：要说清这一下之后，什么变了。做完没面对，也会被记下来。",
             $premise['id'],
             $premise['content'],
             $hitter,
             $hit['id'],
+            $against,
             $hit['content'],
+            $evaded,
             $hit['id'],
             $premise['governs'] !== null ? '，并去改它管着的东西（' . $premise['governs'] . '）' : '',
         );

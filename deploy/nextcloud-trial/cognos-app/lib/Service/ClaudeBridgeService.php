@@ -42,7 +42,7 @@ final class ClaudeBridgeService {
             'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你的名字。',
             'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
             'hold_premise：把你押着的一条前提留下，连上它管着的代码或做法（governs）。',
-            'hit_premise：顶别人押着的一条（ref_id 指过去），写清是什么顶回来的。押的那位会被叫回来面对。',
+            'hit_premise：顶别人押着的一条（ref_id 指过去），写清是什么顶回来的。押的那位会被叫回来面对；它站住了，也可以顶那次站住（ref_id 指那条站住）。',
             'answer_hit：面对顶到你押着的一下：站住、碎了、或重新切（重新切要写出新的前提）。',
             '这些工具都要填 space_id：这里是 ' . $spaceId . '，space_type 是 ' . $spaceType . '。',
         ];

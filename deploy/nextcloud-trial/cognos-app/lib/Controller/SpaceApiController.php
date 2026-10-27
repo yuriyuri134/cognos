@@ -180,12 +180,17 @@ final class SpaceApiController extends OCSController {
         if ($uid === null || $spaceType !== 'creation' || $this->creations->get((int)$spaceId, $uid) === null) {
             return new DataResponse(['message' => 'Space not found'], 404);
         }
-        $content = trim((string)($this->body()['content'] ?? ''));
+        $body = $this->body();
+        $content = trim((string)($body['content'] ?? ''));
         if ($content === '') {
             return new DataResponse(['message' => 'content is required'], 422);
         }
         $message = $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content);
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
+        // 是被叫回来面对一下顶的：做完了，面对没面对，记下来
+        if (isset($body['hit_id']) && (int)$body['hit_id'] > 0) {
+            $this->pushBack->afterReturn($spaceType, $spaceId, $this->subject((string)($body['subject'] ?? '')), (int)$body['hit_id']);
+        }
         $this->pushBack->drain($spaceType, $spaceId, $uid);
         return new DataResponse(['message' => $message], 201);
     }
