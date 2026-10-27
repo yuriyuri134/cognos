@@ -159,16 +159,20 @@ def body_state(base: str) -> dict:
     return {"body": head, "pending": pending, "behind": behind}
 
 
-def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | None, dict | None]:
+def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | None, dict | None, list[str]]:
     """有改动就提交到那条分支（不合、不推），对改过的文件跑检查；没改就把分支和副本收掉。
 
-    返回（接在回答后面的一句，下一次从哪条分支接着，检查结果）。
+    返回（接在回答后面的一句，下一次从哪条分支接着，检查结果，这条分支相对起点改了的文件）。
+    改了的文件带回 Cognos：重新切了却没碰 governs 里的文件，会被记下来。
     """
     path, branch, base = wt["path"], wt["branch"], wt["base"]
     if git("status", "--porcelain", cwd=path):
         git("add", "-A", cwd=path)
         message = f"{subject} 在 Cognos 自己的空间里改的\n\n{summary[:1500]}"
         git("-c", "user.name=Cognos", "-c", "user.email=cognos@localhost", "commit", "-q", "-m", message, cwd=path)
+    # 它自己提交过（比如合了别的分支）也算改了，不能只看工作区干不干净
+    changed = [f for f in git("diff", "--name-only", f"{base}...HEAD", cwd=path).splitlines() if f.strip()]
+    if changed:
         commit = git("rev-parse", "--short", "HEAD", cwd=path)
         try:
             checks = check_changes(path, base)
@@ -177,12 +181,12 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
         git("worktree", "remove", "--force", str(path))
         text = (f"\n\n---\n改动提交在本机分支 `{branch}`（{commit}），从 `{base}` 切出来，没有合、也没有推。"
                 f"由你来看、来合：`git diff {base}...{branch}`。\n\n检查（{'过了' if checks['ok'] else '没过'}）：\n{checks['text']}")
-        return text, branch, checks
+        return text, branch, checks, changed
     git("worktree", "remove", "--force", str(path))
     git("branch", "-D", branch)
     # 没改：下一次还从这一次的起点接着
     keep = base if base.startswith("cognos-self/") else None
-    return "\n\n---\n这次没有改代码。", keep, None
+    return "\n\n---\n这次没有改代码。", keep, None, []
 
 
 def check_changes(path: Path, base: str) -> dict:
@@ -365,16 +369,21 @@ def answer_from(stdout: str, stderr: str = "") -> str:
     return answer
 
 
-def post_back(space_type: str, space_id: str, subject: str, content: str, reply_to=None, hit_id=None, extra: dict | None = None) -> None:
+def post_back(space_type: str, space_id: str, subject: str, content: str, reply_to=None, hit_id=None, extra: dict | None = None, changed_files=None) -> None:
     """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。
 
     reply_to：回的是对话里哪一句；被顶叫回来的是 0（不回任何一句）。
+    hit_id：被叫回来面对一下顶的，带回去：Cognos 看它面对了没有，没面对就记一条 unanswered。
+    changed_files：在仓库副本里做的，这次改了哪些文件：重新切了却没碰 governs 里的文件，记一条 unchanged。
     """
+    body = {"content": content, "subject": subject, "reply_to": reply_to, "hit_id": hit_id, **(extra or {})}
+    if changed_files is not None:
+        body["changed_files"] = changed_files
     url = (COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/spaces/"
            + urllib.parse.quote(space_type, safe="") + "/" + urllib.parse.quote(space_id, safe="") + "/messages")
     token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(url, method="POST", data=json.dumps(
-        {"content": content, "subject": subject, "reply_to": reply_to, "hit_id": hit_id, **(extra or {})}, ensure_ascii=False).encode("utf-8"), headers={
+        body, ensure_ascii=False).encode("utf-8"), headers={
         "Authorization": "Basic " + token,
         "OCS-APIRequest": "true",
         "Accept": "application/json",
@@ -392,6 +401,7 @@ def work(job: dict) -> None:
     back: dict = {}
     if job.get("open_id"):
         back = {"open_id": job["open_id"], "run_started": job.get("run_started"), "branch": job.get("base_branch")}
+    changed = None
     try:
         try:
             if job.get("repo"):
@@ -405,7 +415,7 @@ def work(job: dict) -> None:
             content = f"（{subject} 这次没做完：{error}）"
         if wt is not None:
             try:
-                tail, branch, checks = close_worktree(wt, subject, content)
+                tail, branch, checks, changed = close_worktree(wt, subject, content)
                 content += tail
                 if back:
                     back["branch"] = branch
@@ -415,7 +425,7 @@ def work(job: dict) -> None:
         # 先放开这片空间：回答发回去时，排着的下一下顶会接着叫进来
         with BUSY_LOCK:
             BUSY.discard(key)
-        post_back(space_type, space_id, subject, content, job.get("reply_to"), job.get("hit_id"), back)
+        post_back(space_type, space_id, subject, content, job.get("reply_to"), job.get("hit_id"), back, changed)
     except (urllib.error.URLError, OSError) as error:
         sys.stderr.write(f"[claude-bridge] 回答发不回 Cognos：{error}\n")
     finally:

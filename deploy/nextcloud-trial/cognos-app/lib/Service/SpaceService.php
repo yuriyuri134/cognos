@@ -18,6 +18,10 @@ use OCP\IDBConnection;
  *   ref_id 指向旧前提时，它是那一条被重新切出来的。
  * - hit：顶到某条前提（ref_id 指过去）。谁都能顶：交互对象的原话、现实碰回来的、别的 agent。
  * - answer：押的那位面对某一下（ref_id 指向 hit），act 是 站住 / 碎了 / 重新切。
+ *   「站住」不是到头了：hit 的 ref_id 也可以指向一条站住的 answer，那就是顶这个站住，
+ *   算作又顶了一下它站住的那条前提，押的那位还会被叫回来。
+ * - unanswered：押的那位被叫回来面对某一下（ref_id 指向 hit），做完走了却没面对。
+ *   这不是谁的读法，是现实碰回来的（source=世），由 PushBackService 记下；躲开的留着。
  * 顶完要找回押的那位，见 PushBackService。
  *
  * 没完的、停在哪、检查也是发生（让思考自己接着走，见 ContinuationService）：
@@ -71,8 +75,18 @@ final class SpaceService {
         if ($kind === 'premise' && $refId !== null && ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'premise') {
             throw new \InvalidArgumentException('a re-cut premise needs ref_id pointing to the premise it replaces');
         }
-        if ($kind === 'hit' && ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'premise')) {
-            throw new \InvalidArgumentException('a hit needs ref_id pointing to a premise in this space');
+        if ($kind === 'hit') {
+            $target = $refId === null ? null : $this->getTrace($spaceType, $spaceId, $refId);
+            $ok = $target !== null && ($target['kind'] === 'premise' || ($target['kind'] === 'answer' && $target['act'] === '站住'));
+            if (!$ok) {
+                throw new \InvalidArgumentException('a hit needs ref_id pointing to a premise, or to an answer that stood (站住), in this space');
+            }
+        }
+        if ($kind === 'unanswered' && ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'hit')) {
+            throw new \InvalidArgumentException('unanswered needs ref_id pointing to a hit in this space');
+        }
+        if ($kind === 'unchanged' && ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'premise')) {
+            throw new \InvalidArgumentException('unchanged needs ref_id pointing to the re-cut premise in this space');
         }
         if ($kind === 'answer') {
             if ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'hit') {
@@ -190,7 +204,8 @@ final class SpaceService {
         if ($hit === null || $hit['kind'] !== 'hit') {
             throw new \InvalidArgumentException('hit not found in this space');
         }
-        $premise = $this->premiseState($spaceType, $spaceId, (int)$hit['ref_id']);
+        $premiseId = $this->premiseIdOfHit($spaceType, $spaceId, $hit);
+        $premise = $premiseId === null ? null : $this->premiseState($spaceType, $spaceId, $premiseId);
         if ($premise === null) {
             throw new \InvalidArgumentException('the premise this hit points to is gone');
         }
@@ -270,6 +285,21 @@ final class SpaceService {
         $premises = [];
         $hits = [];
         $answers = [];
+        $answerById = [];
+        $hitById = [];
+        $evaded = [];
+        $unchanged = [];
+        foreach ($traces as $t) {
+            if ($t['kind'] === 'answer') {
+                $answerById[$t['id']] = $t;
+            } elseif ($t['kind'] === 'hit') {
+                $hitById[$t['id']] = $t;
+            } elseif ($t['kind'] === 'unanswered' && $t['ref_id'] !== null) {
+                $evaded[$t['ref_id']][] = $t;
+            } elseif ($t['kind'] === 'unchanged' && $t['ref_id'] !== null) {
+                $unchanged[$t['ref_id']] = $t;
+            }
+        }
         foreach ($traces as $t) {
             if ($t['kind'] === 'premise') {
                 $t['holder'] = $t['author'];
@@ -278,6 +308,8 @@ final class SpaceService {
                 $t['recut_to'] = null;
                 $t['hits'] = [];
                 $t['open_hits'] = 0;
+                // 重新切出来，governs 写到的文件一处都没改：只改了说法（〔世〕，见 PushBackService::afterReturn）
+                $t['unchanged'] = $unchanged[$t['id']] ?? null;
                 $premises[$t['id']] = $t;
             } elseif ($t['kind'] === 'hit') {
                 $hits[] = $t;
@@ -292,15 +324,26 @@ final class SpaceService {
             }
         }
         foreach ($hits as $h) {
-            if (!isset($premises[$h['ref_id']])) {
+            $pid = $this->resolveHitTarget($h, $answerById, $hitById);
+            if ($pid === null || !isset($premises[$pid])) {
                 continue;
             }
+            $h['premise_id'] = $pid;
+            // 顶的是一次「站住」，不是前提本身
+            $h['against_answer'] = $pid !== $h['ref_id'] ? $h['ref_id'] : null;
             $h['answer'] = $answers[$h['id']] ?? null;
-            $premises[$h['ref_id']]['hits'][] = $h;
-            if ($h['answer'] === null && $premises[$h['ref_id']]['standing']) {
-                $premises[$h['ref_id']]['open_hits']++;
+            // 叫回来过、做完走了却没面对的次数
+            $h['evaded'] = count($evaded[$h['id']] ?? []);
+            $premises[$pid]['hits'][] = $h;
+            $premises[$pid]['evaded'] = ($premises[$pid]['evaded'] ?? 0) + $h['evaded'];
+            if ($h['answer'] === null && $premises[$pid]['standing']) {
+                $premises[$pid]['open_hits']++;
             }
         }
+        foreach ($premises as &$p) {
+            $p['evaded'] ??= 0;
+        }
+        unset($p);
         return array_values($premises);
     }
 
@@ -354,6 +397,94 @@ final class SpaceService {
             if ($o['id'] === $id) {
                 return $o;
             }
+        }
+        return null;
+    }
+
+    /**
+     * 押的那位面对 #hitId 时重新切出来的那条新前提；没重新切就是 null。
+     *
+     * @param ?list<array> $traces
+     */
+    public function recutOf(string $spaceType, string $spaceId, int $hitId, string $author, ?array $traces = null): ?array {
+        $traces ??= $this->listTraces($spaceType, $spaceId);
+        $answer = null;
+        foreach ($traces as $t) {
+            if ($t['kind'] === 'answer' && (int)$t['ref_id'] === $hitId && $t['author'] === $author) {
+                $answer = $t; // 同一下后来的回答算数
+            }
+        }
+        if ($answer === null || $answer['act'] !== '重新切') {
+            return null;
+        }
+        foreach ($traces as $t) {
+            // answerHit 在同一个事务里先写 answer、再写新前提
+            if ($t['kind'] === 'premise' && $t['id'] > $answer['id'] && $t['author'] === $author && $t['ref_id'] !== null) {
+                return $t;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * governs 里写到的文件（lib/Service/X.php::method 取 lib/Service/X.php）。
+     * 只写了做法、没写文件的，返回空：那种查不了改没改。
+     *
+     * @return list<string>
+     */
+    public static function governedFiles(?string $governs): array {
+        if ($governs === null) {
+            return [];
+        }
+        preg_match_all('#[A-Za-z0-9_\-./]+\.(?:php|py|js|ts|vue|json|css|md|xml|sh)\b#u', $governs, $m);
+        return array_values(array_unique(array_map(static fn(string $f): string => ltrim($f, './'), $m[0])));
+    }
+
+    /**
+     * governs 写到的文件里，这次改了哪几个。$changed 是仓库里改了的路径（相对仓库根），
+     * governs 里多半写的是相对应用目录的路径，所以按结尾对。
+     *
+     * @param list<string> $changed
+     * @return array{governed: list<string>, touched: list<string>}
+     */
+    public static function touchedGoverned(?string $governs, array $changed): array {
+        $governed = self::governedFiles($governs);
+        $touched = [];
+        foreach ($governed as $g) {
+            foreach ($changed as $c) {
+                $c = str_replace('\\', '/', (string)$c);
+                if ($c === $g || str_ends_with($c, '/' . $g)) {
+                    $touched[] = $g;
+                    break;
+                }
+            }
+        }
+        return ['governed' => $governed, 'touched' => $touched];
+    }
+
+    /** 一下顶最终顶到的是哪条前提：直接指前提，或指一次站住（顺着它面对的那一下找回去）。 */
+    public function premiseIdOfHit(string $spaceType, string $spaceId, array $hit): ?int {
+        $answerById = [];
+        $hitById = [];
+        foreach ($this->listTraces($spaceType, $spaceId) as $t) {
+            if ($t['kind'] === 'answer') {
+                $answerById[$t['id']] = $t;
+            } elseif ($t['kind'] === 'hit') {
+                $hitById[$t['id']] = $t;
+            }
+        }
+        return $this->resolveHitTarget($hit, $answerById, $hitById);
+    }
+
+    private function resolveHitTarget(array $hit, array $answerById, array $hitById): ?int {
+        $ref = $hit['ref_id'] === null ? null : (int)$hit['ref_id'];
+        // 顶站住 → 站住面对的那一下 → 那一下顶的；最多顺 16 层，防环
+        for ($depth = 0; $ref !== null && $depth < 16; $depth++) {
+            if (!isset($answerById[$ref])) {
+                return $ref;
+            }
+            $answeredHit = $hitById[$answerById[$ref]['ref_id']] ?? null;
+            $ref = $answeredHit === null || $answeredHit['ref_id'] === null ? null : (int)$answeredHit['ref_id'];
         }
         return null;
     }
