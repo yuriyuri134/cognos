@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace OCA\Cognos\Controller;
 
+use OCA\Cognos\Service\ClaudeBridgeService;
 use OCA\Cognos\Service\CreationSpaceService;
+use OCA\Cognos\Service\HermesAgentService;
 use OCA\Cognos\Service\PushBackService;
 use OCA\Cognos\Service\SpaceEntryService;
 use OCA\Cognos\Service\SpaceService;
@@ -30,6 +32,7 @@ final class SpaceApiController extends OCSController {
         private SpaceService $spaces,
         private SpaceEntryService $entries,
         private PushBackService $pushBack,
+        private HermesAgentService $hermes,
         private IConfig $config,
     ) {
         parent::__construct('cognos', $request);
@@ -180,14 +183,38 @@ final class SpaceApiController extends OCSController {
         if ($uid === null || $spaceType !== 'creation' || $this->creations->get((int)$spaceId, $uid) === null) {
             return new DataResponse(['message' => 'Space not found'], 404);
         }
-        $content = trim((string)($this->body()['content'] ?? ''));
+        $body = $this->body();
+        $content = trim((string)($body['content'] ?? ''));
         if ($content === '') {
             return new DataResponse(['message' => 'content is required'], 422);
         }
-        $message = $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content);
+        // 回的是对话里哪一句；被顶叫回来的回答是 0（不回任何一句）
+        $replyTo = isset($body['reply_to']) && $body['reply_to'] !== null ? (int)$body['reply_to'] : null;
+        $message = $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo);
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
-        $this->pushBack->drain($spaceType, $spaceId, $uid);
+        $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
+        $this->callNext($spaceType, $spaceId, $uid);
         return new DataResponse(['message' => $message], 201);
+    }
+
+    /** 这一位做完了：排着的下一件接着叫（一下顶，或者交互对象在它忙时说的一句）。 */
+    private function callNext(string $spaceType, string $spaceId, string $uid): void {
+        $messageId = $this->pushBack->drain($spaceType, $spaceId, $uid);
+        if ($messageId === null) {
+            return;
+        }
+        try {
+            $answer = $this->hermes->chatCreationFromMessage((int)$spaceId, $messageId);
+            if ($answer !== null) {
+                // 叫来的是 Hermes：回答当场就有
+                $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $answer, $messageId);
+            }
+        } catch (\Throwable $error) {
+            if ($error instanceof \RuntimeException && $error->getCode() === ClaudeBridgeService::BUSY) {
+                $this->pushBack->enqueueMessage($spaceType, $spaceId, $messageId, true);
+            }
+            // 别的原因叫不上：那句还在对话里、没人回，页面上能「再叫一次」
+        }
     }
 
     private function uid(): ?string {

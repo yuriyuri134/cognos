@@ -162,7 +162,7 @@
 
       renderCreation();
       renderMessages();
-      resumePendingIfWaiting(messagesData.pending);
+      resumePendingIfWaiting(messagesData.pending, messagesData.pending_who);
     } catch (error) {
       console.error('Load error:', error);
       elements.chatTitle.textContent = '加载失败';
@@ -205,11 +205,14 @@
   }
 
   function isUnanswered(index) {
-    // 你说的话后面紧跟着的不是回答（或是最后一条），而且现在没人在做
+    // 你说的话没人回，而且现在没人在做。回答记着它回的是哪一句（reply_to）；
+    // 被顶叫回来的回答记 0，不算回了谁；以前的回答没记（null），照旧按「紧跟着的就是回答」算
     const message = state.messages[index];
     if (message.role !== 'user' || state.pending || state.sending) return false;
+    if (state.messages.some(m => m.role !== 'user' && m.reply_to === message.id)) return false;
     const next = state.messages[index + 1];
-    return !next || next.role === 'user';
+    return !next || next.role === 'user' || next.reply_to === 0
+      || (next.reply_to !== null && next.reply_to !== undefined);
   }
 
   function createMessageBubble(message, unanswered = false) {
@@ -243,7 +246,7 @@
     if (state.pending) {
       return `
         <div class="cognos-message cognos-message-agent cognos-message-status">
-          <div class="cognos-message-content">${escapeHtml(state.pending.who || 'Claude Code')} 进来了，在接着做。做完的回答会出现在这里；它留下的尝试和读法，右侧「这里」会陆续出现。可以先离开，回来再看。</div>
+          <div class="cognos-message-content">${escapeHtml(state.pending.who || 'Claude Code')} 进来了，在接着做。${state.pending.queued ? '你刚说的那句排着，它做完这件就接着回你。' : ''}做完的回答会出现在这里；它留下的尝试和读法，右侧「这里」会陆续出现。可以先离开，回来再看。</div>
         </div>
       `;
     }
@@ -281,7 +284,14 @@
       window.CognosSpacePanel?.reload();
       if (answered || !data.pending) {
         state.messages = messages;
-        stopPending();
+        if (data.pending) {
+          // 一件做完，排着的下一件已经接着叫了：继续等
+          state.pending.since = Math.floor(Date.now() / 1000) - 5;
+          state.pending.who = data.pending_who || state.pending.who;
+          state.pending.queued = false;
+        } else {
+          stopPending();
+        }
         renderMessages();
       }
     } catch (error) {
@@ -289,11 +299,11 @@
     }
   }
 
-  function resumePendingIfWaiting(pending) {
+  function resumePendingIfWaiting(pending, who = null) {
     // 刷新页面以后：服务器说叫来的 agent 还在做，就接着等它
     if (!pending) return;
     const lastUser = [...state.messages].reverse().find(m => m.role === 'user');
-    startPending(lastUser ? lastUser.created_at : Math.floor(Date.now() / 1000));
+    startPending(lastUser ? lastUser.created_at : Math.floor(Date.now() / 1000), who);
     renderMessages();
   }
 
@@ -379,7 +389,13 @@
       state.messages.push(...(data.messages || []));
       state.notice = response.ok ? null : (data.message || `HTTP ${response.status}`);
       if (data.pending) {
-        startPending(Math.floor(Date.now() / 1000) - 5);
+        if (state.pending) {
+          // 已经有人在做（比如押的那位正被叫回来）：这句排着
+          state.pending.queued = !!data.queued;
+        } else {
+          startPending(Math.floor(Date.now() / 1000) - 5, data.who || null);
+          state.pending.queued = !!data.queued;
+        }
       }
       ok = response.ok || (data.messages || []).length > 0;
 
