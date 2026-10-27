@@ -45,6 +45,9 @@ final class HermesAgentService {
         private NotesService $notes,
         private SpaceService $spaces,
         private SpaceEntryService $entries,
+        private CreationSpaceService $creations,
+        private ClaudeBridgeService $bridge,
+        private PushBackService $pushBack,
         private IConfig $config,
         private LoggerInterface $logger,
     ) {
@@ -175,6 +178,42 @@ final class HermesAgentService {
             ],
             ['query'],
             [$this, 'toolSearchTraces']
+        );
+        $this->registerSpaceTool(
+            'hold_premise',
+            '押上一条你自己的前提：你凭它在想、在做的那一条，连上它管着的代码或做法。押着的东西能被顶回来，被顶到时你要面对它。',
+            [
+                'content' => ['type' => 'string', 'description' => '前提本身，一句话说清'],
+                'governs' => ['type' => 'string', 'description' => '它管着什么：哪段代码、哪个做法、哪个判断'],
+                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+            ],
+            ['content', 'confidence'],
+            [$this, 'toolHoldPremise']
+        );
+        $this->registerSpaceTool(
+            'hit_premise',
+            '顶这片空间里别人押着的一条前提（入口「这里别人押着的」里的 #id）：写清是什么把它顶回来的。押的那位会被叫回来面对。',
+            [
+                'ref_id' => ['type' => 'integer', 'description' => '被顶的那条前提的 #id'],
+                'content' => ['type' => 'string', 'description' => '顶回来的是什么：事实、矛盾、反例、现实的结果'],
+                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+            ],
+            ['ref_id', 'content', 'confidence'],
+            [$this, 'toolHitPremise']
+        );
+        $this->registerSpaceTool(
+            'answer_hit',
+            '面对顶到你押着的前提的一下：站住（写清凭什么）、碎了（写清碎在哪）、重新切（写出新的前提）。',
+            [
+                'hit_id' => ['type' => 'integer', 'description' => '那一下的 #id'],
+                'act' => ['type' => 'string', 'enum' => SpaceService::ANSWER_ACTS, 'description' => '站住 / 碎了 / 重新切'],
+                'content' => ['type' => 'string', 'description' => '你怎么面对的，这一下之后什么变了'],
+                'new_premise' => ['type' => 'string', 'description' => 'act=重新切 时，新的前提'],
+                'governs' => ['type' => 'string', 'description' => 'act=重新切 时新前提管着什么；不填就沿用旧的'],
+                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+            ],
+            ['hit_id', 'act', 'content', 'confidence'],
+            [$this, 'toolAnswerHit']
         );
     }
 
@@ -497,7 +536,10 @@ final class HermesAgentService {
     /**
      * @return string|null Hermes 的回答；叫的是 Claude Code 时返回 null，它在本机接着做，做完自己把回答发回这段对话
      */
-    public function chatCreation(int $creationId, string $message, array $context = []): ?string {
+    /**
+     * @param ?int $replyTo 这次回的是对话里哪一句（交互对象那句的 id），带给桥，回答发回来时记上
+     */
+    public function chatCreation(int $creationId, string $message, array $context = [], ?int $replyTo = null): ?string {
         $user = $this->users->getUser();
         if ($user === null) {
             throw new \RuntimeException('Authentication required');
@@ -529,22 +571,15 @@ final class HermesAgentService {
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
         if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
-            $subject = self::CLAUDE_CODE_PARTICIPANT;
+            // 在 Cognos 自己的空间里，被叫来的就是替 Cognos 站着的那位，它押着的是 Cognos 的架构
+            $subject = $this->bridge->subjectFor('creation', (string)$creationId);
             $entry = $this->entries->entry(
                 $space,
                 $subject,
                 ['caller' => $caller, 'message' => $message],
-                [
-                    'search_traces：在这片空间留下的发生里找。',
-                    'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你的名字。',
-                    'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
-                    '这三个工具都要填 space_id：这里是 ' . $creationId . '，space_type 是 creation。',
-                    '够不着的：笔记（这次没接给你）、交互对象电脑上工作目录以外的文件；Cognos 里别的空间这次也看不到。',
-                ],
+                $this->bridge->canDo('creation', (string)$creationId),
             );
-            $this->callClaudeBridge('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller);
-            // 页面刷新后靠它知道还有人在做；回答发回来时（SpaceApiController::addMessage）清掉
-            $this->config->setAppValue('cognos', 'agent_pending_creation_' . $creationId, (string)time());
+            $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller, ['reply_to' => $replyTo]);
             $this->spaces->markSeen('creation', (string)$creationId, $subject);
             return null;
         }
@@ -559,6 +594,7 @@ final class HermesAgentService {
                 'search_traces：在这片空间留下的发生里找。',
                 'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你的名字。',
                 'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
+                'hold_premise / hit_premise / answer_hit：押上一条前提、顶别人押着的、面对顶到你的。',
                 '够不着的：交互对象电脑上的文件、外部网页；Cognos 里别的空间这次也看不到。',
             ],
         );
@@ -579,6 +615,33 @@ final class HermesAgentService {
         $this->spaces->markSeen('creation', (string)$creationId, $subject);
 
         return $response['content'];
+    }
+
+    /**
+     * 用对话里已经存下的一句去叫（排着的那句轮到了）：上下文只到那一句为止。
+     *
+     * @return ?string 同 chatCreation
+     */
+    public function chatCreationFromMessage(int $creationId, int $messageId): ?string {
+        $user = $this->users->getUser();
+        if ($user === null) {
+            throw new \RuntimeException('Authentication required');
+        }
+        $context = $this->creations->getContext($creationId, $user->getUID());
+        $upTo = [];
+        $said = null;
+        foreach ($context['messages'] as $item) {
+            $upTo[] = $item;
+            if ($item['id'] === $messageId) {
+                $said = $item;
+                break;
+            }
+        }
+        if ($said === null || $said['role'] !== 'user') {
+            throw new \InvalidArgumentException('Message not found');
+        }
+        $context['messages'] = $upTo;
+        return $this->chatCreation($creationId, (string)$said['content'], $context, $messageId);
     }
 
     /**
@@ -644,6 +707,78 @@ final class HermesAgentService {
             max(1, min(50, (int)($args['limit'] ?? 20))),
         );
         return ['success' => true, 'data' => $hits, 'error' => null, 'metadata' => ['count' => count($hits)]];
+    }
+
+    /**
+     * Tool implementation: hold_premise（只在被叫进一片空间时可用）
+     */
+    private function toolHoldPremise(array $args): array {
+        if ($this->activeSpace === null) {
+            return ['success' => false, 'error' => 'hold_premise 只能在一片空间里用', 'data' => null];
+        }
+        try {
+            $trace = $this->spaces->addTrace($this->activeSpace['type'], $this->activeSpace['id'], [
+                'kind' => 'premise',
+                'source' => 'AI',
+                'author' => $this->activeSpace['author'],
+                'content' => (string)($args['content'] ?? ''),
+                'governs' => $args['governs'] ?? null,
+                'confidence' => isset($args['confidence']) ? (int)$args['confidence'] : null,
+            ]);
+            return ['success' => true, 'data' => $trace, 'error' => null];
+        } catch (\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage(), 'data' => null];
+        }
+    }
+
+    /**
+     * Tool implementation: hit_premise（只在被叫进一片空间时可用）。记下以后去找押的那位。
+     */
+    private function toolHitPremise(array $args): array {
+        if ($this->activeSpace === null) {
+            return ['success' => false, 'error' => 'hit_premise 只能在一片空间里用', 'data' => null];
+        }
+        $user = $this->users->getUser();
+        try {
+            $trace = $this->spaces->addTrace($this->activeSpace['type'], $this->activeSpace['id'], [
+                'kind' => 'hit',
+                'source' => 'AI',
+                'author' => $this->activeSpace['author'],
+                'content' => (string)($args['content'] ?? ''),
+                'ref_id' => isset($args['ref_id']) ? (int)$args['ref_id'] : null,
+                'confidence' => isset($args['confidence']) ? (int)$args['confidence'] : null,
+            ]);
+            $pushback = $user === null ? null : $this->pushBack->afterHit($this->activeSpace['type'], $this->activeSpace['id'], $user->getUID(), $trace);
+            return ['success' => true, 'data' => ['hit' => $trace, 'pushback' => $pushback], 'error' => null];
+        } catch (\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage(), 'data' => null];
+        }
+    }
+
+    /**
+     * Tool implementation: answer_hit（只在被叫进一片空间时可用）
+     */
+    private function toolAnswerHit(array $args): array {
+        if ($this->activeSpace === null) {
+            return ['success' => false, 'error' => 'answer_hit 只能在一片空间里用', 'data' => null];
+        }
+        try {
+            $result = $this->spaces->answerHit(
+                $this->activeSpace['type'],
+                $this->activeSpace['id'],
+                (int)($args['hit_id'] ?? 0),
+                'AI',
+                $this->activeSpace['author'],
+                (string)($args['act'] ?? ''),
+                (string)($args['content'] ?? ''),
+                isset($args['confidence']) ? (int)$args['confidence'] : null,
+                isset($args['new_premise']) ? (string)$args['new_premise'] : null,
+                isset($args['governs']) ? (string)$args['governs'] : null,
+            );
+            return ['success' => true, 'data' => $result, 'error' => null];
+        } catch (\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage(), 'data' => null];
+        }
     }
 
     /**
@@ -1000,51 +1135,6 @@ final class HermesAgentService {
             ],
             $rows,
         );
-    }
-
-    /**
-     * 请本机的 Claude Code 进来。桥收下就回 202，它在本机接着做，做完经 SpaceApiController::addMessage 把回答发回来。
-     * 它在空间里留东西走 MCP（同一套 OCS 接口）。
-     */
-    private function callClaudeBridge(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller): void {
-        $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
-        $token = $this->config->getAppValue('cognos', 'claude_bridge_token', '');
-        if ($token === '') {
-            throw new \RuntimeException('Claude Code 桥没有配置口令（occ config:app:set cognos claude_bridge_token）');
-        }
-
-        try {
-            $response = $this->http->newClient()->post($url, [
-                'headers' => [
-                    'Content-Type' => 'application/json',
-                    'Accept' => 'application/json',
-                    'X-Cognos-Bridge-Token' => $token,
-                ],
-                'body' => json_encode([
-                    'space_type' => $spaceType,
-                    'space_id' => $spaceId,
-                    'subject' => $subject,
-                    'system' => $system,
-                    'history' => $history,
-                    'message' => $message,
-                    'caller' => $caller,
-                ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
-                'timeout' => 30,
-                'http_errors' => false,
-                // 桥跑在本机（host.docker.internal），Nextcloud 默认不让连内网地址
-                'nextcloud' => ['allow_local_address' => true],
-            ]);
-        } catch (\Throwable $error) {
-            throw new \RuntimeException('连不上本机的 Claude Code 桥（' . $url . '）：桥可能没起来，在仓库目录跑 python tools\\cognos-space-mcp\\claude_bridge.py');
-        }
-
-        $status = $response->getStatusCode();
-        if ($status === 202) {
-            return;
-        }
-        $body = json_decode((string)$response->getBody(), true);
-        $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
-        throw new \RuntimeException('Claude Code 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'));
     }
 
     private function callHermes(string $sessionId, array $messages, ?string $model, ?string $participantId = null, array $tools = []): array {

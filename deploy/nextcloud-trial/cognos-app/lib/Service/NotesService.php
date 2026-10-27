@@ -73,6 +73,7 @@ class NotesService {
         $row = $q->executeQuery()->fetchAssociative();
         if (!$row) throw new \RuntimeException('Note not found');
         $note = $this->decode($row);
+        $note['read_only'] = $this->isImported($note);
         $note['outlinks'] = $this->links($noteId, true, $uid);
         $note['backlinks'] = $this->links($noteId, false, $uid);
         return $note;
@@ -129,16 +130,29 @@ class NotesService {
         return $note;
     }
 
+    /** 导入的原文是「发生」：可以读、可以围绕它展开，但不回写 */
+    public function isImported(array $note): bool {
+        return ($note['source']['source'] ?? null) === 'obsidian';
+    }
+
     public function updateNote(string $noteId, string $title, string $content): array {
         $uid = $this->userUid();
         $q = $this->db->getQueryBuilder();
-        $q->select('id', 'space_id', 'revision')->from('cognos_notes')
+        $q->select('*')->from('cognos_notes')
             ->where($q->expr()->eq('id', $q->createNamedParameter($noteId)))
             ->andWhere($q->expr()->eq('owner_uid', $q->createNamedParameter($uid)));
         $row = $q->executeQuery()->fetchAssociative();
         if (!$row) throw new \RuntimeException('Note not found');
+        if ($this->isImported($this->decode($row))) throw new NoteReadOnlyException('Imported material is read-only');
         $now = $this->now();
         $nextRevision = (int)$row['revision'] + 1;
+        // 先把上一版原样留下，再改
+        $q = $this->db->getQueryBuilder();
+        $q->insert('cognos_note_revisions')->values([
+            'note_id' => $q->createNamedParameter($noteId), 'revision' => $q->createNamedParameter((int)$row['revision']),
+            'title' => $q->createNamedParameter((string)$row['title']), 'content' => $q->createNamedParameter((string)$row['content']),
+            'content_hash' => $q->createNamedParameter((string)$row['content_hash']), 'saved_at' => $q->createNamedParameter((int)$row['updated_at']),
+        ])->executeStatement();
         $q = $this->db->getQueryBuilder();
         $q->update('cognos_notes')->set('title', $q->createNamedParameter(trim($title)))
             ->set('content', $q->createNamedParameter($content))

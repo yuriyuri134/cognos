@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace OCA\Cognos\Controller;
 
+use OCA\Cognos\Service\ClaudeBridgeService;
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\HermesAgentService;
+use OCA\Cognos\Service\PushBackService;
 use OCA\Cognos\Service\SpaceEntryService;
 use OCA\Cognos\Service\SpaceService;
 use OCP\AppFramework\Controller;
@@ -26,6 +28,8 @@ final class CreationSpaceController extends Controller {
         private HermesAgentService $hermes,
         private SpaceService $spaces,
         private SpaceEntryService $entries,
+        private PushBackService $pushBack,
+        private ClaudeBridgeService $bridge,
         private IConfig $config,
     ) {
         parent::__construct('cognos', $request);
@@ -145,9 +149,22 @@ final class CreationSpaceController extends Controller {
                 $context = $this->creations->getContext($id, $user->getUID());
             }
             $saved = $userMessage === null ? [] : [$userMessage];
+            $replyTo = $userMessage === null ? $recall : (int)$userMessage['id'];
 
             try {
-                $agentResponse = $this->hermes->chatCreation($id, $message, $context);
+                $agentResponse = $this->hermes->chatCreation($id, $message, $context, $replyTo);
+            } catch (\RuntimeException $error) {
+                if ($error->getCode() !== ClaudeBridgeService::BUSY) {
+                    return new DataResponse(['messages' => $saved, 'message' => $error->getMessage()], 502);
+                }
+                // 桥正忙（比如押的那位正被叫回来面对一下顶）：这句排着，它做完发回回答时接着叫
+                $this->pushBack->enqueueMessage('creation', (string)$id, $replyTo);
+                return new DataResponse([
+                    'messages' => $saved,
+                    'pending' => true,
+                    'queued' => true,
+                    'who' => $this->bridge->subjectFor('creation', (string)$id),
+                ]);
             } catch (\Throwable $error) {
                 // 原话已经留下了，只是没叫来人：把它和原因一起回给页面，别让人以为没发出去再发一遍
                 return new DataResponse([
@@ -158,10 +175,10 @@ final class CreationSpaceController extends Controller {
 
             if ($agentResponse === null) {
                 // Claude Code 在本机接着做，做完自己把回答发回来
-                return new DataResponse(['messages' => $saved, 'pending' => true]);
+                return new DataResponse(['messages' => $saved, 'pending' => true, 'who' => $this->bridge->subjectFor('creation', (string)$id)]);
             }
 
-            $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'assistant', $agentResponse);
+            $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'assistant', $agentResponse, $replyTo);
 
             return new DataResponse([
                 'messages' => array_merge($saved, [$agentMessage])
@@ -184,7 +201,8 @@ final class CreationSpaceController extends Controller {
             // 叫来的 agent 还在本机接着做（40 分钟以上就当它没做完、也没发回来）
             $since = (int)$this->config->getAppValue('cognos', 'agent_pending_creation_' . $id, '0');
             $pending = $since > 0 && time() - $since < 40 * 60;
-            return new DataResponse(['messages' => $messages, 'pending' => $pending]);
+            $who = $pending ? $this->config->getAppValue('cognos', 'agent_pending_who_creation_' . $id, '') : '';
+            return new DataResponse(['messages' => $messages, 'pending' => $pending, 'pending_who' => $who !== '' ? $who : null]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch messages'], 500);
         }
@@ -230,6 +248,9 @@ final class CreationSpaceController extends Controller {
         if (!in_array($source, ['原', '世'], true)) {
             return new DataResponse(['message' => 'source must be 原 or 世'], 422);
         }
+        if (($body['kind'] ?? '') === 'answer') {
+            return new DataResponse(['message' => '面对一下顶，用 /space/hits/{hitId}/answer'], 422);
+        }
         try {
             $trace = $this->spaces->addTrace('creation', (string)$id, [
                 'kind' => (string)($body['kind'] ?? ''),
@@ -243,12 +264,47 @@ final class CreationSpaceController extends Controller {
                 'status' => (string)($body['status'] ?? 'said'),
                 'stopped_at' => $body['stopped_at'] ?? null,
                 'touched_reality' => array_key_exists('touched_reality', $body) ? (bool)$body['touched_reality'] : null,
+                'governs' => $body['governs'] ?? null,
             ]);
-            return new DataResponse(['trace' => $trace], 201);
+            // 顶到一条押着的前提：去找押的那位
+            $pushback = $trace['kind'] === 'hit' ? $this->pushBack->afterHit('creation', (string)$id, $user->getUID(), $trace) : null;
+            return new DataResponse(['trace' => $trace, 'pushback' => $pushback], 201);
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to add trace'], 500);
+        }
+    }
+
+    /**
+     * 交互对象面对顶到自己押着的前提的一下：站住、碎了、或重新切。
+     */
+    #[NoAdminRequired]
+    public function answerHit(int $id, int $hitId): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        if ($this->entries->resolve('creation', (string)$id, $user->getUID()) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        $body = $this->request->getParams();
+        try {
+            $result = $this->spaces->answerHit(
+                'creation',
+                (string)$id,
+                $hitId,
+                '原',
+                $user->getUID(),
+                (string)($body['act'] ?? ''),
+                (string)($body['content'] ?? ''),
+                null,
+                isset($body['new_premise']) ? (string)$body['new_premise'] : null,
+                isset($body['governs']) ? (string)$body['governs'] : null,
+            );
+            return new DataResponse($result, 201);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
         }
     }
 }

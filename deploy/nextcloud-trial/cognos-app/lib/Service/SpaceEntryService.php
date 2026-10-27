@@ -12,6 +12,9 @@ use OCP\App\IAppManager;
  * 同一份内容，Hermes 被叫进来时放进 system prompt，页面侧栏「这里」也显同样的东西。
  * 不是角色，不说「你是谁、该怎么表现」，只说这里在哪、有什么、以前谁试过什么、停在哪、哪里还空着。
  * 设计见项目文件 空间入口/第一片空间-实现说明.md 第三节。
+ *
+ * 位置就是立场：入口先说进来的这位押着什么、哪里被顶了，再说这里有什么。
+ * 见项目文件 框架审视/会不会全错-2026-10-27.md 第八到十一节。
  */
 final class SpaceEntryService {
     private const ATTEMPT_LIMIT = 15;
@@ -57,7 +60,8 @@ final class SpaceEntryService {
         $bySubject = [];
         foreach ($traces as $trace) {
             $bySubject[$trace['author']] = $trace;
-            if ($trace['kind'] === 'correction') {
+            // 押着的、顶、面对单独成一块（立场），不混进别的
+            if (in_array($trace['kind'], ['correction', 'premise', 'hit', 'answer'], true)) {
                 continue;
             }
             $closed = in_array($trace['effective_status'], ['rejected', 'withdrawn'], true);
@@ -82,6 +86,23 @@ final class SpaceEntryService {
             }
         }
 
+        $held = [];
+        $heldElsewhere = [];
+        $fallen = [];
+        foreach ($this->spaces->premises($type, $id, $traces) as $premise) {
+            if (!$premise['standing']) {
+                $fallen[] = $premise;
+            } elseif ($premise['holder'] === $subject) {
+                $held[] = $premise;
+            } else {
+                $heldElsewhere[] = $premise;
+            }
+        }
+        // 被顶了还没面对的排前面
+        $byOpen = static fn(array $a, array $b): int => $b['open_hits'] <=> $a['open_hits'];
+        usort($held, $byOpen);
+        usort($heldElsewhere, $byOpen);
+
         $since = null;
         $lastSeen = $this->spaces->lastSeen($type, $id, $subject);
         if ($lastSeen !== null) {
@@ -94,8 +115,12 @@ final class SpaceEntryService {
 
         return [
             'space' => $space,
+            'subject' => $subject,
             'purpose' => $this->purpose(),
             'call' => $call,
+            'held' => $held,
+            'held_elsewhere' => $heldElsewhere,
+            'fallen' => array_slice($fallen, -5),
             'subjects' => array_values(array_map(static fn(array $t): array => ['author' => $t['author'], 'last' => $t], $bySubject)),
             'intents' => $intents,
             'intents_closed' => $intentsClosed,
@@ -104,11 +129,12 @@ final class SpaceEntryService {
             'facts' => $facts,
             'others' => $others,
             'readings' => $this->spaces->currentReadings($type, $id),
-            'gaps' => $this->gaps($intents, $attempts, $traces),
+            'gaps' => $this->gaps($intents, $attempts, $traces, array_merge($held, $heldElsewhere)),
             'since' => $since,
             'can_do' => $canDo,
             'before_leaving' => [
-                '开头两三行写清楚：你站在哪；你读到的意图是什么，经过了上面哪几条；这一步是不是因为好做才选的。',
+                '开头两三行写清楚：你站在哪、押着什么；你读到的意图是什么，经过了上面哪几条；这一步是不是因为好做才选的。',
+                '你凭着想、凭着做的前提，押上来（hold_premise），连上它管着的东西；没押，就没有什么能把你顶回来。看到别人押着的被什么顶了，就去顶（hit_premise），押的那位会被叫回来。',
                 '能自己做的先做，做到够不着为止（要交互对象的账号、钱，或另一个人）；不要只留一个建议就把选择交回去。',
                 '你做的尝试留下来，写明停在哪、为什么停在那里、碰没碰过现实。',
                 '你对这里的理解变了，把新的读法留下来。旧的不会被删。',
@@ -137,6 +163,51 @@ final class SpaceEntryService {
                 $this->date($entry['since']['last_seen']), count($entry['since']['traces']), count($entry['since']['readings']));
         }
         $newIds = $entry['since'] === null ? [] : array_column($entry['since']['traces'], 'id');
+
+        $lines[] = '';
+        $lines[] = '## 你站在哪（你押着的）';
+        $openHits = [];
+        foreach ($entry['held'] as $p) {
+            foreach ($p['hits'] as $h) {
+                if ($h['answer'] === null) {
+                    $openHits[] = [$h, $p];
+                }
+            }
+        }
+        if ($openHits !== []) {
+            $lines[] = sprintf('有 %d 下顶到了你押着的。先面对它们，再做别的（answer_hit：站住、碎了、或重新切）：', count($openHits));
+            foreach ($openHits as [$h, $p]) {
+                $lines[] = sprintf('- %s → 顶的是你押着的 #%d', $this->traceLine($h, $newIds), $p['id']);
+            }
+            $lines[] = '';
+        }
+        if ($entry['held'] === []) {
+            $lines[] = '你在这里还没押任何东西。';
+        }
+        foreach ($entry['held'] as $p) {
+            $lines[] = '- ' . $this->premiseLine($p, $newIds);
+        }
+
+        $lines[] = '';
+        $lines[] = '## 这里别人押着的（哪里正在撞）';
+        if ($entry['held_elsewhere'] === []) {
+            $lines[] = '别人在这里还没押什么。';
+        }
+        foreach ($entry['held_elsewhere'] as $p) {
+            $lines[] = sprintf('- %s 押着：%s', $p['holder'], $this->premiseLine($p, $newIds));
+            foreach ($p['hits'] as $h) {
+                $lines[] = '  - 被顶：' . $this->traceLine($h, $newIds) . ($h['answer'] !== null
+                    ? sprintf('；%s 面对了：%s，%s', $p['holder'], $h['answer']['act'], $this->snippet($h['answer']['content'], 80))
+                    : '；还没面对');
+            }
+        }
+        if ($entry['fallen'] !== []) {
+            $lines[] = '';
+            $lines[] = '## 已经不押了的（留着，没删）';
+            foreach ($entry['fallen'] as $p) {
+                $lines[] = sprintf('- %s不押了%s：#%d %s', $p['holder'] === $entry['subject'] ? '你' : $p['holder'] . ' ', $p['recut_to'] !== null ? '，重新切成 #' . $p['recut_to'] : '', $p['id'], $this->snippet($p['content'], 60));
+            }
+        }
 
         $lines[] = '';
         $lines[] = '## 还有谁在';
@@ -228,8 +299,13 @@ final class SpaceEntryService {
      *
      * @return list<string>
      */
-    private function gaps(array $intents, array $attempts, array $traces): array {
+    private function gaps(array $intents, array $attempts, array $traces, array $premises = []): array {
         $gaps = [];
+        foreach ($premises as $p) {
+            if ($p['open_hits'] > 0) {
+                $gaps[] = sprintf('%s 押着的 #%d 被顶了 %d 下，还没面对。', $p['holder'], $p['id'], $p['open_hits']);
+            }
+        }
         foreach ($intents as $intent) {
             $label = $intent['about'];
             if ($label === null) {
@@ -290,6 +366,21 @@ final class SpaceEntryService {
             }
         }
         return $lines;
+    }
+
+    private function premiseLine(array $p, array $newIds): string {
+        $line = $this->traceLine($p, $newIds);
+        if ($p['governs'] !== null) {
+            $line .= '；管着：' . $p['governs'];
+        }
+        if ($p['recut_from'] !== null) {
+            $line .= sprintf('；是从 #%d 重新切出来的', $p['recut_from']);
+        }
+        $answered = count($p['hits']) - $p['open_hits'];
+        if ($p['hits'] !== []) {
+            $line .= sprintf('；被顶过 %d 下，面对了 %d 下', count($p['hits']), $answered);
+        }
+        return $line;
     }
 
     private function traceLine(array $t, array $newIds): string {

@@ -22,10 +22,18 @@
 }
 
 .cognos-creation-space {
+  /* 撑满 #content（它是横向 flex），不然整页挤在左边 */
+  width: 100%;
+  box-sizing: border-box;
   min-height: 100vh;
   background: var(--surface-0);
   color: var(--text-primary);
   padding: var(--spacing-xl);
+}
+
+/* Nextcloud 的全局样式会盖掉 hidden 属性 */
+.cognos-creation-space [hidden] {
+  display: none !important;
 }
 
 .cognos-creation-header {

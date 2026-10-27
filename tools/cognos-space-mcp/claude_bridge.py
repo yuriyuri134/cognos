@@ -12,6 +12,10 @@ Cognos 把入口（和 Hermes 拿到的是同一份，只是主体换成 Claude 
 - 上网：WebSearch、WebFetch；
 - 读写文件，只限这片空间自己的工作目录（COGNOS_SPACES_DIR/<类型>-<id>，默认 ~/Documents/cognos-spaces/），
   目录外的读写 Claude Code 会自己拒掉；
+- Cognos 自己的那片空间（Cognos 发来 repo=true，见 occ cognos:space:import --as-self）：
+  工作目录换成 Cognos 仓库的一份副本（git worktree），在一条新分支 cognos-self/... 上。
+  它押着的前提连着这里的代码，被顶了要重新切，就是真的改代码。做完桥把改动提交到这条分支（不合、不推），
+  回答末尾写上分支名，由交互对象来看、来合；没改代码就把分支和副本收掉。
 - 跑命令只在 COGNOS_BRIDGE_COMMANDS=1 时打开。叫它的是一个网页请求，不是坐在电脑前的人：
   8780 经 start-public.ps1 开到公网时（有 .public-access-state.json），桥不开命令。
   命令不受工作目录限制，Windows 上没有沙箱，打开前要想清楚。
@@ -27,6 +31,8 @@ Cognos 把入口（和 Hermes 拿到的是同一份，只是主体换成 Claude 
   COGNOS_SPACES_DIR    各片空间的工作目录放在哪，默认 ~/Documents/cognos-spaces
   COGNOS_BRIDGE_COMMANDS  设成 1 才让它跑命令
   COGNOS_BRIDGE_TIMEOUT   一次最多做多少秒，默认 1800
+  COGNOS_REPO          Cognos 仓库在哪，默认这个文件往上两层
+  COGNOS_SELF_BASE     Cognos 自己的空间从哪条分支切新分支，默认 master（没有就用 HEAD）
 """
 from __future__ import annotations
 
@@ -39,6 +45,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,7 +56,7 @@ HERE = Path(__file__).resolve().parent
 SECRETS = HERE.parent.parent / "deploy" / "nextcloud-trial" / ".secrets"
 SERVER = HERE / "server.py"
 PUBLIC_STATE = SECRETS.parent / ".public-access-state.json"
-TOOLS = ["leave_trace", "add_reading", "search_traces"]
+TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit"]
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 
@@ -76,6 +83,8 @@ TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
 # 默认起 claude 前把这几个去掉；真想走中转站，设 COGNOS_BRIDGE_KEEP_API_ENV=1
 API_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
 KEEP_API_ENV = os.environ.get("COGNOS_BRIDGE_KEEP_API_ENV", "") == "1"
+REPO = Path(os.environ.get("COGNOS_REPO") or HERE.parent.parent)
+SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "master")
 
 # 同一片空间同时只做一件事，免得两次叫进来的互相踩着工作目录
 BUSY: set[str] = set()
@@ -93,14 +102,59 @@ def workdir_for(space_type: str, space_id: str) -> Path:
     return path
 
 
-def hands(workdir: Path) -> str:
+def git(*args: str, cwd: Path | None = None) -> str:
+    done = subprocess.run(["git", *args], cwd=cwd or REPO, capture_output=True, text=True, encoding="utf-8")
+    if done.returncode != 0:
+        raise RuntimeError(f"git {args[0]}：" + (done.stderr or done.stdout).strip()[-300:])
+    return done.stdout.strip()
+
+
+def open_worktree(space_type: str, space_id: str, hit_id) -> dict:
+    """Cognos 自己的空间：从 SELF_BASE 切一条新分支，放一份仓库副本给它做。"""
+    try:
+        git("rev-parse", "--verify", "--quiet", SELF_BASE)
+        base = SELF_BASE
+    except RuntimeError:
+        base = "HEAD"
+    branch = "cognos-self/" + (f"hit-{int(hit_id)}" if hit_id else "call") + time.strftime("-%Y%m%d-%H%M%S")
+    path = workdir_for(space_type, space_id) / "worktrees" / branch.replace("/", "-")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    git("worktree", "add", "-q", "-b", branch, str(path), base)
+    return {"path": path, "branch": branch, "base": base}
+
+
+def close_worktree(wt: dict, subject: str, summary: str) -> str:
+    """有改动就提交到那条分支（不合、不推），返回接在回答后面的一句；没改就把分支和副本收掉。"""
+    path, branch, base = wt["path"], wt["branch"], wt["base"]
+    if git("status", "--porcelain", cwd=path):
+        git("add", "-A", cwd=path)
+        message = f"{subject} 在 Cognos 自己的空间里改的\n\n{summary[:1500]}"
+        git("-c", "user.name=Cognos", "-c", "user.email=cognos@localhost", "commit", "-q", "-m", message, cwd=path)
+        commit = git("rev-parse", "--short", "HEAD", cwd=path)
+        git("worktree", "remove", str(path))
+        return (f"\n\n---\n改动提交在本机分支 `{branch}`（{commit}），从 `{base}` 切出来，没有合、也没有推。"
+                f"由你来看、来合：`git diff {base}...{branch}`。")
+    git("worktree", "remove", "--force", str(path))
+    git("branch", "-D", branch)
+    return "\n\n---\n这次没有改代码。"
+
+
+def hands(workdir: Path, wt: dict | None = None) -> str:
     """告诉它这次手里有什么，接在入口后面。"""
     lines = [
         "",
         "## 这次你手里还有",
         "- 上网：WebSearch、WebFetch。",
-        f"- 这片空间自己的工作目录：{workdir}。只能在这里面读写文件；做出来的东西放这里，下次进来还在。",
     ]
+    if wt is not None:
+        lines += [
+            f"- 工作目录：{workdir}。这是 Cognos 仓库的一份副本，在新分支 {wt['branch']} 上（从 {wt['base']} 切出来）。"
+            "产品代码在 deploy/nextcloud-trial/cognos-app/，项目全貌在 PROJECT-OVERVIEW.md。",
+            "- 你押着的前提，governs 写着它管着这里的哪段代码。被顶了要重新切，就去改那段代码；只改说法不算。"
+            "改完不用提交：你做完以后桥会把改动提交到这条分支，由交互对象来看、来合。不要切别的分支，不要推。",
+        ]
+    else:
+        lines.append(f"- 这片空间自己的工作目录：{workdir}。只能在这里面读写文件；做出来的东西放这里，下次进来还在。")
     if commands_allowed():
         lines.append("- 可以跑命令（Bash）。只在工作目录里做事，不碰目录外面的东西。")
     else:
@@ -125,7 +179,7 @@ def prompt_from(history: list[dict], message: str, caller: str) -> str:
     return "\n".join(lines)
 
 
-def run_claude(subject: str, system: str, prompt: str, workdir: Path) -> str:
+def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict | None = None) -> str:
     exe = shutil.which("claude.cmd") or shutil.which("claude")
     if exe is None:
         raise RuntimeError("本机 PATH 里找不到 claude")
@@ -135,7 +189,7 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path) -> str:
     with tempfile.TemporaryDirectory(prefix="cognos-claude-") as tmp:
         tmpdir = Path(tmp)
         # claude.cmd（批处理）遇到换行会丢掉后面的参数，所以入口写成文件传进去
-        (tmpdir / "system.txt").write_text(system + "\n" + hands(workdir), encoding="utf-8")
+        (tmpdir / "system.txt").write_text(system + "\n" + hands(workdir, wt), encoding="utf-8")
         (tmpdir / "mcp.json").write_text(json.dumps({"mcpServers": {"cognos-space": {
             "command": sys.executable,
             "args": [str(SERVER)],
@@ -152,28 +206,56 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path) -> str:
                "--mcp-config", str(tmpdir / "mcp.json"), "--strict-mcp-config",
                "--tools", ",".join(builtin), "--allowedTools", ",".join(allowed),
                "--permission-mode", "acceptEdits",
-               "--no-session-persistence", "--setting-sources", "", "--output-format", "json"]
+               "--no-session-persistence", "--setting-sources", "",
+               "--output-format", "stream-json", "--verbose"]
         if MODEL:
             cmd += ["--model", MODEL]
         env = dict(os.environ) if KEEP_API_ENV else {k: v for k, v in os.environ.items() if k not in API_ENV}
         done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
                               cwd=workdir, env=env, timeout=TIMEOUT)
-    try:
-        out = json.loads(done.stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError("claude 没有正常返回：" + (done.stderr or done.stdout)[-300:]) from None
-    if out.get("is_error") or not out.get("result"):
-        raise RuntimeError("claude 出错：" + str(out.get("result") or out.get("subtype")))
-    return out["result"]
+    return answer_from(done.stdout, done.stderr)
 
 
-def post_back(space_type: str, space_id: str, subject: str, content: str) -> None:
-    """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。"""
+def answer_from(stdout: str, stderr: str = "") -> str:
+    """从 stream-json 里取回答：最后一次用工具之后它说的全部话。
+
+    只取 result 会丢话：它答完以后又补一句（比如后台任务结束时），result 只剩那一句。
+    """
+    tail: list[str] = []
+    result = None
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "assistant":
+            for block in (event.get("message") or {}).get("content") or []:
+                if block.get("type") == "tool_use":
+                    tail = []
+                elif block.get("type") == "text" and block.get("text", "").strip():
+                    tail.append(block["text"].strip())
+        elif event.get("type") == "result":
+            result = event
+    if result is None:
+        raise RuntimeError("claude 没有正常返回：" + (stderr or stdout)[-300:])
+    if result.get("is_error"):
+        raise RuntimeError("claude 出错：" + str(result.get("result") or result.get("subtype")))
+    answer = "\n\n".join(tail) or (result.get("result") or "")
+    if not answer:
+        raise RuntimeError("claude 出错：" + str(result.get("subtype")))
+    return answer
+
+
+def post_back(space_type: str, space_id: str, subject: str, content: str, reply_to=None, hit_id=None) -> None:
+    """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。
+
+    reply_to：回的是对话里哪一句；被顶叫回来的是 0（不回任何一句）。
+    """
     url = (COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/spaces/"
            + urllib.parse.quote(space_type, safe="") + "/" + urllib.parse.quote(space_id, safe="") + "/messages")
     token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(url, method="POST", data=json.dumps(
-        {"content": content, "subject": subject}, ensure_ascii=False).encode("utf-8"), headers={
+        {"content": content, "subject": subject, "reply_to": reply_to, "hit_id": hit_id}, ensure_ascii=False).encode("utf-8"), headers={
         "Authorization": "Basic " + token,
         "OCS-APIRequest": "true",
         "Accept": "application/json",
@@ -185,19 +267,32 @@ def post_back(space_type: str, space_id: str, subject: str, content: str) -> Non
 
 def work(job: dict) -> None:
     space_type, space_id, subject = job["space_type"], job["space_id"], job["subject"]
+    key = f"{space_type}/{space_id}"
+    wt = None
     try:
         try:
-            content = run_claude(subject, job["system"], job["prompt"], workdir_for(space_type, space_id))
+            if job.get("repo"):
+                wt = open_worktree(space_type, space_id, job.get("hit_id"))
+            workdir = wt["path"] if wt else workdir_for(space_type, space_id)
+            content = run_claude(subject, job["system"], job["prompt"], workdir, wt)
         except subprocess.TimeoutExpired:
             content = f"（{subject} 做了 {TIMEOUT // 60} 分钟还没做完，被停下了。做到哪里，看侧栏里它留下的发生和工作目录。）"
         except Exception as error:  # 出错也要让交互对象在对话里看到
             content = f"（{subject} 这次没做完：{error}）"
-        post_back(space_type, space_id, subject, content)
+        if wt is not None:
+            try:
+                content += close_worktree(wt, subject, content)
+            except Exception as error:
+                content += f"\n\n---\n仓库副本 {wt['path']}（分支 {wt['branch']}）没收好：{error}。改动还在那里。"
+        # 先放开这片空间：回答发回去时，排着的下一下顶会接着叫进来
+        with BUSY_LOCK:
+            BUSY.discard(key)
+        post_back(space_type, space_id, subject, content, job.get("reply_to"), job.get("hit_id"))
     except (urllib.error.URLError, OSError) as error:
         sys.stderr.write(f"[claude-bridge] 回答发不回 Cognos：{error}\n")
     finally:
         with BUSY_LOCK:
-            BUSY.discard(f"{space_type}/{space_id}")
+            BUSY.discard(key)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -232,6 +327,9 @@ class Handler(BaseHTTPRequestHandler):
                 "subject": str(body.get("subject") or "Claude Code"),
                 "system": str(body["system"]),
                 "prompt": prompt_from(body.get("history") or [], str(body["message"]), str(body.get("caller") or "交互对象")),
+                "repo": bool(body.get("repo")),
+                "hit_id": body.get("hit_id"),
+                "reply_to": body.get("reply_to"),
             }
         except (KeyError, ValueError) as error:
             self.send_json(400, {"error": f"请求不完整：{error}"})

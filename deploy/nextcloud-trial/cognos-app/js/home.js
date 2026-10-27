@@ -23,7 +23,9 @@
         state.loading = true;
         
         try {
-            const response = await fetch('/index.php/apps/cognos/creations/data');
+            const response = await fetch('/index.php/apps/cognos/creations/data', {
+                headers: { 'requesttoken': OC.requestToken },
+            });
             if (!response.ok) {
                 throw new Error('Failed to fetch creations');
             }
@@ -85,7 +87,8 @@
     function formatTimeAgo(timestamp) {
         if (!timestamp) return '';
         
-        const date = new Date(timestamp);
+        // 后端给的是 Unix 秒
+        const date = new Date(timestamp * 1000);
         const now = new Date();
         const seconds = Math.floor((now - date) / 1000);
         
