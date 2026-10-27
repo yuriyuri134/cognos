@@ -5,7 +5,7 @@
   <name>Cognos</name>
   <summary>Continue Cognos work from Nextcloud projects and tasks</summary>
   <description>Adds the Cognos Activity continuation layer to Nextcloud Deck, with source snapshots, resumable attempts, and task history.</description>
-  <version>0.18.1</version>
+  <version>0.18.2</version>
   <licence>agpl</licence>
   <author>Cognos contributors</author>
   <namespace>Cognos</namespace>
