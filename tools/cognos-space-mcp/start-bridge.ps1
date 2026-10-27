@@ -6,6 +6,7 @@
 param(
     [switch]$Register,
     [switch]$NoCommands,
+    [switch]$NoSelfMerge,
     [int]$Port = 8643
 )
 
@@ -38,6 +39,9 @@ $env:PYTHONIOENCODING = 'utf-8'
 $env:COGNOS_BRIDGE_PORT = "$Port"
 # 小林 10/27 选了让它在自己的工作目录里跑命令；公网开着时桥自己会关掉
 $env:COGNOS_BRIDGE_COMMANDS = $(if ($NoCommands) { '0' } else { '1' })
+# 小林 10/27 选了让 Cognos 把检查过了的改动自己合进本机跑着的分支并重启（留标签可退，不推）；-NoSelfMerge 关掉
+$env:COGNOS_SELF_MERGE = $(if ($NoSelfMerge) { '0' } else { '1' })
+$env:COGNOS_SELF_BASE = 'HEAD'
 
 $python = (Get-Command python -ErrorAction Stop).Source
 $process = Start-Process -FilePath $python `
