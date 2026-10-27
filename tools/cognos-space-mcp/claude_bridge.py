@@ -81,6 +81,8 @@ COMMANDS = os.environ.get("COGNOS_BRIDGE_COMMANDS", "") == "1"
 TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
 REPO = Path(os.environ.get("COGNOS_REPO") or HERE.parent.parent)
 SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "master")
+# 改了代码时，对话里最多贴多少字的 diff
+DIFF_LIMIT = 12000
 
 # 同一片空间同时只做一件事，免得两次叫进来的互相踩着工作目录
 BUSY: set[str] = set()
@@ -127,9 +129,19 @@ def close_worktree(wt: dict, subject: str, summary: str) -> str:
         message = f"{subject} 在 Cognos 自己的空间里改的\n\n{summary[:1500]}"
         git("-c", "user.name=Cognos", "-c", "user.email=cognos@localhost", "commit", "-q", "-m", message, cwd=path)
         commit = git("rev-parse", "--short", "HEAD", cwd=path)
+        stat = git("show", "--stat", "--format=", "HEAD", cwd=path)
+        diff = git("show", "--format=", "HEAD", cwd=path)
+        # 整份改动另存一份在这片空间的工作目录里，对话里放得下就整份贴，放不下贴开头
+        changes = path.parent.parent / "changes"
+        changes.mkdir(parents=True, exist_ok=True)
+        saved = changes / (branch.replace("/", "-") + ".diff")
+        saved.write_text(diff + "\n", encoding="utf-8")
         git("worktree", "remove", str(path))
-        return (f"\n\n---\n改动提交在本机分支 `{branch}`（{commit}），从 `{base}` 切出来，没有合、也没有推。"
-                f"由你来看、来合：`git diff {base}...{branch}`。")
+        shown = diff if len(diff) <= DIFF_LIMIT else diff[:DIFF_LIMIT] + f"\n…（还有 {len(diff) - DIFF_LIMIT} 个字符，整份在下面那个文件里）"
+        return (f"\n\n---\n改动提交在本机分支 `{branch}`（{commit}），从 `{base}` 切出来，没有合、也没有推，由你来看、来合。\n\n"
+                f"改了哪些文件：\n```\n{stat}\n```\n\n"
+                f"怎么改的：\n```diff\n{shown}\n```\n\n"
+                f"整份改动也存在你电脑上：`{saved}`；在仓库里看：`git diff {base}...{branch}`。")
     git("worktree", "remove", "--force", str(path))
     git("branch", "-D", branch)
     return "\n\n---\n这次没有改代码。"
@@ -148,6 +160,8 @@ def hands(workdir: Path, wt: dict | None = None) -> str:
             "产品代码在 deploy/nextcloud-trial/cognos-app/，项目全貌在 PROJECT-OVERVIEW.md。",
             "- 你押着的前提，governs 写着它管着这里的哪段代码。被顶了要重新切，就去改那段代码；只改说法不算。"
             "改完不用提交：你做完以后桥会把改动提交到这条分支，由交互对象来看、来合。不要切别的分支，不要推。",
+            "- 改了代码，回答最后写一节「改了什么」：每个文件一两句，改了什么、为什么、和哪条前提有关，"
+            "交互对象不读代码也要看得懂。桥会在回答后面再贴上改了哪些文件和整份 diff。",
         ]
     else:
         lines.append(f"- 这片空间自己的工作目录：{workdir}。只能在这里面读写文件；做出来的东西放这里，下次进来还在。")

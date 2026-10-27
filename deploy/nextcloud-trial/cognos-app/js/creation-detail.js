@@ -311,6 +311,13 @@
     // Basic Markdown rendering
     let html = escapeHtml(content);
 
+    // 代码块先拿出来，里面的东西（比如 diff 的 - + # *）不再被当成列表、标题、强调
+    const blocks = [];
+    html = html.replace(/```[^\n]*\n?([\s\S]*?)```/g, (match, code) => {
+      blocks.push(`<pre><code>${code.replace(/\n$/, '')}</code></pre>`);
+      return `\u0000${blocks.length - 1}\u0000`;
+    });
+
     // Headers
     html = html.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
     html = html.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
@@ -322,9 +329,6 @@
     // Italic
     html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
-    // Code blocks
-    html = html.replace(/```(.*?)```/gs, '<pre><code>$1</code></pre>');
-
     // Inline code
     html = html.replace(/`(.*?)`/g, '<code>$1</code>');
 
@@ -335,7 +339,7 @@
     // Line breaks
     html = html.replace(/\n/g, '<br>');
 
-    return html;
+    return html.replace(/\u0000(\d+)\u0000/g, (match, i) => blocks[Number(i)]);
   }
 
   function formatMessageContent(content) {
