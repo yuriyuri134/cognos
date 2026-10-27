@@ -161,23 +161,25 @@ def open_worktree(space_type: str, space_id: str, hit_id, base_branch: str | Non
     return {"path": path, "branch": branch, "base": base, "start": start, **body_state(base)}
 
 
-def own_changes(path: Path, start: str) -> tuple[list[str], list[str]]:
+def own_changes(path: Path, start: str, body: str | None = None) -> tuple[list[str], list[str]]:
     """这一位在副本里自己改了的文件，和只是合进来的文件（#100 顶出来的）。
 
     分支比身体多出来的文件，不等于这一位改的：合一条还没长进身体的分支，那条分支改过的就全进来了。
-    自己改的 = 从开始的提交往后、沿着这条分支自己的线（--ancestry-path --first-parent）：
+    自己的提交 = 沿这条分支自己的线（--first-parent）从 HEAD 往回走，碰到开始的提交、身体、
+    别的还没长进身体的 cognos-self/* 分支已经有的就停（#120）。不按「是不是开始那个提交的后代」认：
+    reset 到开始之前再写、再把身体合回来，写的那些提交不是 start 的后代，用 --ancestry-path 会被剪掉，
+    2026-10-28 的 16ff836 就这样被记成「合进来的」（#119）。
       - 不是合并的提交，改到的文件；
       - 合并提交里，和每一个父提交都不一样的文件（git diff-tree --cc：解冲突时自己写的，不是照搬哪一边）。
     再去掉照搬来的：最后内容和身体（身体开始以后也改过它）、或某条还没长进身体的 cognos-self/* 分支
     （那条分支自己改过它）一模一样的文件（checkout 别人的文件、squash 合进来的）。改回已经长进身体的旧版本算自己的（#111）。
-    HEAD 不再是开始那个提交的后代（reset 到了别处），就一个都不算自己的。
     """
-    try:
-        git("merge-base", "--is-ancestor", start, "HEAD", cwd=path)
-    except RuntimeError:
-        return [], []
     own: set[str] = set()
-    commits = git("rev-list", "--ancestry-path", "--first-parent", f"{start}..HEAD", cwd=path).split()
+    body = body or git("rev-parse", "HEAD")
+    mine = git("rev-parse", "--abbrev-ref", "HEAD", cwd=path)
+    pending = [b.strip(" *+") for b in git("branch", "--list", "cognos-self/*", "--no-merged", body).splitlines() if b.strip()]
+    others = [b for b in pending if b != mine]
+    commits = git("rev-list", "--first-parent", "HEAD", "--not", start, body, *others, cwd=path).split()
     for c in commits:
         parents = git("rev-list", "--parents", "-n", "1", c, cwd=path).split()[1:]
         if len(parents) > 1:
@@ -192,17 +194,12 @@ def own_changes(path: Path, start: str) -> tuple[list[str], list[str]]:
     #   - 还没长进身体的 cognos-self/* 分支：那条分支自己改过这个文件（从它和身体的分叉点往后），内容一样。
     # 已经长进身体的旧分支不算来源：它们的 tip 留着各个时期的旧版本，改回其中一版（「碎了」最自然的做法）
     # 是这一位自己做的事。没长进身体的分支没动过的文件也不算：它的 tip 带着切出来时的旧版本，一样会撞上。
-    body = git("rev-parse", "HEAD")
-    mine = git("rev-parse", "--abbrev-ref", "HEAD", cwd=path)
-    pending = [b.strip(" *+") for b in git("branch", "--list", "cognos-self/*", "--no-merged", body).splitlines() if b.strip()]
     sources: list[tuple[str, set[str]]] = []
     try:
         sources.append((body, {f for f in git("diff", "--name-only", start, body, cwd=path).splitlines() if f.strip()}))
     except RuntimeError:
         pass
-    for b in pending:
-        if b == mine:
-            continue
+    for b in others:
         try:
             changed = {f for f in git("diff", "--name-only", f"{body}...{b}").splitlines() if f.strip()}
         except RuntimeError:
