@@ -61,9 +61,13 @@ docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cogn
 
 它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度。同一片空间同时只做一件事，还在做时再叫会提示「还在做上一件事」。
 
-带命令起桥（PowerShell）：
+起桥（已经在跑就什么都不做；默认开命令，`-NoCommands` 关掉）：
 
 ```powershell
 cd C:\Users\lnp\Documents\Playground\cognos
-$env:PYTHONIOENCODING='utf-8'; $env:COGNOS_BRIDGE_COMMANDS='1'; python tools\cognos-space-mcp\claude_bridge.py
+powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-bridge.ps1
 ```
+
+加 `-Register` 会注册一个登录 Windows 时自动运行的计划任务（CognosClaudeBridge），重启以后不用再手动起。日志在 `deploy/nextcloud-trial/evidence/claude-bridge/`。
+
+对话里你说的话没人回（比如桥没起来那次），那句下面会有「没人回，再叫一次」，点它就用那句重新叫，不会再存一遍。
