@@ -73,6 +73,9 @@ final class SpaceService {
         if ($kind === 'unanswered' && ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'hit')) {
             throw new \InvalidArgumentException('unanswered needs ref_id pointing to a hit in this space');
         }
+        if ($kind === 'unchanged' && ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'premise')) {
+            throw new \InvalidArgumentException('unchanged needs ref_id pointing to the re-cut premise in this space');
+        }
         if ($kind === 'answer') {
             if ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'hit') {
                 throw new \InvalidArgumentException('an answer needs ref_id pointing to a hit in this space');
@@ -264,6 +267,7 @@ final class SpaceService {
         $answerById = [];
         $hitById = [];
         $evaded = [];
+        $unchanged = [];
         foreach ($traces as $t) {
             if ($t['kind'] === 'answer') {
                 $answerById[$t['id']] = $t;
@@ -271,6 +275,8 @@ final class SpaceService {
                 $hitById[$t['id']] = $t;
             } elseif ($t['kind'] === 'unanswered' && $t['ref_id'] !== null) {
                 $evaded[$t['ref_id']][] = $t;
+            } elseif ($t['kind'] === 'unchanged' && $t['ref_id'] !== null) {
+                $unchanged[$t['ref_id']] = $t;
             }
         }
         foreach ($traces as $t) {
@@ -281,6 +287,8 @@ final class SpaceService {
                 $t['recut_to'] = null;
                 $t['hits'] = [];
                 $t['open_hits'] = 0;
+                // 重新切出来，governs 写到的文件一处都没改：只改了说法（〔世〕，见 PushBackService::afterReturn）
+                $t['unchanged'] = $unchanged[$t['id']] ?? null;
                 $premises[$t['id']] = $t;
             } elseif ($t['kind'] === 'hit') {
                 $hits[] = $t;
@@ -316,6 +324,67 @@ final class SpaceService {
         }
         unset($p);
         return array_values($premises);
+    }
+
+    /**
+     * 押的那位面对 #hitId 时重新切出来的那条新前提；没重新切就是 null。
+     *
+     * @param ?list<array> $traces
+     */
+    public function recutOf(string $spaceType, string $spaceId, int $hitId, string $author, ?array $traces = null): ?array {
+        $traces ??= $this->listTraces($spaceType, $spaceId);
+        $answer = null;
+        foreach ($traces as $t) {
+            if ($t['kind'] === 'answer' && (int)$t['ref_id'] === $hitId && $t['author'] === $author) {
+                $answer = $t; // 同一下后来的回答算数
+            }
+        }
+        if ($answer === null || $answer['act'] !== '重新切') {
+            return null;
+        }
+        foreach ($traces as $t) {
+            // answerHit 在同一个事务里先写 answer、再写新前提
+            if ($t['kind'] === 'premise' && $t['id'] > $answer['id'] && $t['author'] === $author && $t['ref_id'] !== null) {
+                return $t;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * governs 里写到的文件（lib/Service/X.php::method 取 lib/Service/X.php）。
+     * 只写了做法、没写文件的，返回空：那种查不了改没改。
+     *
+     * @return list<string>
+     */
+    public static function governedFiles(?string $governs): array {
+        if ($governs === null) {
+            return [];
+        }
+        preg_match_all('#[A-Za-z0-9_\-./]+\.(?:php|py|js|ts|vue|json|css|md|xml|sh)\b#u', $governs, $m);
+        return array_values(array_unique(array_map(static fn(string $f): string => ltrim($f, './'), $m[0])));
+    }
+
+    /**
+     * governs 写到的文件里，这次改了哪几个。$changed 是仓库里改了的路径（相对仓库根），
+     * governs 里多半写的是相对应用目录的路径，所以按结尾对。
+     *
+     * @param list<string> $changed
+     * @return array{governed: list<string>, touched: list<string>}
+     */
+    public static function touchedGoverned(?string $governs, array $changed): array {
+        $governed = self::governedFiles($governs);
+        $touched = [];
+        foreach ($governed as $g) {
+            foreach ($changed as $c) {
+                $c = str_replace('\\', '/', (string)$c);
+                if ($c === $g || str_ends_with($c, '/' . $g)) {
+                    $touched[] = $g;
+                    break;
+                }
+            }
+        }
+        return ['governed' => $governed, 'touched' => $touched];
     }
 
     /** 一下顶最终顶到的是哪条前提：直接指前提，或指一次站住（顺着它面对的那一下找回去）。 */

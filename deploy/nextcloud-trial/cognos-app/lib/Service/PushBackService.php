@@ -21,6 +21,8 @@ use Psr\Log\LoggerInterface;
  * 在叫回来以后，面对没面对、怎么面对，都成了别人看得见、能再顶的发生（#77 顶了以后这么切的）。
  * - 叫回来了、做完走了却没 answer_hit：afterReturn 记一条 unanswered（〔世〕），躲开的留着。
  * - 站住了：别人可以顶这个站住（hit 指向那条 answer），算又顶了一下那条前提，押的那位还会被叫回来。
+ * - 重新切了：在仓库副本里做的，桥带回改了哪些文件；新前提 governs 写到的文件一个都没动，
+ *   afterReturn 记一条 unchanged（〔世〕）指向新前提——只改了说法。只看动没动，不看改得对不对。
  */
 final class PushBackService {
     /** 押着前提、被顶到时能经本机桥叫回来的主体 */
@@ -91,10 +93,15 @@ final class PushBackService {
      * 没面对，就记一条 unanswered 指向那一下——不是谁的读法，是现实碰回来的（〔世〕）。
      * 不自动再叫第二次（不做循环）；那一下还开着，下次谁再顶、或它下次进来，都看得见它躲过几次。
      */
-    public function afterReturn(string $spaceType, string $spaceId, string $subject, int $hitId): ?array {
+    public function afterReturn(string $spaceType, string $spaceId, string $subject, int $hitId, ?array $changedFiles = null): ?array {
         $hit = $this->spaces->getTrace($spaceType, $spaceId, $hitId);
         if ($hit === null || $hit['kind'] !== 'hit') {
             return null;
+        }
+        // 重新切了：governs 写到的文件，这次改没改。只有在仓库副本里做的（桥带回改了哪些文件）才查得了。
+        $recut = $this->spaces->recutOf($spaceType, $spaceId, $hitId, $subject);
+        if ($recut !== null) {
+            return $changedFiles === null ? null : $this->checkRecut($spaceType, $spaceId, $subject, $hitId, $recut, $changedFiles);
         }
         $premiseId = $this->spaces->premiseIdOfHit($spaceType, $spaceId, $hit);
         $premise = $premiseId === null ? null : $this->spaces->premiseState($spaceType, $spaceId, $premiseId);
@@ -111,6 +118,29 @@ final class PushBackService {
             'author' => '叫回来的记录',
             'content' => sprintf('%s 被叫回来面对 #%d（顶的是它押着的 #%d），做完走了，没有面对。这是第 %d 次。', $subject, $hitId, $premise['id'], $open[0]['evaded'] + 1),
             'ref_id' => $hitId,
+            'said_at' => time(),
+        ]);
+    }
+
+    /**
+     * 重新切成 $recut 以后，它 governs 写到的文件一个都没动：只改了说法。记一条 unchanged 指向新前提（〔世〕）。
+     * 不判对错（也许那段代码本来就对），只让它看得见：谁都可以拿这条去顶新前提。
+     * governs 里没写文件（只写了做法）的，查不了，不记。
+     *
+     * @param list<string> $changedFiles
+     */
+    private function checkRecut(string $spaceType, string $spaceId, string $subject, int $hitId, array $recut, array $changedFiles): ?array {
+        $check = SpaceService::touchedGoverned($recut['governs'], $changedFiles);
+        if ($check['governed'] === [] || $check['touched'] !== []) {
+            return null;
+        }
+        $changed = $changedFiles === [] ? '这次分支上什么都没改' : '这次改的是 ' . implode('、', array_slice($changedFiles, 0, 8)) . (count($changedFiles) > 8 ? ' 等' : '');
+        return $this->spaces->addTrace($spaceType, $spaceId, [
+            'kind' => 'unchanged',
+            'source' => '世',
+            'author' => '叫回来的记录',
+            'content' => sprintf('%s 被 #%d 顶了以后重新切成 #%d，它管着 %s，一个都没改；%s。', $subject, $hitId, $recut['id'], implode('、', $check['governed']), $changed),
+            'ref_id' => $recut['id'],
             'said_at' => time(),
         ]);
     }

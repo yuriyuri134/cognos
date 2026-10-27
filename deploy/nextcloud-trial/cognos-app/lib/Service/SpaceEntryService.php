@@ -386,6 +386,9 @@ final class SpaceEntryService {
         if (($p['evaded'] ?? 0) > 0) {
             $line .= sprintf('；叫回来过 %d 次没面对就走了', $p['evaded']);
         }
+        if (($p['unchanged'] ?? null) !== null) {
+            $line .= sprintf('；是重新切出来的，可它管着的文件那次一个都没改（#%d，可以拿它来顶）', $p['unchanged']['id']);
+        }
         return $line;
     }
 

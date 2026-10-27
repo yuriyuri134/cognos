@@ -189,7 +189,11 @@ final class SpaceApiController extends OCSController {
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
         // 是被叫回来面对一下顶的：做完了，面对没面对，记下来
         if (isset($body['hit_id']) && (int)$body['hit_id'] > 0) {
-            $this->pushBack->afterReturn($spaceType, $spaceId, $this->subject((string)($body['subject'] ?? '')), (int)$body['hit_id']);
+            // changed_files：在仓库副本里做的，桥带回这次分支上改了哪些文件；不在仓库里做的没有这一项
+            $changed = isset($body['changed_files']) && is_array($body['changed_files'])
+                ? array_values(array_map('strval', array_filter($body['changed_files'], 'is_scalar')))
+                : null;
+            $this->pushBack->afterReturn($spaceType, $spaceId, $this->subject((string)($body['subject'] ?? '')), (int)$body['hit_id'], $changed);
         }
         $this->pushBack->drain($spaceType, $spaceId, $uid);
         return new DataResponse(['message' => $message], 201);
