@@ -127,6 +127,11 @@ def git(*args: str, cwd: Path | None = None) -> str:
 def open_worktree(space_type: str, space_id: str, hit_id, base_branch: str | None = None, open_id=None) -> dict:
     """Cognos 自己的空间：从 SELF_BASE（接着走时从上一次的分支 base_branch）切一条新分支，放一份仓库副本给它做。"""
     base = "HEAD"
+    # 上一次的分支已经长进身体了，就不再从它切：它只会落在身体后面（#91）。
+    # 这一条不能只靠 close_worktree 返回 keep=None：Cognos 收到空的 branch 会沿用上一次记下的那条，
+    # 2026-10-28 00:26 这一次就是这样从早已长进身体的 open-88-001427 切的，落后身体 2 个提交。
+    if base_branch and is_in_body(base_branch):
+        base_branch = None
     for candidate in ([base_branch] if base_branch else []) + [SELF_BASE]:
         try:
             git("rev-parse", "--verify", "--quiet", candidate)
