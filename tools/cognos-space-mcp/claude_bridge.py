@@ -461,6 +461,7 @@ def work(job: dict) -> None:
     space_type, space_id, subject = job["space_type"], job["space_id"], job["subject"]
     key = f"{space_type}/{space_id}"
     wt = None
+    released = False
     # 从一件没完的叫起来的：这些要带回去，Cognos 才知道从哪接着
     back: dict = {}
     if job.get("open_id"):
@@ -492,6 +493,7 @@ def work(job: dict) -> None:
         # 先放开这片空间：回答发回去时，排着的下一下顶会接着叫进来
         with BUSY_LOCK:
             BUSY.discard(key)
+        released = True
         if new_bridge:
             # 先换桥再发回：发回时 Cognos 会接着叫下一次，要叫到新的那个
             content += "\n- " + restart_bridge()
@@ -499,8 +501,10 @@ def work(job: dict) -> None:
     except (urllib.error.URLError, OSError) as error:
         sys.stderr.write(f"[claude-bridge] 回答发不回 Cognos：{error}\n")
     finally:
-        with BUSY_LOCK:
-            BUSY.discard(key)
+        # 已经放开过的不再放：发回时同一片空间可能已经叫进了新的一件，删的会是它的标记
+        if not released:
+            with BUSY_LOCK:
+                BUSY.discard(key)
         if EXIT.is_set():
             POSTED.set()
 
