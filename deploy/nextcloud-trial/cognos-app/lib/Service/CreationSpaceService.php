@@ -101,7 +101,10 @@ class CreationSpaceService {
         ];
     }
 
-    public function addMessage(int $creationId, string $userId, string $role, string $content): array {
+    /**
+     * @param ?int $replyTo 回答回的是哪一句；被顶叫回来的回答不回任何一句，传 0
+     */
+    public function addMessage(int $creationId, string $userId, string $role, string $content, ?int $replyTo = null): array {
         $qb = $this->db->getQueryBuilder();
         $createdAt = time();
 
@@ -111,6 +114,7 @@ class CreationSpaceService {
                 'role' => $qb->createNamedParameter($role, IQueryBuilder::PARAM_STR),
                 'content' => $qb->createNamedParameter($content, IQueryBuilder::PARAM_STR),
                 'created_at' => $qb->createNamedParameter($createdAt, IQueryBuilder::PARAM_INT),
+                'reply_to' => $qb->createNamedParameter($replyTo, IQueryBuilder::PARAM_INT),
             ])
             ->executeStatement();
 
@@ -129,6 +133,7 @@ class CreationSpaceService {
             'role' => $role,
             'content' => $content,
             'created_at' => $createdAt,
+            'reply_to' => $replyTo,
         ];
     }
 
@@ -154,6 +159,7 @@ class CreationSpaceService {
                 'role' => $row['role'],
                 'content' => $row['content'],
                 'created_at' => (int)$row['created_at'],
+                'reply_to' => isset($row['reply_to']) ? (int)$row['reply_to'] : null,
             ];
         }
         $result->closeCursor();

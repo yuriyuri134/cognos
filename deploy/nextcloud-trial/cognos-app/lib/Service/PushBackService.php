@@ -11,7 +11,8 @@ use Psr\Log\LoggerInterface;
  * 顶回来的要找回押的那位。
  *
  * 一条前提被顶到（kind=hit），就把押着它的那位叫回这片空间，第一件事是面对这一下：站住、碎了、或重新切。
- * 被碰醒，不是到点醒：没有心跳、没有定时，只有被顶到、和上一位做完时排着的下一下。
+ * 被碰醒，不是到点醒：没有心跳、没有定时，只有被顶到、和上一位做完时排着的下一下
+ * （排着的可以是一下顶，也可以是交互对象在对话里说的一句：桥正忙时那句也排着）。
  * 见项目文件 框架审视/会不会全错-2026-10-27.md 第十、十一节。
  *
  * 现在叫得回来的只有经本机桥进来的那几位（Claude Code，和在 Cognos 自己那片空间里替 Cognos 站着的那位）。
@@ -58,13 +59,19 @@ final class PushBackService {
     }
 
     /**
-     * 上一位做完、回答发回来时：还排着的下一下，接着叫。
+     * 上一位做完、回答发回来时：还排着的下一件，接着叫。
+     * 排着的是一下顶，就在这里叫；是对话里的一句，就把那句的 id 交回去，由调用的地方去叫（它要走对话那条路）。
      */
-    public function drain(string $spaceType, string $spaceId, string $uid): void {
+    public function drain(string $spaceType, string $spaceId, string $uid): ?int {
         $queue = $this->queue($spaceType, $spaceId);
         while ($queue !== []) {
-            $hitId = array_shift($queue);
+            $next = array_shift($queue);
             $this->saveQueue($spaceType, $spaceId, $queue);
+            [$what, $id] = explode(':', $next, 2) + [1 => '0'];
+            if ($what === 'msg') {
+                return (int)$id;
+            }
+            $hitId = (int)$id;
             $hit = $this->spaces->getTrace($spaceType, $spaceId, $hitId);
             $premise = $hit === null ? null : $this->spaces->premiseState($spaceType, $spaceId, (int)$hit['ref_id']);
             if ($premise === null || !$premise['standing']) {
@@ -75,8 +82,14 @@ final class PushBackService {
                 continue;
             }
             $this->call($spaceType, $spaceId, $uid, $premise, $hit);
-            return;
+            return null;
         }
+        return null;
+    }
+
+    /** 桥正忙时交互对象在对话里说的一句：排着，上一位做完接着叫。 */
+    public function enqueueMessage(string $spaceType, string $spaceId, int $messageId, bool $front = false): void {
+        $this->enqueue($spaceType, $spaceId, 'msg:' . $messageId, $front);
     }
 
     private function call(string $spaceType, string $spaceId, string $uid, array $premise, array $hit): array {
@@ -101,10 +114,11 @@ final class PushBackService {
         );
         $entry = $this->entries->entry($space, $holder, ['caller' => $hitter, 'message' => $message], $this->bridge->canDo($spaceType, $spaceId));
         try {
-            $this->bridge->send($spaceType, $spaceId, $holder, $this->entries->renderText($entry), [], $message, $hitter, ['hit_id' => $hit['id']]);
+            // reply_to=0：发回来的回答不回对话里的任何一句
+            $this->bridge->send($spaceType, $spaceId, $holder, $this->entries->renderText($entry), [], $message, $hitter, ['hit_id' => $hit['id'], 'reply_to' => 0]);
         } catch (\RuntimeException $error) {
             if ($error->getCode() === ClaudeBridgeService::BUSY) {
-                $this->enqueue($spaceType, $spaceId, (int)$hit['id']);
+                $this->enqueue($spaceType, $spaceId, 'hit:' . $hit['id']);
                 return $this->result(false, $holder, sprintf('%s 正在这片空间里做上一件事，做完会接着被叫回来面对这一下。', $holder));
             }
             $this->logger->warning('push-back could not reach the holder', ['holder' => $holder, 'error' => $error->getMessage()]);
@@ -130,10 +144,14 @@ final class PushBackService {
         return max(0, (int)$this->config->getAppValue('cognos', 'pushback_ai_daily', (string)self::AI_DAILY_DEFAULT));
     }
 
-    /** @return list<int> */
+    /** @return list<string> 一项是 hit:<id> 或 msg:<id> */
     private function queue(string $spaceType, string $spaceId): array {
         $raw = json_decode($this->config->getAppValue('cognos', 'pushback_queue_' . $spaceType . '_' . $spaceId, '[]'), true);
-        return is_array($raw) ? array_values(array_map('intval', $raw)) : [];
+        if (!is_array($raw)) {
+            return [];
+        }
+        // 早先排的只有顶，存的是数字
+        return array_values(array_map(static fn($item): string => is_int($item) ? 'hit:' . $item : (string)$item, $raw));
     }
 
     private function saveQueue(string $spaceType, string $spaceId, array $queue): void {
@@ -145,10 +163,14 @@ final class PushBackService {
         $this->config->setAppValue('cognos', $key, json_encode(array_values($queue)));
     }
 
-    private function enqueue(string $spaceType, string $spaceId, int $hitId): void {
+    private function enqueue(string $spaceType, string $spaceId, string $item, bool $front = false): void {
         $queue = $this->queue($spaceType, $spaceId);
-        if (!in_array($hitId, $queue, true)) {
-            $queue[] = $hitId;
+        if (!in_array($item, $queue, true)) {
+            if ($front) {
+                array_unshift($queue, $item);
+            } else {
+                $queue[] = $item;
+            }
         }
         $this->saveQueue($spaceType, $spaceId, $queue);
     }

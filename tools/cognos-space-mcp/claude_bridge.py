@@ -202,27 +202,55 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
                "--mcp-config", str(tmpdir / "mcp.json"), "--strict-mcp-config",
                "--tools", ",".join(builtin), "--allowedTools", ",".join(allowed),
                "--permission-mode", "acceptEdits",
-               "--no-session-persistence", "--setting-sources", "", "--output-format", "json"]
+               "--no-session-persistence", "--setting-sources", "",
+               "--output-format", "stream-json", "--verbose"]
         if MODEL:
             cmd += ["--model", MODEL]
         done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
                               cwd=workdir, timeout=TIMEOUT)
-    try:
-        out = json.loads(done.stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError("claude 没有正常返回：" + (done.stderr or done.stdout)[-300:]) from None
-    if out.get("is_error") or not out.get("result"):
-        raise RuntimeError("claude 出错：" + str(out.get("result") or out.get("subtype")))
-    return out["result"]
+    return answer_from(done.stdout, done.stderr)
 
 
-def post_back(space_type: str, space_id: str, subject: str, content: str) -> None:
-    """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。"""
+def answer_from(stdout: str, stderr: str = "") -> str:
+    """从 stream-json 里取回答：最后一次用工具之后它说的全部话。
+
+    只取 result 会丢话：它答完以后又补一句（比如后台任务结束时），result 只剩那一句。
+    """
+    tail: list[str] = []
+    result = None
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "assistant":
+            for block in (event.get("message") or {}).get("content") or []:
+                if block.get("type") == "tool_use":
+                    tail = []
+                elif block.get("type") == "text" and block.get("text", "").strip():
+                    tail.append(block["text"].strip())
+        elif event.get("type") == "result":
+            result = event
+    if result is None:
+        raise RuntimeError("claude 没有正常返回：" + (stderr or stdout)[-300:])
+    if result.get("is_error"):
+        raise RuntimeError("claude 出错：" + str(result.get("result") or result.get("subtype")))
+    answer = "\n\n".join(tail) or (result.get("result") or "")
+    if not answer:
+        raise RuntimeError("claude 出错：" + str(result.get("subtype")))
+    return answer
+
+
+def post_back(space_type: str, space_id: str, subject: str, content: str, reply_to=None, hit_id=None) -> None:
+    """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。
+
+    reply_to：回的是对话里哪一句；被顶叫回来的是 0（不回任何一句）。
+    """
     url = (COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/spaces/"
            + urllib.parse.quote(space_type, safe="") + "/" + urllib.parse.quote(space_id, safe="") + "/messages")
     token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(url, method="POST", data=json.dumps(
-        {"content": content, "subject": subject}, ensure_ascii=False).encode("utf-8"), headers={
+        {"content": content, "subject": subject, "reply_to": reply_to, "hit_id": hit_id}, ensure_ascii=False).encode("utf-8"), headers={
         "Authorization": "Basic " + token,
         "OCS-APIRequest": "true",
         "Accept": "application/json",
@@ -254,7 +282,7 @@ def work(job: dict) -> None:
         # 先放开这片空间：回答发回去时，排着的下一下顶会接着叫进来
         with BUSY_LOCK:
             BUSY.discard(key)
-        post_back(space_type, space_id, subject, content)
+        post_back(space_type, space_id, subject, content, job.get("reply_to"), job.get("hit_id"))
     except (urllib.error.URLError, OSError) as error:
         sys.stderr.write(f"[claude-bridge] 回答发不回 Cognos：{error}\n")
     finally:
@@ -296,6 +324,7 @@ class Handler(BaseHTTPRequestHandler):
                 "prompt": prompt_from(body.get("history") or [], str(body["message"]), str(body.get("caller") or "交互对象")),
                 "repo": bool(body.get("repo")),
                 "hit_id": body.get("hit_id"),
+                "reply_to": body.get("reply_to"),
             }
         except (KeyError, ValueError) as error:
             self.send_json(400, {"error": f"请求不完整：{error}"})

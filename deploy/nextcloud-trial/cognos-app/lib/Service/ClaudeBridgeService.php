@@ -30,6 +30,11 @@ final class ClaudeBridgeService {
     }
 
     /** Cognos 自己的那片空间：在这里押着的是 Cognos 的架构，重新切就是改 Cognos 自己的代码。 */
+    /** 在 Cognos 自己的空间里被叫来的，就是替 Cognos 站着的那位；别处是 Claude Code。 */
+    public function subjectFor(string $spaceType, string $spaceId): string {
+        return $this->isSelf($spaceType, $spaceId) ? 'Cognos' : 'Claude Code';
+    }
+
     public function isSelf(string $spaceType, string $spaceId): bool {
         return $spaceType === 'creation' && $spaceId !== ''
             && $this->config->getAppValue('cognos', 'self_creation_id', '') === $spaceId;
@@ -95,8 +100,9 @@ final class ClaudeBridgeService {
         $status = $response->getStatusCode();
         if ($status === 202) {
             if ($spaceType === 'creation') {
-                // 页面刷新后靠它知道还有人在做；回答发回来时（SpaceApiController::addMessage）清掉
+                // 页面刷新后靠它知道还有谁在做；回答发回来时（SpaceApiController::addMessage）清掉
                 $this->config->setAppValue('cognos', 'agent_pending_creation_' . $spaceId, (string)time());
+                $this->config->setAppValue('cognos', 'agent_pending_who_creation_' . $spaceId, $subject);
             }
             return;
         }

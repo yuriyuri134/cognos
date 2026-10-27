@@ -45,6 +45,7 @@ final class HermesAgentService {
         private NotesService $notes,
         private SpaceService $spaces,
         private SpaceEntryService $entries,
+        private CreationSpaceService $creations,
         private ClaudeBridgeService $bridge,
         private PushBackService $pushBack,
         private IConfig $config,
@@ -535,7 +536,10 @@ final class HermesAgentService {
     /**
      * @return string|null Hermes 的回答；叫的是 Claude Code 时返回 null，它在本机接着做，做完自己把回答发回这段对话
      */
-    public function chatCreation(int $creationId, string $message, array $context = []): ?string {
+    /**
+     * @param ?int $replyTo 这次回的是对话里哪一句（交互对象那句的 id），带给桥，回答发回来时记上
+     */
+    public function chatCreation(int $creationId, string $message, array $context = [], ?int $replyTo = null): ?string {
         $user = $this->users->getUser();
         if ($user === null) {
             throw new \RuntimeException('Authentication required');
@@ -567,14 +571,15 @@ final class HermesAgentService {
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
         if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
-            $subject = self::CLAUDE_CODE_PARTICIPANT;
+            // 在 Cognos 自己的空间里，被叫来的就是替 Cognos 站着的那位，它押着的是 Cognos 的架构
+            $subject = $this->bridge->subjectFor('creation', (string)$creationId);
             $entry = $this->entries->entry(
                 $space,
                 $subject,
                 ['caller' => $caller, 'message' => $message],
                 $this->bridge->canDo('creation', (string)$creationId),
             );
-            $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller);
+            $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller, ['reply_to' => $replyTo]);
             $this->spaces->markSeen('creation', (string)$creationId, $subject);
             return null;
         }
@@ -610,6 +615,33 @@ final class HermesAgentService {
         $this->spaces->markSeen('creation', (string)$creationId, $subject);
 
         return $response['content'];
+    }
+
+    /**
+     * 用对话里已经存下的一句去叫（排着的那句轮到了）：上下文只到那一句为止。
+     *
+     * @return ?string 同 chatCreation
+     */
+    public function chatCreationFromMessage(int $creationId, int $messageId): ?string {
+        $user = $this->users->getUser();
+        if ($user === null) {
+            throw new \RuntimeException('Authentication required');
+        }
+        $context = $this->creations->getContext($creationId, $user->getUID());
+        $upTo = [];
+        $said = null;
+        foreach ($context['messages'] as $item) {
+            $upTo[] = $item;
+            if ($item['id'] === $messageId) {
+                $said = $item;
+                break;
+            }
+        }
+        if ($said === null || $said['role'] !== 'user') {
+            throw new \InvalidArgumentException('Message not found');
+        }
+        $context['messages'] = $upTo;
+        return $this->chatCreation($creationId, (string)$said['content'], $context, $messageId);
     }
 
     /**
