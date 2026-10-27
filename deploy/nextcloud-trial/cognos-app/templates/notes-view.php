@@ -10,7 +10,14 @@
             <div><p class="cognos-eyebrow">Cognos · 材料</p><h1 id="note-title">正在读取…</h1><p id="note-meta"></p></div>
             <a href="/index.php/apps/cognos/notes">返回材料</a>
         </header>
+        <div class="cognos-note-edit-bar"><span id="note-readonly" hidden>导入的原文，只读</span><button id="edit-button" type="button" hidden>编辑</button></div>
         <article id="note-content" class="cognos-note-content"></article>
+        <form id="note-editor" class="cognos-inline-form" hidden>
+            <input id="edit-title" required>
+            <textarea id="edit-content"></textarea>
+            <p class="cognos-note-edit-hint">保存会生成新版本，上一版原样保留。</p>
+            <div class="cognos-note-edit-actions"><button type="submit">保存</button><button id="edit-cancel" type="button">取消</button><span id="edit-status" role="status"></span></div>
+        </form>
             <section class="cognos-note-actions">
             <label for="participant-select">让谁面对这份材料</label>
             <select id="participant-select" required><option value="">正在读取参与者…</option></select>

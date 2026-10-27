@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace OCA\Cognos\Controller;
 
 use OCA\Cognos\Service\ActivitySourceService;
+use OCA\Cognos\Service\NoteReadOnlyException;
 use OCA\Cognos\Service\NotesService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -81,6 +82,8 @@ class NotesController extends Controller {
             $title = $this->param('title');
             if ($title === '') return new JSONResponse(['error' => 'Title is required'], 422);
             return new JSONResponse(['note' => $this->notes->updateNote($noteId, $title, $this->param('content', '', false))]);
+        } catch (NoteReadOnlyException $error) {
+            return new JSONResponse(['error' => '导入的原文只读，不能修改'], 403);
         } catch (\RuntimeException $error) {
             return new JSONResponse(['error' => 'Note not found'], 404);
         } catch (\Throwable $error) {

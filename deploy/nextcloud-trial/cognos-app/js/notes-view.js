@@ -28,10 +28,28 @@
     flush(); return out.join('\n');
   };
   const renderParticipants =(select, participants) => { select.replaceChildren(); const first = document.createElement('option'); first.value = ''; first.textContent = '选择当前参与者（必选）'; select.append(first); for (const p of participants || []) { const option = document.createElement('option'); option.value = p.id; option.textContent = `${p.display_name} · ${p.description}${p.runtime_available ? '' : ' · runtime 未接通'}`; select.append(option); } };
+  let current = null;
+  const editor = document.querySelector('#note-editor');
+  function showNote(note) {
+    current = note;
+    document.querySelector('#note-title').textContent = note.title; document.querySelector('#note-meta').textContent = `${note.space_title} · 版本 ${note.revision}`; document.querySelector('#note-content').innerHTML = renderMarkdown(note.content);
+    // 导入的原文只读；自己写的可以编辑，每次保存留下上一版
+    document.querySelector('#note-readonly').hidden = !note.read_only; document.querySelector('#edit-button').hidden = !!note.read_only;
+  }
+  function setEditing(on) {
+    editor.hidden = !on; document.querySelector('#note-content').hidden = on; document.querySelector('#edit-button').hidden = on || !!current?.read_only;
+    if (on) { document.querySelector('#edit-title').value = current.title; document.querySelector('#edit-content').value = current.content; document.querySelector('#edit-status').textContent = ''; document.querySelector('#edit-content').focus(); }
+  }
+  document.querySelector('#edit-button').addEventListener('click', () => setEditing(true));
+  document.querySelector('#edit-cancel').addEventListener('click', () => setEditing(false));
+  editor.addEventListener('submit', async (event) => {
+    event.preventDefault(); const button = editor.querySelector('button[type=submit]'); const status = document.querySelector('#edit-status'); button.disabled = true; status.textContent = '正在保存…';
+    try { const data = await api(`/notes/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: document.querySelector('#edit-title').value, content: document.querySelector('#edit-content').value }) }); showNote(data.note); setEditing(false); }
+    catch (error) { status.textContent = error.message; } finally { button.disabled = false; }
+  });
   async function load() {
     try {
-      const data = await api(`/notes/${encodeURIComponent(id)}`); const note = data.note;
-      document.querySelector('#note-title').textContent = note.title; document.querySelector('#note-meta').textContent = `${note.space_title} · 版本 ${note.revision}`; document.querySelector('#note-content').innerHTML = renderMarkdown(note.content);
+      const data = await api(`/notes/${encodeURIComponent(id)}`); showNote(data.note);
       const refs = await api(`/notes/${encodeURIComponent(id)}/references`); const root = document.querySelector('#references-list'); root.replaceChildren(); if (!refs.references?.length) root.innerHTML = '<p class="cognos-empty">还没有从此材料开始的 Activity。</p>'; for (const item of refs.references || []) { const link = document.createElement('a'); link.href = `${base}/activities/${encodeURIComponent(item.id)}`; link.textContent = `${item.participant_name || '未选择参与者'} · ${item.title} · ${new Date(Number(item.created_at) * 1000).toLocaleString('zh-CN')}`; root.append(link); }
       const participants = await api('/participants'); renderParticipants(document.querySelector('#participant-select'), participants.participants);
     } catch (error) { document.querySelector('#note-content').textContent = error.message; }
