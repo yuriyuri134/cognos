@@ -36,7 +36,8 @@ Cognos 把入口（和 Hermes 拿到的是同一份，只是主体换成 Claude 
   COGNOS_BRIDGE_COMMANDS  设成 1 才让它跑命令
   COGNOS_BRIDGE_TIMEOUT   一次最多做多少秒，默认 1800
   COGNOS_REPO          Cognos 仓库在哪，默认这个文件往上两层
-  COGNOS_SELF_BASE     Cognos 自己的空间从哪条分支切新分支，默认 master（没有就用 HEAD）
+  COGNOS_SELF_BASE     Cognos 自己的空间从哪里切新分支，默认 HEAD：COGNOS_REPO 现在检出、正在跑的那一份（它的身体）。
+                       以前默认 master，可本机 master 落在跑着的那份后面，改的就不是它自己的身体
   COGNOS_SELF_CHECK    Cognos 自己的空间改完以后，在仓库副本里再跑的一条检查命令（可不设），非 0 算没过
   COGNOS_PHP_CONTAINER 本机没有 php 时，用哪个容器检查 PHP 语法，默认 cognos-nextcloud-trial-app-1
 """
@@ -87,7 +88,7 @@ SPACES_DIR = Path(os.environ.get("COGNOS_SPACES_DIR") or Path.home() / "Document
 COMMANDS = os.environ.get("COGNOS_BRIDGE_COMMANDS", "") == "1"
 TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
 REPO = Path(os.environ.get("COGNOS_REPO") or HERE.parent.parent)
-SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "master")
+SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "HEAD")
 SELF_CHECK = os.environ.get("COGNOS_SELF_CHECK", "").strip()
 PHP_CONTAINER = os.environ.get("COGNOS_PHP_CONTAINER", "cognos-nextcloud-trial-app-1")
 
@@ -137,7 +138,25 @@ def open_worktree(space_type: str, space_id: str, hit_id, base_branch: str | Non
     path = workdir_for(space_type, space_id) / "worktrees" / branch.replace("/", "-")
     path.parent.mkdir(parents=True, exist_ok=True)
     git("worktree", "add", "-q", "-b", branch, str(path), base)
-    return {"path": path, "branch": branch, "base": base}
+    return {"path": path, "branch": branch, "base": base, **body_state(base)}
+
+
+def body_state(base: str) -> dict:
+    """正在跑的那一份（REPO 的 HEAD）是哪个提交；以前在这里改过、还没长进它的 cognos-self/* 分支有哪些。
+    押着的前提 governs 写着的代码，要是只在这些分支上，就是押了、改了，可身体里没有。"""
+    try:
+        head = git("rev-parse", "--abbrev-ref", "HEAD") + " " + git("rev-parse", "--short", "HEAD")
+    except RuntimeError:
+        head = "?"
+    try:
+        pending = [b.strip(" *+") for b in git("branch", "--list", "cognos-self/*", "--no-merged", "HEAD").splitlines() if b.strip()]
+    except RuntimeError:
+        pending = []
+    try:
+        behind = int(git("rev-list", "--count", f"{base}..HEAD")) if base != "HEAD" else 0
+    except (RuntimeError, ValueError):
+        behind = 0
+    return {"body": head, "pending": pending, "behind": behind}
 
 
 def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | None, dict | None]:
@@ -247,6 +266,13 @@ def hands(workdir: Path, wt: dict | None = None) -> str:
             "- 你押着的前提，governs 写着它管着这里的哪段代码。被顶了要重新切，就去改那段代码；只改说法不算。"
             "改完不用提交：你做完以后桥会把改动提交到这条分支，由交互对象来看、来合。不要切别的分支，不要推。",
         ]
+        if wt.get("body"):
+            lines.append(f"- 正在跑的 Cognos（它的身体）是 {wt['body']}。"
+                         + (f"你这份副本的起点落在它后面 {wt['behind']} 个提交，改之前先把它合进来。" if wt.get("behind") else "你这份副本从它切出来。"))
+        others = [b for b in wt.get("pending") or [] if b != wt["branch"]]
+        if others:
+            lines.append("- 以前在这里改过、还没长进身体的分支（押着的前提要是管着这些分支上的代码，身体里其实没有）："
+                         + "、".join(others) + "。")
     else:
         lines.append(f"- 这片空间自己的工作目录：{workdir}。只能在这里面读写文件；做出来的东西放这里，下次进来还在。")
     if commands_allowed():
