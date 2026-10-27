@@ -172,10 +172,11 @@ def body_state(base: str) -> dict:
     return {"body": head, "pending": pending, "behind": behind}
 
 
-def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | None, dict | None]:
-    """有改动就提交到那条分支（不合、不推），对改过的文件跑检查；没改就把分支和副本收掉。
+def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | None, dict | None, list[str]]:
+    """有改动就提交到那条分支（不推），对改过的文件跑检查；没改就把分支和副本收掉。
 
-    返回（接在回答后面的一句，下一次从哪条分支接着，检查结果）。
+    返回（接在回答后面的一句，下一次从哪条分支接着，检查结果，这条分支比跑着的身体多改了的文件）。
+    改了的文件带回 Cognos：重新切了却没碰 governs 里的文件，会被记下来。
     """
     path, branch, base = wt["path"], wt["branch"], wt["base"]
     if git("status", "--porcelain", cwd=path):
@@ -185,6 +186,8 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
     # 它自己提交了、自己合了别的分支，工作区是干净的，也算改了：看分支比起点多了提交没有
     if int(git("rev-list", "--count", f"{base}..HEAD", cwd=path) or "0") > 0:
         commit = git("rev-parse", "--short", "HEAD", cwd=path)
+        # 比的是跑着的身体，不是起点：副本里合进来的身体自己的提交不算这次改的
+        changed = [f for f in git("diff", "--name-only", "HEAD..." + commit).splitlines() if f.strip()]
         try:
             checks = check_changes(path, base)
         except Exception as error:  # 检查本身坏了也要说出来，不能当成过了
@@ -198,12 +201,12 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
             checks["grown"] = grown
         else:
             text += f"\n\n没有合进跑着的那份，由你来看、来合：`git diff {base}...{branch}`。"
-        return text, branch, checks
+        return text, branch, checks, changed
     git("worktree", "remove", "--force", str(path))
     git("branch", "-D", branch)
     # 没改：下一次还从这一次的起点接着
     keep = base if base.startswith("cognos-self/") else None
-    return "\n\n---\n这次没有改代码。", keep, None
+    return "\n\n---\n这次没有改代码。", keep, None, []
 
 
 def grow(branch: str) -> dict:
@@ -464,16 +467,21 @@ def answer_from(stdout: str, stderr: str = "") -> str:
     return answer
 
 
-def post_back(space_type: str, space_id: str, subject: str, content: str, reply_to=None, hit_id=None, extra: dict | None = None) -> None:
+def post_back(space_type: str, space_id: str, subject: str, content: str, reply_to=None, hit_id=None, extra: dict | None = None, changed_files=None) -> None:
     """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。
 
     reply_to：回的是对话里哪一句；被顶叫回来的是 0（不回任何一句）。
+    hit_id：被叫回来面对一下顶的，带回去：Cognos 看它面对了没有，没面对就记一条 unanswered。
+    changed_files：在仓库副本里做的，这次改了哪些文件：重新切了却没碰 governs 里的文件，记一条 unchanged。
     """
+    body = {"content": content, "subject": subject, "reply_to": reply_to, "hit_id": hit_id, **(extra or {})}
+    if changed_files is not None:
+        body["changed_files"] = changed_files
     url = (COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/spaces/"
            + urllib.parse.quote(space_type, safe="") + "/" + urllib.parse.quote(space_id, safe="") + "/messages")
     token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(url, method="POST", data=json.dumps(
-        {"content": content, "subject": subject, "reply_to": reply_to, "hit_id": hit_id, **(extra or {})}, ensure_ascii=False).encode("utf-8"), headers={
+        body, ensure_ascii=False).encode("utf-8"), headers={
         "Authorization": "Basic " + token,
         "OCS-APIRequest": "true",
         "Accept": "application/json",
@@ -491,6 +499,7 @@ def work(job: dict) -> None:
     back: dict = {}
     if job.get("open_id"):
         back = {"open_id": job["open_id"], "run_started": job.get("run_started"), "branch": job.get("base_branch")}
+    changed = None
     try:
         try:
             if job.get("repo"):
@@ -505,7 +514,7 @@ def work(job: dict) -> None:
         new_bridge = False
         if wt is not None:
             try:
-                tail, branch, checks = close_worktree(wt, subject, content)
+                tail, branch, checks, changed = close_worktree(wt, subject, content)
                 content += tail
                 new_bridge = bool(checks and checks.get("grown", {}).get("bridge"))
                 if checks is not None:
@@ -521,7 +530,7 @@ def work(job: dict) -> None:
         if new_bridge:
             # 先换桥再发回：发回时 Cognos 会接着叫下一次，要叫到新的那个
             content += "\n- " + restart_bridge()
-        post_back(space_type, space_id, subject, content, job.get("reply_to"), job.get("hit_id"), back)
+        post_back(space_type, space_id, subject, content, job.get("reply_to"), job.get("hit_id"), back, changed)
     except (urllib.error.URLError, OSError) as error:
         sys.stderr.write(f"[claude-bridge] 回答发不回 Cognos：{error}\n")
     finally:
