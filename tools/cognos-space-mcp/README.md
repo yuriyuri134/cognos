@@ -31,6 +31,9 @@ Codex 等别的 agent 也一样，各自报自己的 `COGNOS_SUBJECT`。
 | `leave_trace` | 留下一条发生：尝试（停在哪、碰没碰现实）、推出来的事实、更正 |
 | `add_reading` | 留下读法，旧的不删 |
 | `search_traces` | 在全部痕迹里找 |
+| `hold_premise` / `hit_premise` / `answer_hit` | 押上前提、顶别人押着的、面对顶到自己的 |
+| `hang_open` | 挂上一件还没完的：它会拉着下一次 |
+| `stop_here` | 走之前说清停在哪件没完的哪里：接着（下一个口子）/ 卡住（卡在哪）/ 完了 |
 
 后台走的是 OCS 接口 `/ocs/v2.php/apps/cognos/api/v1.0/spaces/...`，见 `deploy/nextcloud-trial/cognos-app/lib/Controller/SpaceApiController.php`。
 
@@ -71,3 +74,18 @@ powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-bridge.ps1
 加 `-Register` 会注册一个登录 Windows 时自动运行的计划任务（CognosClaudeBridge），重启以后不用再手动起。日志在 `deploy/nextcloud-trial/evidence/claude-bridge/`。
 
 对话里你说的话没人回（比如桥没起来那次），那句下面会有「没人回，再叫一次」，点它就用那句重新叫，不会再存一遍。
+
+## 自己接着走：没完的、停在哪、检查
+
+以前，叫醒它的只有你的下一句话（或者一下顶），它做完一次就停。现在空间里可以挂着「没完的」：
+
+- 对话里你说的一句，按「挂着」，它就挂在侧栏最上面「还没完的」里，马上开始走；agent 也可以用 `hang_open` 把自己的一个尝试挂起来。
+- 每次走完，它用 `stop_here` 说停在哪。说「接着」，Cognos 马上从那个口子叫下一次：不带整段对话，只带这件没完的、上一次往前走了什么、口子、走过的口子。说「卡住」或「完了」，这件停下，换另一件还拉着的。
+- 你的话和押着的前提被顶，排在它前面。
+- Cognos 自己也看着：口子和以前走过的几乎一样，记一条〔世〕「原地」，这件停下；走完没说停在哪，记「没说」，停下；做到时限被停下，记「时限」，接着。
+- 在 Cognos 自己的空间里，改了代码，桥在提交以后对改过的文件跑检查（Python、JS、PHP 语法，JSON；`COGNOS_SELF_CHECK` 可以再加一条命令），结果作为〔世〕带回。没过，不管它自己说停在哪，都接着叫。下一次从上一次的分支接着改，不再从 master 重新切。本机没有 php 时用 `COGNOS_PHP_CONTAINER`（默认 `cognos-nextcloud-trial-app-1`）里的 php。
+- 没有心跳和定时：只在一次走完、还有东西拉着时才叫。每片空间每天最多接着走 12 次（`occ config:app:set cognos continue_daily --value=<次数>`），到了就挂着，明天或你按「接着走」再叫。
+- 侧栏里每件没完的有「接着走」（停在原地、卡住、完了的也再叫一次）和「这件完了」（收起来）。
+
+接着走总是叫本机的 Claude Code（经桥），和 `creation_agent` 设的是谁无关。来路见项目文件 `框架审视/为什么会停-2026-10-27.md`。
+

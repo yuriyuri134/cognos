@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\Cognos\Controller;
 
 use OCA\Cognos\Service\ClaudeBridgeService;
+use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\HermesAgentService;
 use OCA\Cognos\Service\PushBackService;
@@ -29,6 +30,7 @@ final class CreationSpaceController extends Controller {
         private SpaceService $spaces,
         private SpaceEntryService $entries,
         private PushBackService $pushBack,
+        private ContinuationService $continuation,
         private ClaudeBridgeService $bridge,
         private IConfig $config,
     ) {
@@ -224,7 +226,11 @@ final class CreationSpaceController extends Controller {
         try {
             $entry = $this->entries->entry($space, $user->getUID());
             $this->spaces->markSeen('creation', (string)$id, $user->getUID());
-            return new DataResponse(['entry' => $entry, 'text' => $this->entries->renderText($entry)]);
+            return new DataResponse([
+                'entry' => $entry,
+                'text' => $this->entries->renderText($entry),
+                'continue_budget' => $this->continuation->budget('creation', (string)$id),
+            ]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to load space: ' . $error->getMessage()], 500);
         }
@@ -306,5 +312,90 @@ final class CreationSpaceController extends Controller {
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
         }
+    }
+
+    /**
+     * 挂上一件没完的：对话里交互对象说的一句（message_id），或者直接写一句（content）。挂上就开始走。
+     * 同一句只挂一次（open 的 about 记着 msg:<id>）。
+     */
+    #[NoAdminRequired]
+    public function hangOpen(int $id): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $uid = $user->getUID();
+        if ($this->entries->resolve('creation', (string)$id, $uid) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        $body = $this->request->getParams();
+        $content = trim((string)($body['content'] ?? ''));
+        $saidAt = null;
+        $about = null;
+        $messageId = (int)($body['message_id'] ?? 0);
+        if ($messageId > 0) {
+            $said = null;
+            foreach ($this->creations->getMessages($id, $uid) as $message) {
+                if ($message['id'] === $messageId) {
+                    $said = $message;
+                    break;
+                }
+            }
+            if ($said === null || $said['role'] !== 'user') {
+                return new DataResponse(['message' => '只能挂你自己说的一句'], 422);
+            }
+            $about = 'msg:' . $messageId;
+            foreach ($this->spaces->opens('creation', (string)$id) as $open) {
+                if ($open['about'] === $about && !$open['closed']) {
+                    return new DataResponse(['open' => $open, 'started' => ['called' => false, 'message' => sprintf('这句已经挂着了（#%d，%s）。', $open['id'], $open['state'])]]);
+                }
+            }
+            $content = (string)$said['content'];
+            $saidAt = (int)$said['created_at'];
+        }
+        if ($content === '') {
+            return new DataResponse(['message' => 'content or message_id is required'], 422);
+        }
+        try {
+            $result = $this->continuation->hang('creation', (string)$id, $uid, $content, '原', $uid, $saidAt, $about);
+            return new DataResponse($result, 201);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        }
+    }
+
+    /** 交互对象按「接着走」：停在原地、卡住、完了的也再叫一次。 */
+    #[NoAdminRequired]
+    public function continueOpen(int $id, int $openId): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        if ($this->entries->resolve('creation', (string)$id, $user->getUID()) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        return new DataResponse($this->continuation->start('creation', (string)$id, $user->getUID(), $openId, true));
+    }
+
+    /** 交互对象说这件完了：收起来，不再拉着。 */
+    #[NoAdminRequired]
+    public function closeOpen(int $id, int $openId): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        if ($this->entries->resolve('creation', (string)$id, $user->getUID()) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        $open = $this->spaces->openState('creation', (string)$id, $openId);
+        if ($open === null) {
+            return new DataResponse(['message' => 'Open not found'], 404);
+        }
+        $reason = trim((string)($this->request->getParams()['content'] ?? ''));
+        $trace = $this->spaces->addTrace('creation', (string)$id, [
+            'kind' => 'correction', 'source' => '原', 'author' => $user->getUID(), 'status' => 'confirmed',
+            'content' => $reason !== '' ? $reason : '这件完了', 'ref_id' => $openId, 'said_at' => time(),
+        ]);
+        return new DataResponse(['trace' => $trace], 201);
     }
 }

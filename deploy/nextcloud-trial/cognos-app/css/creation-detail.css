@@ -962,6 +962,15 @@
   cursor: pointer;
 }
 
+/* 还没完的：拉着下一次的（绿）、停下等东西的（灰） */
+.space-open {
+  border-left: 3px solid var(--color-border-dark, var(--color-border));
+}
+
+.space-open-pulls {
+  border-left-color: var(--color-success, #46ba61);
+}
+
 /* 押着的：谁押着、被什么顶了、怎么面对的 */
 .space-premise {
   border-left: 3px solid var(--color-border-dark, var(--color-border));

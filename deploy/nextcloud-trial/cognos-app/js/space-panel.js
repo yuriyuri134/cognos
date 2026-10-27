@@ -2,6 +2,7 @@
 // 设计见项目文件 空间入口/第一片空间-实现说明.md 第五节。
 // 位置就是立场：最上面是这里押着的（谁押着、管着什么、被什么顶了、怎么面对的），
 // 顶一下会把押的那位叫回来（见 PushBackService）。框架审视/会不会全错-2026-10-27.md 第十一节。
+// 再往上是「还没完的」：挂着的会自己拉着下一次（见 ContinuationService）。框架审视/为什么会停-2026-10-27.md。
 (function() {
   'use strict';
 
@@ -14,10 +15,22 @@
   };
   const STATUS_LABELS = { said: '说过', confirmed: '确认', rejected: '被否', withdrawn: '撤回' };
   const ANSWER_ACTS = ['站住', '碎了', '重新切'];
+  // 没完的停在哪：拉着下一次的、停下等东西的、收了的
+  const OPEN_STATES = {
+    '还没走': '还没走，会自己开始',
+    '接着': '接着走',
+    '时限': '做到一半被时限停下，会接着',
+    '没过': '检查没过，会接着',
+    '卡住': '卡住了，等你或现实',
+    '完了': '它说完了，等你收',
+    '原地': '在原地转，停下了',
+    '没说': '没说停在哪，停下了',
+  };
 
   const panel = {
     creationId: null,
     entry: null,
+    budget: null,
     root: null,
     body: null,
     collapsed: false,
@@ -68,6 +81,7 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       panel.entry = data.entry;
+      panel.budget = data.continue_budget || null;
       render();
     } catch (error) {
       console.error('Load space error:', error);
@@ -86,6 +100,8 @@
         <p class="space-note">上次是 ${formatDate(e.since.last_seen)}。多了 ${e.since.traces.length} 条发生、${e.since.readings.length} 条读法，下面标「新」的就是。</p>
       `, 'space-section-since'));
     }
+
+    parts.push(section('还没完的', opensHtml(e, newIds), 'space-section-opens'));
 
     parts.push(section('押着的', stanceHtml(e, newIds), 'space-section-stance'));
 
@@ -185,6 +201,45 @@
         <div class="space-item-head"><span class="space-tag space-tag-ai">读法 · ${escapeHtml(r.reader)}${conf}</span></div>
         <div class="space-item-content">${escapeHtml(r.content)}</div>
         ${refs}
+      </li>
+    `;
+  }
+
+  function opensHtml(e, newIds) {
+    const opens = e.opens || [];
+    const budget = panel.budget ? `<p class="space-note">今天在这里自己接着走了 ${panel.budget.used} / ${panel.budget.daily} 次。</p>` : '';
+    if (!opens.length) {
+      return '<p class="space-note">没有挂着的。对话里你说的一句，按「挂着」，它就会一直拉着，AI 从它接着走，直到卡在只有你或现实能给的地方。</p>' + budget;
+    }
+    return `<ul class="space-list">${opens.map(o => openItem(o, newIds)).join('')}</ul>` + budget;
+  }
+
+  function openItem(o, newIds) {
+    const stop = o.last_stop;
+    const steps = (o.steps || []).map(st => `
+      <li class="space-hit">
+        <div class="space-item-head">
+          <span class="space-hit-label">${escapeHtml(st.kind === 'reality' ? '检查' : '停')}：${escapeHtml(st.act || '')}</span>${sourceTag(st)}<span class="space-item-id">#${st.id}</span>
+          <span class="space-item-meta">${formatDate(st.created_at)}</span>
+        </div>
+        <div class="space-item-content">${escapeHtml(st.content)}</div>
+        ${st.stopped_at ? `<div class="space-item-meta">${st.act === '卡住' ? '卡在' : '口子'}：${escapeHtml(st.stopped_at)}</div>` : ''}
+      </li>`).join('');
+    return `
+      <li class="space-item space-open ${o.pulls ? 'space-open-pulls' : ''}" data-trace-id="${o.id}">
+        <div class="space-item-head">
+          ${newIds.has(o.id) ? '<span class="space-new">新</span>' : ''}
+          ${sourceTag(o)}
+          <span class="space-item-id">#${o.id}</span>
+          <span class="space-status ${o.pulls ? 'space-status-confirmed' : 'space-status-rejected'}">${escapeHtml(OPEN_STATES[o.state] || o.state)}</span>
+        </div>
+        <div class="space-item-content">${escapeHtml(o.content)}</div>
+        ${stop && stop.stopped_at ? `<div class="space-item-meta">${stop.act === '卡住' ? '卡在' : '口子'}：${escapeHtml(stop.stopped_at)}</div>` : ''}
+        ${steps ? `<details class="space-fallen"><summary>走过 ${o.runs} 次，${o.steps.length} 步</summary><ul class="space-hits">${steps}</ul></details>` : ''}
+        <div class="space-item-actions">
+          <button type="button" class="space-link-btn" data-action="continue">接着走</button>
+          <button type="button" class="space-link-btn" data-action="close">这件完了</button>
+        </div>
       </li>
     `;
   }
@@ -308,6 +363,20 @@
 
     if (action === 'confirm') {
       await correct(refId, 'confirmed', '确认');
+      return;
+    }
+    if (action === 'continue' || action === 'close') {
+      try {
+        const result = await postTo(`/space/opens/${refId}/${action}`, {});
+        if (action === 'continue') {
+          window.alert(result.message);
+          if (result.called) window.CognosCreationDetail?.waitForAgent(null);
+        }
+        await reload();
+      } catch (error) {
+        console.error('Open action error:', error);
+        window.alert('没成：' + error.message);
+      }
       return;
     }
     if (action === 'hit') {
@@ -473,5 +542,13 @@
     return div.innerHTML;
   }
 
-  window.CognosSpacePanel = { init, reload, keep };
+  // 对话里「挂着」：把这句挂成没完的，挂上就开始走
+  async function hang(messageId) {
+    const result = await postTo('/space/opens', { message_id: messageId });
+    if (panel.collapsed) toggle();
+    await reload();
+    return result;
+  }
+
+  window.CognosSpacePanel = { init, reload, keep, hang };
 })();

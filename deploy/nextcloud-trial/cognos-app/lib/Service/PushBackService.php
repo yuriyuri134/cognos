@@ -61,15 +61,18 @@ final class PushBackService {
     /**
      * 上一位做完、回答发回来时：还排着的下一件，接着叫。
      * 排着的是一下顶，就在这里叫；是对话里的一句，就把那句的 id 交回去，由调用的地方去叫（它要走对话那条路）。
+     * 返回 ['msg', id]（要调用的地方去叫）、['hit', id]（这里已经叫了），或者 null（什么都没排着，没人被叫）。
+     *
+     * @return ?array{0: string, 1: int}
      */
-    public function drain(string $spaceType, string $spaceId, string $uid): ?int {
+    public function drain(string $spaceType, string $spaceId, string $uid): ?array {
         $queue = $this->queue($spaceType, $spaceId);
         while ($queue !== []) {
             $next = array_shift($queue);
             $this->saveQueue($spaceType, $spaceId, $queue);
             [$what, $id] = explode(':', $next, 2) + [1 => '0'];
             if ($what === 'msg') {
-                return (int)$id;
+                return ['msg', (int)$id];
             }
             $hitId = (int)$id;
             $hit = $this->spaces->getTrace($spaceType, $spaceId, $hitId);
@@ -81,8 +84,9 @@ final class PushBackService {
             if ($open === []) {
                 continue;
             }
-            $this->call($spaceType, $spaceId, $uid, $premise, $hit);
-            return null;
+            if ($this->call($spaceType, $spaceId, $uid, $premise, $hit)['called']) {
+                return ['hit', $hitId];
+            }
         }
         return null;
     }

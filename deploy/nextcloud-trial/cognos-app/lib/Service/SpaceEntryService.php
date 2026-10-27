@@ -61,7 +61,8 @@ final class SpaceEntryService {
         foreach ($traces as $trace) {
             $bySubject[$trace['author']] = $trace;
             // 押着的、顶、面对单独成一块（立场），不混进别的
-            if (in_array($trace['kind'], ['correction', 'premise', 'hit', 'answer'], true)) {
+            // 没完的和它走过的每一次（stop、reality）也单独成一块
+            if (in_array($trace['kind'], ['correction', 'premise', 'hit', 'answer', 'open', 'stop', 'reality'], true)) {
                 continue;
             }
             $closed = in_array($trace['effective_status'], ['rejected', 'withdrawn'], true);
@@ -118,6 +119,7 @@ final class SpaceEntryService {
             'subject' => $subject,
             'purpose' => $this->purpose(),
             'call' => $call,
+            'opens' => array_values(array_filter($this->spaces->opens($type, $id, $traces), static fn(array $o): bool => !$o['closed'])),
             'held' => $held,
             'held_elsewhere' => $heldElsewhere,
             'fallen' => array_slice($fallen, -5),
@@ -163,6 +165,20 @@ final class SpaceEntryService {
                 $this->date($entry['since']['last_seen']), count($entry['since']['traces']), count($entry['since']['readings']));
         }
         $newIds = $entry['since'] === null ? [] : array_column($entry['since']['traces'], 'id');
+
+        $lines[] = '';
+        $lines[] = '## 这里还没完的';
+        if ($entry['opens'] === []) {
+            $lines[] = '这里没有挂着没完的。';
+        }
+        foreach ($entry['opens'] as $o) {
+            $line = sprintf('- %s；%s', $this->traceLine($o, $newIds), $o['state']);
+            if ($o['last_stop'] !== null && $o['last_stop']['stopped_at'] !== null) {
+                $line .= '，口子：' . $this->snippet($o['last_stop']['stopped_at'], 80);
+            }
+            $line .= $o['runs'] > 0 ? sprintf('（走过 %d 次）', $o['runs']) : '';
+            $lines[] = $line;
+        }
 
         $lines[] = '';
         $lines[] = '## 你站在哪（你押着的）';

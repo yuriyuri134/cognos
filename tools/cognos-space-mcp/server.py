@@ -2,7 +2,8 @@
 """Cognos 空间的 MCP server：让外面的 agent（Claude Code、Codex……）走进 Cognos 里的一片空间。
 
 和 Hermes 在 Cognos 里用的是同一套动作：进来（拿到入口）、留下尝试、留下读法、在痕迹里找，
-押上前提（hold_premise）、顶别人押着的（hit_premise）、面对顶到自己的（answer_hit）。
+押上前提（hold_premise）、顶别人押着的（hit_premise）、面对顶到自己的（answer_hit），
+挂上没完的（hang_open）、走之前说停在哪（stop_here）。
 它写下的东西一律记为〔AI〕和 COGNOS_SUBJECT 这个名字，不能代替交互对象写原话。
 
 只用标准库，stdio 上一行一个 JSON-RPC 消息。环境变量：
@@ -168,6 +169,47 @@ TOOLS += [
     },
 ]
 
+TOOLS += [
+    {
+        "name": "hang_open",
+        "description": (
+            "把一件还没完的挂在这片空间里：你的一个尝试站起来，它还有后续。挂着的会拉着下一次，"
+            "Cognos 会从它接着叫（不用等交互对象说话）。只挂真的还没完、而且有人或有东西能从它接着走的。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "content": {"type": "string", "description": "还没完的是什么，一句话说清"},
+                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+            },
+            "required": ["space_id", "content", "confidence"],
+        },
+    },
+    {
+        "name": "stop_here",
+        "description": (
+            "走之前说清这一次停在哪件没完的哪里。act=接着：下一个你自己够得着的口子（edge），"
+            "Cognos 会马上从它叫下一次；act=卡住：只有交互对象、钱或现实能给的那一件（edge）；act=完了：凭什么算完。"
+            "moved 写这一次往前走了什么（和上一次比多了什么、哪里变了），不是做了哪些动作。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "open_id": {"type": "integer", "description": "那件没完的 #id"},
+                "act": {"type": "string", "enum": ["接着", "卡住", "完了"]},
+                "moved": {"type": "string", "description": "这一次往前走了什么"},
+                "edge": {"type": "string", "description": "接着：下一个口子，具体到一进来就能动手；卡住：卡在哪一件"},
+                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+            },
+            "required": ["space_id", "open_id", "act", "moved", "confidence"],
+        },
+    },
+]
+
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
 if ONLY:
     TOOLS = [t for t in TOOLS if t["name"] in ONLY]
@@ -246,6 +288,18 @@ def run_tool(name: str, args: dict) -> str:
         if data.get("premise"):
             text += f"新的前提是 #{data['premise']['id']}。"
         return text
+    if name == "hang_open":
+        body = {"kind": "open", "subject": SUBJECT, "content": args.get("content", ""), "confidence": args.get("confidence")}
+        trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
+        return f"已挂上 #{trace['id']}。它会拉着下一次：手上这件做完，Cognos 会从它接着叫。"
+    if name == "stop_here":
+        body = {
+            "kind": "stop", "subject": SUBJECT, "ref_id": int(args["open_id"]), "act": args.get("act"),
+            "content": args.get("moved", ""), "stopped_at": args.get("edge"), "confidence": args.get("confidence"),
+        }
+        trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
+        then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}
+        return f"已记下停在哪 #{trace['id']}（{trace['act']}）。{then.get(trace['act'], '')}。"
     if name == "search_traces":
         traces = call_api("GET", space_path(args) + "/traces", {"q": args.get("query", ""), "limit": args.get("limit", 20)})["traces"]
         if not traces:

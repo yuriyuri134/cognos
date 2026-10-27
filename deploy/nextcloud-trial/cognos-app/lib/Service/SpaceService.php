@@ -19,11 +19,23 @@ use OCP\IDBConnection;
  * - hit：顶到某条前提（ref_id 指过去）。谁都能顶：交互对象的原话、现实碰回来的、别的 agent。
  * - answer：押的那位面对某一下（ref_id 指向 hit），act 是 站住 / 碎了 / 重新切。
  * 顶完要找回押的那位，见 PushBackService。
+ *
+ * 没完的、停在哪、检查也是发生（让思考自己接着走，见 ContinuationService）：
+ * - open：挂在这片空间里还没完的一件（交互对象的一句话，或者一个 AI 自己的尝试站起来）。
+ *   交互对象确认它完了（correction confirmed）或撤回，它才收。
+ * - stop：一次运行走完，停在哪（ref_id 指向 open）。act 是 接着 / 卡住 / 完了，content 是这次往前走了什么，
+ *   stopped_at 是口子：接着时是下一个自己够得着的口子，卡住时是只有交互对象、钱或现实能给的那一件。
+ *   Cognos 自己看到的也记成 stop，来源〔世〕：原地（口子和以前走过的几乎一样）、没说（走完没说停在哪）、时限（做到一半被停下）。
+ * - reality：现实碰回来的检查结果（ref_id 指向 open），act 是 过了 / 没过。
  */
 final class SpaceService {
     public const SOURCES = ['原', '世', 'AI'];
     public const STATUSES = ['said', 'confirmed', 'rejected', 'withdrawn'];
     public const ANSWER_ACTS = ['站住', '碎了', '重新切'];
+    public const STOP_ACTS = ['接着', '卡住', '完了'];
+    /** Cognos 自己看到的停：原地、没说、时限（做到一半被停下，还拉着） */
+    public const OBSERVED_STOPS = ['原地', '没说', '时限'];
+    public const REALITY_ACTS = ['过了', '没过'];
 
     public function __construct(
         private IDBConnection $db,
@@ -68,6 +80,15 @@ final class SpaceService {
             }
             if (!in_array($trace['act'] ?? null, self::ANSWER_ACTS, true)) {
                 throw new \InvalidArgumentException('an answer needs act: ' . implode(' / ', self::ANSWER_ACTS));
+            }
+        }
+        if ($kind === 'stop' || $kind === 'reality') {
+            if ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'open') {
+                throw new \InvalidArgumentException("a $kind needs ref_id pointing to an open (没完的) in this space");
+            }
+            $acts = $kind === 'reality' ? self::REALITY_ACTS : ($source === '世' ? self::OBSERVED_STOPS : self::STOP_ACTS);
+            if (!in_array($trace['act'] ?? null, $acts, true)) {
+                throw new \InvalidArgumentException("a $kind needs act: " . implode(' / ', $acts));
             }
         }
         $confidence = isset($trace['confidence']) ? max(0, min(100, (int)$trace['confidence'])) : null;
@@ -281,6 +302,60 @@ final class SpaceService {
             }
         }
         return array_values($premises);
+    }
+
+    /**
+     * 这片空间里挂着的每一件没完的，带上它走过的每一次（停在哪、检查）。
+     * state：还没走 / 接着 / 卡住 / 完了 / 原地 / 没说 / 时限 / 没过（检查没过）/ 收了（交互对象确认完了或撤回）。
+     * pulls：它自己还拉着下一次（还没走、接着、时限、检查没过），Cognos 会从它接着叫。
+     *
+     * @param ?list<array> $traces 已经取过的 listTraces 结果，省一次查询
+     * @return list<array>
+     */
+    public function opens(string $spaceType, string $spaceId, ?array $traces = null): array {
+        $traces ??= $this->listTraces($spaceType, $spaceId);
+        $opens = [];
+        foreach ($traces as $t) {
+            if ($t['kind'] === 'open') {
+                $t['closed'] = $t['effective_status'] !== 'said';
+                $t['steps'] = [];
+                $opens[$t['id']] = $t;
+            } elseif (in_array($t['kind'], ['stop', 'reality'], true) && isset($opens[$t['ref_id']])) {
+                $opens[$t['ref_id']]['steps'][] = $t;
+            }
+        }
+        foreach ($opens as &$o) {
+            $last = $o['steps'] === [] ? null : $o['steps'][count($o['steps']) - 1];
+            $o['last'] = $last;
+            $o['edges'] = array_values(array_map(
+                static fn(array $s): array => ['id' => $s['id'], 'edge' => (string)$s['stopped_at']],
+                array_filter($o['steps'], static fn(array $s): bool => $s['kind'] === 'stop' && $s['act'] === '接着' && $s['stopped_at'] !== null),
+            ));
+            $stops = array_values(array_filter($o['steps'], static fn(array $s): bool => $s['kind'] === 'stop'));
+            $lastStop = $stops === [] ? null : $stops[count($stops) - 1];
+            if ($o['closed']) {
+                $o['state'] = '收了';
+            } elseif ($last !== null && $last['kind'] === 'reality' && $last['act'] === '没过') {
+                // 检查没过：不管它自己说停在哪，都还拉着下一次
+                $o['state'] = '没过';
+            } else {
+                $o['state'] = $lastStop === null ? '还没走' : (string)$lastStop['act'];
+            }
+            $o['runs'] = count(array_filter($stops, static fn(array $s): bool => $s['source'] === 'AI'));
+            $o['last_stop'] = $lastStop;
+            $o['pulls'] = in_array($o['state'], ['还没走', '接着', '时限', '没过'], true);
+        }
+        unset($o);
+        return array_values($opens);
+    }
+
+    public function openState(string $spaceType, string $spaceId, int $id): ?array {
+        foreach ($this->opens($spaceType, $spaceId) as $o) {
+            if ($o['id'] === $id) {
+                return $o;
+            }
+        }
+        return null;
     }
 
     /** 一条前提现在的样子（带 standing、hits）；不是前提就返回 null。 */
