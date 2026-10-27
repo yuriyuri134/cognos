@@ -163,6 +163,8 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
         git("add", "-A", cwd=path)
         message = f"{subject} 在 Cognos 自己的空间里改的\n\n{summary[:1500]}"
         git("-c", "user.name=Cognos", "-c", "user.email=cognos@localhost", "commit", "-q", "-m", message, cwd=path)
+    # 它自己提交了、自己合了别的分支，工作区是干净的，也算改了：看分支比起点多了提交没有
+    if int(git("rev-list", "--count", f"{base}..HEAD", cwd=path) or "0") > 0:
         commit = git("rev-parse", "--short", "HEAD", cwd=path)
         try:
             checks = check_changes(path, base)
