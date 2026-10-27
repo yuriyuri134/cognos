@@ -8,7 +8,13 @@
     creations: [],
     loading: false,
     sending: false,
+    // 叫来的 agent 还在本机接着做：{ since: 发出那条的时间, timer }，或者一条没叫来的原因 { error }
+    pending: null,
+    notice: null,
   };
+
+  const PENDING_POLL_MS = 5000;
+  const PENDING_MAX_MS = 40 * 60 * 1000;
 
   const elements = {};
 
@@ -56,6 +62,10 @@
     elements.messagesContainer?.addEventListener('click', (e) => {
       const button = e.target.closest('.space-keep-btn');
       if (!button) return;
+      if (button.classList.contains('recall-btn')) {
+        handleRecall(parseInt(button.dataset.messageId, 10));
+        return;
+      }
       const message = state.messages.find(m => String(m.id) === button.dataset.messageId);
       if (message) window.CognosSpacePanel?.keep(message.content);
     });
@@ -152,6 +162,7 @@
 
       renderCreation();
       renderMessages();
+      resumePendingIfWaiting(messagesData.pending);
     } catch (error) {
       console.error('Load error:', error);
       elements.chatTitle.textContent = '加载失败';
@@ -180,8 +191,8 @@
     }
 
     elements.messagesContainer.innerHTML = state.messages
-      .map(message => createMessageBubble(message))
-      .join('');
+      .map((message, index) => createMessageBubble(message, isUnanswered(index)))
+      .join('') + createStatusBubble();
 
     // Scroll to bottom
     requestAnimationFrame(() => {
@@ -192,7 +203,15 @@
     });
   }
 
-  function createMessageBubble(message) {
+  function isUnanswered(index) {
+    // 你说的话后面紧跟着的不是回答（或是最后一条），而且现在没人在做
+    const message = state.messages[index];
+    if (message.role !== 'user' || state.pending || state.sending) return false;
+    const next = state.messages[index + 1];
+    return !next || next.role === 'user';
+  }
+
+  function createMessageBubble(message, unanswered = false) {
     const role = message.role === 'user' ? 'user' : 'agent';
     const timestamp = new Date(message.created_at * 1000).toLocaleTimeString('zh-CN', {
       hour: '2-digit',
@@ -207,8 +226,74 @@
         </div>
         <div class="cognos-message-content">${role === 'user' ? formatMessageContent(message.content) : renderMarkdown(message.content)}</div>
         ${role === 'user' ? `<button type="button" class="space-keep-btn" data-message-id="${message.id}" title="把这句原话留在空间里，作为意图或事实">留在空间里</button>` : ''}
+        ${unanswered ? `<button type="button" class="space-keep-btn recall-btn" data-message-id="${message.id}" title="这句没人回，用它再叫一次">没人回，再叫一次</button>` : ''}
       </div>
     `;
+  }
+
+  function createStatusBubble() {
+    if (state.notice) {
+      return `
+        <div class="cognos-message cognos-message-agent cognos-message-status cognos-message-error">
+          <div class="cognos-message-content">没叫来：${escapeHtml(state.notice)}<br>你的话已经留下了，不用重发；处理好以后点那句下面的「没人回，再叫一次」。</div>
+        </div>
+      `;
+    }
+    if (state.pending) {
+      return `
+        <div class="cognos-message cognos-message-agent cognos-message-status">
+          <div class="cognos-message-content">Claude Code 进来了，在接着做。做完的回答会出现在这里；它留下的尝试和读法，右侧「这里」会陆续出现。可以先离开，回来再看。</div>
+        </div>
+      `;
+    }
+    return '';
+  }
+
+  function startPending(since) {
+    stopPending();
+    state.pending = { since, timer: window.setInterval(pollPending, PENDING_POLL_MS) };
+  }
+
+  function stopPending() {
+    if (state.pending?.timer) {
+      window.clearInterval(state.pending.timer);
+    }
+    state.pending = null;
+  }
+
+  async function pollPending() {
+    if (!state.pending) return;
+    const since = state.pending.since;
+    if (Date.now() - since * 1000 > PENDING_MAX_MS) {
+      stopPending();
+      renderMessages();
+      return;
+    }
+    try {
+      const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages`, {
+        headers: { 'requesttoken': OC.requestToken },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      const messages = data.messages || [];
+      const answered = messages.some(m => m.role !== 'user' && m.created_at >= since);
+      window.CognosSpacePanel?.reload();
+      if (answered || !data.pending) {
+        state.messages = messages;
+        stopPending();
+        renderMessages();
+      }
+    } catch (error) {
+      console.error('Poll error:', error);
+    }
+  }
+
+  function resumePendingIfWaiting(pending) {
+    // 刷新页面以后：服务器说叫来的 agent 还在做，就接着等它
+    if (!pending) return;
+    const lastUser = [...state.messages].reverse().find(m => m.role === 'user');
+    startPending(lastUser ? lastUser.created_at : Math.floor(Date.now() / 1000));
+    renderMessages();
   }
 
   function renderMarkdown(content) {
@@ -259,10 +344,24 @@
     const message = elements.chatInput.value.trim();
     if (!message || state.sending) return;
 
+    const ok = await callAgent({ message });
+    if (ok) {
+      elements.chatInput.value = '';
+      handleInputChange();
+    }
+  }
+
+  async function handleRecall(messageId) {
+    if (state.sending || state.pending) return;
+    await callAgent({ recall: messageId });
+  }
+
+  async function callAgent(payload) {
     state.sending = true;
     elements.sendBtn.disabled = true;
     elements.sendBtn.style.display = 'none';
     elements.stopBtn.style.display = 'flex';
+    let ok = false;
 
     try {
       const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages`, {
@@ -271,31 +370,33 @@
           'Content-Type': 'application/json',
           'requesttoken': OC.requestToken,
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to send message');
+      const data = await response.json().catch(() => ({}));
+      // 没叫来时，你的话可能已经存下了（data.messages），原因放进对话里，不用弹窗
+      state.messages.push(...(data.messages || []));
+      state.notice = response.ok ? null : (data.message || `HTTP ${response.status}`);
+      if (data.pending) {
+        startPending(Math.floor(Date.now() / 1000) - 5);
       }
+      ok = response.ok || (data.messages || []).length > 0;
 
-      const data = await response.json();
-      state.messages.push(...data.messages);
-
-      elements.chatInput.value = '';
-      handleInputChange();
       renderMessages();
       // 被叫进来的 agent 可能在这片空间里留下了尝试或读法
       window.CognosSpacePanel?.reload();
     } catch (error) {
       console.error('Send message error:', error);
-      alert('发送失败，请重试');
+      state.notice = '连不上 Cognos：' + error.message;
     } finally {
       state.sending = false;
       elements.sendBtn.disabled = false;
       elements.sendBtn.style.display = 'flex';
       elements.stopBtn.style.display = 'none';
       elements.chatInput.focus();
+      renderMessages();
     }
+    return ok;
   }
 
   function escapeHtml(str) {

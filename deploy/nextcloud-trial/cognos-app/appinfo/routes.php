@@ -55,4 +55,5 @@ return ['routes' => [
     ['name' => 'spaceApi#searchTraces', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/traces', 'verb' => 'GET'],
     ['name' => 'spaceApi#addTrace', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/traces', 'verb' => 'POST'],
     ['name' => 'spaceApi#addReading', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/readings', 'verb' => 'POST'],
+    ['name' => 'spaceApi#addMessage', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/messages', 'verb' => 'POST'],
 ]];

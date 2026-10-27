@@ -325,6 +325,18 @@
   border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px;
 }
 
+/* 还在本机接着做 / 没叫来 */
+.cognos-message-status .cognos-message-content {
+  border-style: dashed;
+  color: var(--color-text-maxcontrast);
+  font-size: 14px;
+}
+
+.cognos-message-error .cognos-message-content {
+  border-color: var(--color-error);
+  color: var(--color-main-text);
+}
+
 /* ===== Footer / Input Area ===== */
 .chat-footer {
   padding: var(--space-md) var(--space-lg);
