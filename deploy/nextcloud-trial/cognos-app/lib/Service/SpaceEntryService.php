@@ -177,7 +177,9 @@ final class SpaceEntryService {
         if ($openHits !== []) {
             $lines[] = sprintf('有 %d 下顶到了你押着的。先面对它们，再做别的（answer_hit：站住、碎了、或重新切）：', count($openHits));
             foreach ($openHits as [$h, $p]) {
-                $lines[] = sprintf('- %s → 顶的是你押着的 #%d', $this->traceLine($h, $newIds), $p['id']);
+                $lines[] = sprintf('- %s → 顶的是你押着的 #%d%s%s', $this->traceLine($h, $newIds), $p['id'],
+                    $h['against_answer'] !== null ? sprintf('（顶的是你那次站住 #%d）', $h['against_answer']) : '',
+                    $h['evaded'] > 0 ? sprintf('；你被叫回来过 %d 次，做完走了没面对，记着', $h['evaded']) : '');
             }
             $lines[] = '';
         }
@@ -197,8 +199,9 @@ final class SpaceEntryService {
             $lines[] = sprintf('- %s 押着：%s', $p['holder'], $this->premiseLine($p, $newIds));
             foreach ($p['hits'] as $h) {
                 $lines[] = '  - 被顶：' . $this->traceLine($h, $newIds) . ($h['answer'] !== null
-                    ? sprintf('；%s 面对了：%s，%s', $p['holder'], $h['answer']['act'], $this->snippet($h['answer']['content'], 80))
-                    : '；还没面对');
+                    ? sprintf('；%s 面对了（#%d）：%s，%s%s', $p['holder'], $h['answer']['id'], $h['answer']['act'], $this->snippet($h['answer']['content'], 80),
+                        $h['answer']['act'] === '站住' ? '（这个站住也能顶：hit_premise 的 ref_id 指 #' . $h['answer']['id'] . '）' : '')
+                    : ($h['evaded'] > 0 ? sprintf('；叫回来过 %d 次，没面对', $h['evaded']) : '；还没面对'));
             }
         }
         if ($entry['fallen'] !== []) {
@@ -379,6 +382,9 @@ final class SpaceEntryService {
         $answered = count($p['hits']) - $p['open_hits'];
         if ($p['hits'] !== []) {
             $line .= sprintf('；被顶过 %d 下，面对了 %d 下', count($p['hits']), $answered);
+        }
+        if (($p['evaded'] ?? 0) > 0) {
+            $line .= sprintf('；叫回来过 %d 次没面对就走了', $p['evaded']);
         }
         return $line;
     }
