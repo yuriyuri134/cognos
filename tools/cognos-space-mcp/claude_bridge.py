@@ -95,7 +95,7 @@ PHP_CONTAINER = os.environ.get("COGNOS_PHP_CONTAINER", "cognos-nextcloud-trial-a
 SELF_MERGE = os.environ.get("COGNOS_SELF_MERGE", "") == "1"
 APP_DIR = "deploy/nextcloud-trial/cognos-app/"
 BRIDGE_DIR = "tools/cognos-space-mcp/"
-SERVER: ThreadingHTTPServer | None = None
+HTTPD: ThreadingHTTPServer | None = None
 # 桥长了新代码要换掉自己：EXIT 表示正在换，POSTED 表示手上那件的回答已经发回去，主线程这时才退出
 EXIT = threading.Event()
 POSTED = threading.Event()
@@ -244,9 +244,9 @@ def restart_app() -> str:
 def restart_bridge() -> str:
     """桥长了新代码：放开端口，起一个新的桥（读的是身体里的新文件），等它能应答。旧的在回答发回去以后退出。"""
     EXIT.set()
-    if SERVER is not None:
-        SERVER.shutdown()
-        SERVER.server_close()
+    if HTTPD is not None:
+        HTTPD.shutdown()
+        HTTPD.server_close()
     logs = REPO / "deploy" / "nextcloud-trial" / "evidence" / "claude-bridge"
     logs.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -568,11 +568,11 @@ def main() -> None:
         raise SystemExit("没有口令：设 COGNOS_BRIDGE_TOKEN，或写到 deploy/nextcloud-trial/.secrets/claude-bridge-token")
     if not APP_PASSWORD:
         raise SystemExit("没有应用密码：设 COGNOS_APP_PASSWORD，或写到 deploy/nextcloud-trial/.secrets/claude-code-app-password")
-    global SERVER
-    SERVER = ThreadingHTTPServer((HOST, PORT), Handler)
+    global HTTPD
+    HTTPD = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Claude Code 桥在 http://{HOST}:{PORT}（/chat，/health）；工作目录 {SPACES_DIR}；"
           f"命令{'开' if commands_allowed() else '关'}；长进身体{'开' if SELF_MERGE else '关'}", flush=True)
-    SERVER.serve_forever()
+    HTTPD.serve_forever()
     # 换成新桥了：等手上那件把回答发回去再退出
     if EXIT.is_set():
         POSTED.wait(600)
