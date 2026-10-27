@@ -62,6 +62,10 @@
     elements.messagesContainer?.addEventListener('click', (e) => {
       const button = e.target.closest('.space-keep-btn');
       if (!button) return;
+      if (button.classList.contains('recall-btn')) {
+        handleRecall(parseInt(button.dataset.messageId, 10));
+        return;
+      }
       const message = state.messages.find(m => String(m.id) === button.dataset.messageId);
       if (message) window.CognosSpacePanel?.keep(message.content);
     });
@@ -187,7 +191,7 @@
     }
 
     elements.messagesContainer.innerHTML = state.messages
-      .map(message => createMessageBubble(message))
+      .map((message, index) => createMessageBubble(message, isUnanswered(index)))
       .join('') + createStatusBubble();
 
     // Scroll to bottom
@@ -199,7 +203,15 @@
     });
   }
 
-  function createMessageBubble(message) {
+  function isUnanswered(index) {
+    // 你说的话后面紧跟着的不是回答（或是最后一条），而且现在没人在做
+    const message = state.messages[index];
+    if (message.role !== 'user' || state.pending || state.sending) return false;
+    const next = state.messages[index + 1];
+    return !next || next.role === 'user';
+  }
+
+  function createMessageBubble(message, unanswered = false) {
     const role = message.role === 'user' ? 'user' : 'agent';
     const timestamp = new Date(message.created_at * 1000).toLocaleTimeString('zh-CN', {
       hour: '2-digit',
@@ -214,6 +226,7 @@
         </div>
         <div class="cognos-message-content">${role === 'user' ? formatMessageContent(message.content) : renderMarkdown(message.content)}</div>
         ${role === 'user' ? `<button type="button" class="space-keep-btn" data-message-id="${message.id}" title="把这句原话留在空间里，作为意图或事实">留在空间里</button>` : ''}
+        ${unanswered ? `<button type="button" class="space-keep-btn recall-btn" data-message-id="${message.id}" title="这句没人回，用它再叫一次">没人回，再叫一次</button>` : ''}
       </div>
     `;
   }
@@ -222,7 +235,7 @@
     if (state.notice) {
       return `
         <div class="cognos-message cognos-message-agent cognos-message-status cognos-message-error">
-          <div class="cognos-message-content">没叫来：${escapeHtml(state.notice)}<br>你的话已经留下了，不用重发；把上面的问题处理好以后，再说一句就会重新叫。</div>
+          <div class="cognos-message-content">没叫来：${escapeHtml(state.notice)}<br>你的话已经留下了，不用重发；处理好以后点那句下面的「没人回，再叫一次」。</div>
         </div>
       `;
     }
@@ -331,10 +344,24 @@
     const message = elements.chatInput.value.trim();
     if (!message || state.sending) return;
 
+    const ok = await callAgent({ message });
+    if (ok) {
+      elements.chatInput.value = '';
+      handleInputChange();
+    }
+  }
+
+  async function handleRecall(messageId) {
+    if (state.sending || state.pending) return;
+    await callAgent({ recall: messageId });
+  }
+
+  async function callAgent(payload) {
     state.sending = true;
     elements.sendBtn.disabled = true;
     elements.sendBtn.style.display = 'none';
     elements.stopBtn.style.display = 'flex';
+    let ok = false;
 
     try {
       const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages`, {
@@ -343,36 +370,33 @@
           'Content-Type': 'application/json',
           'requesttoken': OC.requestToken,
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json().catch(() => ({}));
-      if (!response.ok && !(data.messages && data.messages.length)) {
-        throw new Error(data.message || `HTTP ${response.status}`);
-      }
-
+      // 没叫来时，你的话可能已经存下了（data.messages），原因放进对话里，不用弹窗
       state.messages.push(...(data.messages || []));
       state.notice = response.ok ? null : (data.message || `HTTP ${response.status}`);
       if (data.pending) {
-        const sent = data.messages?.[0]?.created_at || Math.floor(Date.now() / 1000);
-        startPending(sent);
+        startPending(Math.floor(Date.now() / 1000) - 5);
       }
+      ok = response.ok || (data.messages || []).length > 0;
 
-      elements.chatInput.value = '';
-      handleInputChange();
       renderMessages();
       // 被叫进来的 agent 可能在这片空间里留下了尝试或读法
       window.CognosSpacePanel?.reload();
     } catch (error) {
       console.error('Send message error:', error);
-      alert('发送失败：' + error.message);
+      state.notice = '连不上 Cognos：' + error.message;
     } finally {
       state.sending = false;
       elements.sendBtn.disabled = false;
       elements.sendBtn.style.display = 'flex';
       elements.stopBtn.style.display = 'none';
       elements.chatInput.focus();
+      renderMessages();
     }
+    return ok;
   }
 
   function escapeHtml(str) {

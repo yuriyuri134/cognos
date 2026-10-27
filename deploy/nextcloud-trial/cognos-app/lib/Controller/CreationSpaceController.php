@@ -112,8 +112,9 @@ final class CreationSpaceController extends Controller {
         try {
             $body = $this->request->getParams();
             $message = (string)($body['message'] ?? '');
+            $recall = (int)($body['recall'] ?? 0);
 
-            if (empty($message)) {
+            if (empty($message) && $recall === 0) {
                 return new DataResponse(['message' => 'Message is required'], 422);
             }
 
@@ -121,31 +122,49 @@ final class CreationSpaceController extends Controller {
                 return new DataResponse(['message' => 'Creation not found'], 404);
             }
 
-            // Save user message
-            $userMessage = $this->creations->addMessage($id, $user->getUID(), 'user', $message);
-
-            // Get context for Agent
             $context = $this->creations->getContext($id, $user->getUID());
+            if ($recall > 0) {
+                // 再叫一次：不存新消息，拿你说过的那一句去叫，上下文只到那一句为止
+                $upTo = [];
+                $userMessage = null;
+                foreach ($context['messages'] as $item) {
+                    $upTo[] = $item;
+                    if ($item['id'] === $recall) {
+                        $userMessage = $item;
+                        break;
+                    }
+                }
+                if ($userMessage === null || $userMessage['role'] !== 'user') {
+                    return new DataResponse(['message' => 'Message not found'], 404);
+                }
+                $message = (string)$userMessage['content'];
+                $context['messages'] = $upTo;
+                $userMessage = null;
+            } else {
+                $userMessage = $this->creations->addMessage($id, $user->getUID(), 'user', $message);
+                $context = $this->creations->getContext($id, $user->getUID());
+            }
+            $saved = $userMessage === null ? [] : [$userMessage];
 
             try {
                 $agentResponse = $this->hermes->chatCreation($id, $message, $context);
             } catch (\Throwable $error) {
                 // 原话已经留下了，只是没叫来人：把它和原因一起回给页面，别让人以为没发出去再发一遍
                 return new DataResponse([
-                    'messages' => [$userMessage],
+                    'messages' => $saved,
                     'message' => $error->getMessage(),
                 ], 502);
             }
 
             if ($agentResponse === null) {
                 // Claude Code 在本机接着做，做完自己把回答发回来
-                return new DataResponse(['messages' => [$userMessage], 'pending' => true]);
+                return new DataResponse(['messages' => $saved, 'pending' => true]);
             }
 
             $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'assistant', $agentResponse);
 
             return new DataResponse([
-                'messages' => [$userMessage, $agentMessage]
+                'messages' => array_merge($saved, [$agentMessage])
             ]);
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
