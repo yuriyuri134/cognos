@@ -38,7 +38,9 @@ Cognos 把入口（和 Hermes 拿到的是同一份，只是主体换成 Claude 
   COGNOS_REPO          Cognos 仓库在哪，默认这个文件往上两层
   COGNOS_SELF_BASE     Cognos 自己的空间从哪条分支切新分支，默认 master（没有就用 HEAD）
   COGNOS_SELF_CHECK    Cognos 自己的空间改完以后，在仓库副本里再跑的一条检查命令（可不设），非 0 算没过
-  COGNOS_PHP_CONTAINER 本机没有 php 时，用哪个容器检查 PHP 语法，默认 cognos-nextcloud-trial-app-1
+  COGNOS_PHP_CONTAINER Nextcloud 的 app 容器：本机没有 php 时用它检查 PHP 语法，长进身体后重启它，默认 cognos-nextcloud-trial-app-1
+  COGNOS_SELF_MERGE    设成 1：Cognos 自己的空间里改的代码检查过了，就合进本机正在跑的分支（身体），
+                       改了 cognos-app 就重启 app 容器，改了桥就重启桥。合之前打本机标签 cognos-body/...，可以退回；不推。
 """
 from __future__ import annotations
 
@@ -90,6 +92,13 @@ REPO = Path(os.environ.get("COGNOS_REPO") or HERE.parent.parent)
 SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "master")
 SELF_CHECK = os.environ.get("COGNOS_SELF_CHECK", "").strip()
 PHP_CONTAINER = os.environ.get("COGNOS_PHP_CONTAINER", "cognos-nextcloud-trial-app-1")
+SELF_MERGE = os.environ.get("COGNOS_SELF_MERGE", "") == "1"
+APP_DIR = "deploy/nextcloud-trial/cognos-app/"
+BRIDGE_DIR = "tools/cognos-space-mcp/"
+SERVER: ThreadingHTTPServer | None = None
+# 桥长了新代码要换掉自己：EXIT 表示正在换，POSTED 表示手上那件的回答已经发回去，主线程这时才退出
+EXIT = threading.Event()
+POSTED = threading.Event()
 
 # 同一片空间同时只做一件事，免得两次叫进来的互相踩着工作目录
 BUSY: set[str] = set()
@@ -124,6 +133,10 @@ def open_worktree(space_type: str, space_id: str, hit_id, base_branch: str | Non
             break
         except RuntimeError:
             continue
+    if base == "HEAD":
+        # 写成跑着的那条分支（或提交号）：检查要拿它和副本比，在副本里 HEAD 指的是副本自己
+        name = git("rev-parse", "--abbrev-ref", "HEAD")
+        base = name if name != "HEAD" else git("rev-parse", "HEAD")
     label = f"open-{int(open_id)}" if open_id else (f"hit-{int(hit_id)}" if hit_id else "call")
     branch = "cognos-self/" + label + time.strftime("-%Y%m%d-%H%M%S")
     stem, n = branch, 1
@@ -156,14 +169,98 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
         except Exception as error:  # 检查本身坏了也要说出来，不能当成过了
             checks = {"ok": False, "text": f"检查没跑起来：{error}"}
         git("worktree", "remove", "--force", str(path))
-        text = (f"\n\n---\n改动提交在本机分支 `{branch}`（{commit}），从 `{base}` 切出来，没有合、也没有推。"
-                f"由你来看、来合：`git diff {base}...{branch}`。\n\n检查（{'过了' if checks['ok'] else '没过'}）：\n{checks['text']}")
+        text = (f"\n\n---\n改动提交在本机分支 `{branch}`（{commit}），从 `{base}` 切出来，没有推。"
+                f"\n\n检查（{'过了' if checks['ok'] else '没过'}）：\n{checks['text']}")
+        if SELF_MERGE and checks["ok"]:
+            grown = grow(branch)
+            text += "\n\n" + grown["text"]
+            checks["grown"] = grown
+        else:
+            text += f"\n\n没有合进跑着的那份，由你来看、来合：`git diff {base}...{branch}`。"
         return text, branch, checks
     git("worktree", "remove", "--force", str(path))
     git("branch", "-D", branch)
     # 没改：下一次还从这一次的起点接着
     keep = base if base.startswith("cognos-self/") else None
     return "\n\n---\n这次没有改代码。", keep, None
+
+
+def grow(branch: str) -> dict:
+    """检查过了的改动长进身体：合进本机正在跑的分支（REPO 当前检出的那条）。合不了就照实说，不硬合。"""
+    body = git("rev-parse", "--abbrev-ref", "HEAD")
+    if body == "HEAD":
+        return {"merged": False, "text": "没合：跑着的那份不在任何分支上（detached HEAD）。"}
+    if git("status", "--porcelain", "--untracked-files=no"):
+        return {"merged": False, "text": f"没合：跑着的那份（`{body}`）有没提交的改动，不动它。"}
+    tag = "cognos-body/" + time.strftime("%Y%m%d-%H%M%S")
+    git("tag", tag, "HEAD")
+    try:
+        git("merge", "--ff-only", "-q", branch)
+    except RuntimeError:
+        try:
+            git("-c", "user.name=Cognos", "-c", "user.email=cognos@localhost", "merge", "--no-edit", "-q", branch)
+        except RuntimeError as error:
+            try:
+                git("merge", "--abort")
+            except RuntimeError:
+                pass
+            return {"merged": False, "text": f"没合：和跑着的那份（`{body}`）合不上（{error}），留在分支上等你。"}
+    changed = [f for f in git("diff", "--name-only", tag, "HEAD").splitlines() if f.strip()]
+    app = any(f.startswith(APP_DIR) for f in changed)
+    bridge = any(f.startswith(BRIDGE_DIR) for f in changed)
+    restarts = []
+    if app:
+        restarts.append(restart_app())
+    if bridge:
+        restarts.append("桥：回答发回去前换成新代码。")
+    return {
+        "merged": True, "bridge": bridge,
+        "text": (f"长进身体了：合进本机跑着的 `{body}`。要退回：`git reset --hard {tag}`（在 `{body}` 上）。"
+                 + ("".join("\n- " + r for r in restarts) if restarts else "")),
+    }
+
+
+def restart_app() -> str:
+    """改了 cognos-app：重启 app 容器（同版本号时路由缓存在 APCu 里，app:disable/enable 清不掉），等它能应答。"""
+    docker = shutil.which("docker")
+    if docker is None:
+        return "app：本机找不到 docker，没重启，改动要重启 app 容器才生效。"
+    done = subprocess.run([docker, "restart", PHP_CONTAINER], capture_output=True, text=True, encoding="utf-8")
+    if done.returncode:
+        return f"app：重启 {PHP_CONTAINER} 没成：{(done.stderr or done.stdout).strip()[-200:]}"
+    for _ in range(60):
+        try:
+            with urllib.request.urlopen(COGNOS_URL.rstrip("/") + "/status.php", timeout=5) as response:
+                if response.status == 200:
+                    return f"app：重启了 {PHP_CONTAINER}，新代码生效。"
+        except (urllib.error.URLError, OSError):
+            pass
+        time.sleep(2)
+    return f"app：重启了 {PHP_CONTAINER}，两分钟里还没应答。"
+
+
+def restart_bridge() -> str:
+    """桥长了新代码：放开端口，起一个新的桥（读的是身体里的新文件），等它能应答。旧的在回答发回去以后退出。"""
+    EXIT.set()
+    if SERVER is not None:
+        SERVER.shutdown()
+        SERVER.server_close()
+    logs = REPO / "deploy" / "nextcloud-trial" / "evidence" / "claude-bridge"
+    logs.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    flags = 0x00000008 | 0x00000200 if os.name == "nt" else 0  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    with open(logs / f"bridge-{stamp}.out.log", "ab") as out, open(logs / f"bridge-{stamp}.err.log", "ab") as err:
+        process = subprocess.Popen([sys.executable, "-u", str(HERE / "claude_bridge.py")], cwd=str(REPO),
+                                   stdout=out, stderr=err, creationflags=flags, start_new_session=os.name != "nt")
+    for _ in range(30):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=3) as response:
+                if json.loads(response.read().decode("utf-8")).get("ok"):
+                    return f"桥换成了新代码（pid {process.pid}）。"
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+        time.sleep(1)
+    return f"新桥（pid {process.pid}）30 秒里没应答，看 {logs} 里 bridge-{stamp}.*。"
 
 
 def check_changes(path: Path, base: str) -> dict:
@@ -377,10 +474,14 @@ def work(job: dict) -> None:
             back["timed_out"] = True
         except Exception as error:  # 出错也要让交互对象在对话里看到
             content = f"（{subject} 这次没做完：{error}）"
+        new_bridge = False
         if wt is not None:
             try:
                 tail, branch, checks = close_worktree(wt, subject, content)
                 content += tail
+                new_bridge = bool(checks and checks.get("grown", {}).get("bridge"))
+                if checks is not None:
+                    checks = {"ok": checks["ok"], "text": checks["text"]}
                 if back:
                     back["branch"] = branch
                     back["checks"] = checks
@@ -389,12 +490,17 @@ def work(job: dict) -> None:
         # 先放开这片空间：回答发回去时，排着的下一下顶会接着叫进来
         with BUSY_LOCK:
             BUSY.discard(key)
+        if new_bridge:
+            # 先换桥再发回：发回时 Cognos 会接着叫下一次，要叫到新的那个
+            content += "\n- " + restart_bridge()
         post_back(space_type, space_id, subject, content, job.get("reply_to"), job.get("hit_id"), back)
     except (urllib.error.URLError, OSError) as error:
         sys.stderr.write(f"[claude-bridge] 回答发不回 Cognos：{error}\n")
     finally:
         with BUSY_LOCK:
             BUSY.discard(key)
+        if EXIT.is_set():
+            POSTED.set()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -460,10 +566,18 @@ def main() -> None:
         raise SystemExit("没有口令：设 COGNOS_BRIDGE_TOKEN，或写到 deploy/nextcloud-trial/.secrets/claude-bridge-token")
     if not APP_PASSWORD:
         raise SystemExit("没有应用密码：设 COGNOS_APP_PASSWORD，或写到 deploy/nextcloud-trial/.secrets/claude-code-app-password")
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    global SERVER
+    SERVER = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Claude Code 桥在 http://{HOST}:{PORT}（/chat，/health）；工作目录 {SPACES_DIR}；"
-          f"命令{'开' if commands_allowed() else '关'}", flush=True)
-    server.serve_forever()
+          f"命令{'开' if commands_allowed() else '关'}；长进身体{'开' if SELF_MERGE else '关'}", flush=True)
+    SERVER.serve_forever()
+    # 换成新桥了：等手上那件把回答发回去再退出
+    if EXIT.is_set():
+        POSTED.wait(600)
+        # 别的空间里还在做的，做完发回去再走
+        deadline = time.time() + TIMEOUT + 120
+        while BUSY and time.time() < deadline:
+            time.sleep(5)
 
 
 if __name__ == "__main__":
