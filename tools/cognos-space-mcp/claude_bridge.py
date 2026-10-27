@@ -72,6 +72,10 @@ MODEL = os.environ.get("CLAUDE_BRIDGE_MODEL", "")
 SPACES_DIR = Path(os.environ.get("COGNOS_SPACES_DIR") or Path.home() / "Documents" / "cognos-spaces")
 COMMANDS = os.environ.get("COGNOS_BRIDGE_COMMANDS", "") == "1"
 TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
+# 10/27：PowerShell 配置文件里设的中转站 key 会被继承，claude 就不走交互对象自己的订阅登录了。
+# 默认起 claude 前把这几个去掉；真想走中转站，设 COGNOS_BRIDGE_KEEP_API_ENV=1
+API_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
+KEEP_API_ENV = os.environ.get("COGNOS_BRIDGE_KEEP_API_ENV", "") == "1"
 
 # 同一片空间同时只做一件事，免得两次叫进来的互相踩着工作目录
 BUSY: set[str] = set()
@@ -151,8 +155,9 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path) -> str:
                "--no-session-persistence", "--setting-sources", "", "--output-format", "json"]
         if MODEL:
             cmd += ["--model", MODEL]
+        env = dict(os.environ) if KEEP_API_ENV else {k: v for k, v in os.environ.items() if k not in API_ENV}
         done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
-                              cwd=workdir, timeout=TIMEOUT)
+                              cwd=workdir, env=env, timeout=TIMEOUT)
     try:
         out = json.loads(done.stdout)
     except json.JSONDecodeError:
