@@ -227,6 +227,8 @@ TOOLS += [
                 "moved": {"type": "string", "description": "这一次往前走了什么"},
                 "edge": {"type": "string", "description": "接着：下一个口子，具体到一进来就能动手；卡住：卡在哪一件"},
                 "judgment": {"type": "string", "description": "你自己的判断。卡住时必填：要是你来定，选哪个、凭什么；接着时可写预判：下一个口子走下去现实会碰回什么"},
+                "new_ground": {"type": "string", "description": "接着时：相比以前走过的口子，新增了什么依据、或者哪条前提变了。Cognos 提示口子和以前像、之间又没有外面来的东西时必填；说不出就停，不要换个说法接着走"},
+                "next_open": {"type": "integer", "description": "接着时：还有别的没完的拉着，下一次先做哪一件（#id）。理由写在 judgment：为什么现在做它比别的更值得。不选就还是这一件"},
                 "confidence": {"type": "integer", "description": "你的把握，0-100"},
             },
             "required": ["space_id", "open_id", "act", "moved", "confidence"],
@@ -320,7 +322,7 @@ def run_tool(name: str, args: dict) -> str:
         body = {
             "kind": "stop", "subject": SUBJECT, "ref_id": int(args["open_id"]), "act": args.get("act"),
             "content": args.get("moved", ""), "stopped_at": args.get("edge"), "confidence": args.get("confidence"),
-            "judgment": args.get("judgment"),
+            "judgment": args.get("judgment"), "new_ground": args.get("new_ground"), "next_open": args.get("next_open"),
         }
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}

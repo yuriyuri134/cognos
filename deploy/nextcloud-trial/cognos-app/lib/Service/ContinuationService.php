@@ -15,7 +15,12 @@ use Psr\Log\LoggerInterface;
  * - 卡住：只有交互对象、钱或现实能给的那一件。这一件停下，换另一件还拉着的。
  * - 完了：它凭什么算完。也停下；收不收由交互对象定。
  * 检查（reality）没过，不管它自己说停在哪，都接着叫，像 CI 红了一样。
- * 口子和以前走过的几乎一样，Cognos 记一条〔世〕「原地」，这一件停下：接着走不等于往前走。
+ * 口子和以前走过的几乎一样，不直接判原地：字二元组相似度只是一个提示，换个说法能绕过，同一件事有了新依据也会被误停。
+ * 提示之后看两样：这之间有没有外面来的东西（交互对象的话、没过的检查、别的主体、别人对的判断）；
+ * 没有，就复核：下一次接着走必须写 new_ground，相比以前新增了什么依据或前提变化。说得出就放一次，
+ * 放过一次以后口子还是像、外面还是没有新东西，才记〔世〕「原地」，这一件停下。接着走不等于往前走。
+ * 还有别的没完的拉着时，下一次做哪一件由它凭理由选（stop_here 的 next_open，理由写 judgment），不按挂上的先后；
+ * 它没选才退回：刚才那件，再按先后。
  *
  * 没有心跳、没有定时：只在一次运行结束、有东西还拉着时才叫；每片空间每天有上限（continue_daily）。
  * 交互对象说的话和押着的前提被顶，排在它前面（PushBackService::drain 先走）。
@@ -77,7 +82,10 @@ final class ContinuationService {
         }
 
         $subject = $this->bridge->subjectFor($spaceType, $spaceId);
-        $message = $this->message($open, $force);
+        $message = $this->message($open, $force, $this->reviewAgainst($spaceType, $spaceId, $openId), array_values(array_filter(
+            $this->spaces->opens($spaceType, $spaceId),
+            static fn(array $o): bool => $o['pulls'] && $o['id'] !== $openId,
+        )));
         $entry = $this->entries->entry($space, $subject, ['caller' => 'Cognos（#' . $openId . ' 还没完）', 'message' => $message], array_merge(
             $this->bridge->canDo($spaceType, $spaceId),
             ['stop_here：走之前说清这一次停在哪（open_id=' . $openId . '）。不说，Cognos 就不知道从哪接着。'],
@@ -144,22 +152,87 @@ final class ContinuationService {
         if ($stop['act'] !== '接着' || $stop['stopped_at'] === null) {
             return;
         }
+        $similarTo = null;
         foreach ($open['edges'] as $before) {
-            if ($before['id'] === $stop['id']) {
-                continue;
-            }
-            if ($this->similar((string)$stop['stopped_at'], $before['edge']) >= self::CIRCLING) {
-                $this->observe($spaceType, $spaceId, $openId, '原地', sprintf(
-                    '这一次的口子（#%d）和 #%d 走过的几乎一样：在原地转。这一件先停下，等别的东西撞进来，或者你按「接着走」。',
-                    $stop['id'], $before['id'],
-                ));
-                return;
+            if ($before['id'] !== $stop['id'] && $this->similar((string)$stop['stopped_at'], $before['edge']) >= self::CIRCLING) {
+                $similarTo = $before;
+                break;
             }
         }
+        if ($similarTo === null || $this->outsideGround($spaceType, $spaceId, $similarTo['id'], (string)$stop['author'])) {
+            // 口子不像，或者这之间有外面来的东西：不是原地
+            $this->setReview($spaceType, $spaceId, $openId, 0, 0);
+            return;
+        }
+        [$round] = $this->review($spaceType, $spaceId, $openId);
+        if ($round === 0) {
+            // 第一次像：只是提示，不停。下一次接着走先说清相比 #x 新增了什么
+            $this->setReview($spaceType, $spaceId, $openId, 1, $similarTo['id']);
+            return;
+        }
+        if ($round === 1 && trim((string)($stop['new_ground'] ?? '')) !== '') {
+            // 说了新增什么：放一次。只有它自己的话，没有外面的东西，所以只放一次
+            $this->setReview($spaceType, $spaceId, $openId, 2, $similarTo['id']);
+            return;
+        }
+        $this->setReview($spaceType, $spaceId, $openId, 0, 0);
+        $this->observe($spaceType, $spaceId, $openId, '原地', sprintf(
+            '这一次的口子（#%d）和 #%d 像，复核过了，之间还是没有外面来的新东西，新增的只有它自己的话：在原地转。这一件先停下，等别的东西撞进来，或者你按「接着走」。',
+            $stop['id'], $similarTo['id'],
+        ));
     }
 
     /**
-     * 手上的做完了、交互对象和顶也没排着：从还拉着的那一件接着叫。先接着刚才那件，再按挂上的先后。
+     * 这一件正在复核（口子和 #x 像、之间没有外面来的东西）：接着走要写 new_ground。返回 #x，没有就是 null。
+     */
+    public function reviewAgainst(string $spaceType, string $spaceId, int $openId): ?int {
+        [$round, $against] = $this->review($spaceType, $spaceId, $openId);
+        return $round > 0 ? $against : null;
+    }
+
+    /**
+     * 从 #before 那次停下以后，这片空间里有没有外面来的东西：交互对象的话，〔世〕的东西
+     * （没过的检查、别人对的判断；Cognos 自己记的停和过了的检查不算），或者别的主体写的。
+     */
+    private function outsideGround(string $spaceType, string $spaceId, int $beforeId, string $stopper): bool {
+        foreach ($this->spaces->listTraces($spaceType, $spaceId) as $t) {
+            if ($t['id'] <= $beforeId) {
+                continue;
+            }
+            if ($t['source'] === '原') {
+                return true;
+            }
+            if ($t['source'] === '世' && $t['kind'] !== 'stop' && !($t['kind'] === 'reality' && $t['act'] === '过了')) {
+                return true;
+            }
+            if ($t['source'] === 'AI' && $t['author'] !== $stopper) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return array{0: int, 1: int} [复核到第几轮, 和哪个口子像] */
+    private function review(string $spaceType, string $spaceId, int $openId): array {
+        $raw = $this->config->getAppValue('cognos', $this->reviewKey($spaceType, $spaceId, $openId), '');
+        $parts = explode(':', $raw);
+        return [(int)($parts[0] ?? 0), (int)($parts[1] ?? 0)];
+    }
+
+    private function setReview(string $spaceType, string $spaceId, int $openId, int $round, int $against): void {
+        if ($round === 0) {
+            $this->config->deleteAppValue('cognos', $this->reviewKey($spaceType, $spaceId, $openId));
+            return;
+        }
+        $this->config->setAppValue('cognos', $this->reviewKey($spaceType, $spaceId, $openId), $round . ':' . $against);
+    }
+
+    private function reviewKey(string $spaceType, string $spaceId, int $openId): string {
+        return 'review_' . $spaceType . '_' . $spaceId . '_' . $openId;
+    }
+
+    /**
+     * 手上的做完了、交互对象和顶也没排着：从还拉着的那一件接着叫。刚走完那件自己选了下一件就照它的；没选，先接着刚才那件，再按挂上的先后。
      *
      * @return ?array{called: bool, message: string} 没有还拉着的就是 null
      */
@@ -167,6 +240,16 @@ final class ContinuationService {
         $pulling = array_values(array_filter($this->spaces->opens($spaceType, $spaceId), static fn(array $o): bool => $o['pulls']));
         if ($pulling === []) {
             return null;
+        }
+        // 刚走完的那件如果自己选了下一件（next_open，理由在它的 judgment 里），就照它选的；它没选才按顺序
+        $chosen = null;
+        foreach ($pulling as $o) {
+            if ($o['id'] === $prefer && ($o['last_stop']['next_open'] ?? null) !== null) {
+                $chosen = (int)$o['last_stop']['next_open'];
+            }
+        }
+        if ($chosen !== null && in_array($chosen, array_column($pulling, 'id'), true)) {
+            return $this->start($spaceType, $spaceId, $uid, $chosen);
         }
         usort($pulling, static fn(array $a, array $b): int => ($b['id'] === $prefer) <=> ($a['id'] === $prefer) ?: $a['id'] <=> $b['id']);
         return $this->start($spaceType, $spaceId, $uid, (int)$pulling[0]['id']);
@@ -179,7 +262,11 @@ final class ContinuationService {
     }
 
     /** 叫起这一次时给它的话：从哪件没完的、哪个口子接着，走过哪些口子。 */
-    private function message(array $open, bool $force): string {
+    /**
+     * @param ?int $against 正在复核：口子和这一个像，之间没有外面来的东西
+     * @param list<array> $others 同一片空间里别的还拉着的
+     */
+    private function message(array $open, bool $force, ?int $against = null, array $others = []): string {
         $lines = [];
         $lines[] = sprintf('这一次不是有人在对话里叫你。是 #%d 还没完，Cognos 让你从它接着走%s。', $open['id'], $force ? '（交互对象按了「接着走」）' : '');
         $lines[] = '';
@@ -215,6 +302,20 @@ final class ContinuationService {
             foreach ($open['edges'] as $e) {
                 $lines[] = sprintf('- #%d %s', $e['id'], $e['edge']);
             }
+        }
+        if ($against !== null) {
+            $lines[] = '';
+            $lines[] = '## 复核';
+            $lines[] = sprintf('上一次的口子和 #%d 像，这之间又没有外面来的东西（交互对象的话、没过的检查、别的主体）。像不像只是个提示，不是判决。', $against);
+            $lines[] = sprintf('这一次接着走之前先答：相比 #%d，新增了什么依据、或者哪条前提变了？写在 stop_here 的 new_ground 里。说不出，就停（卡住 / 完了），不要换个说法接着走。', $against);
+        }
+        if ($others !== []) {
+            $lines[] = '';
+            $lines[] = '## 同一片空间里还有别的拉着的';
+            foreach ($others as $o) {
+                $lines[] = sprintf('- #%d（%s，走过 %d 次）%s', $o['id'], $o['state'], $o['runs'], mb_substr($o['content'], 0, 60));
+            }
+            $lines[] = '接着时下一次先做哪一件，由你选：stop_here 的 next_open 写它的 #id，judgment 写为什么现在做它比别的更值得、你预期它会碰回什么。不选，就还是这一件。';
         }
         $lines[] = '';
         $lines[] = '## 这一次';

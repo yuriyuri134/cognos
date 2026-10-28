@@ -118,6 +118,12 @@ final class SpaceService {
         if ($kind === 'stop' && $source === 'AI' && ($trace['act'] ?? null) === '卡住' && $judgment === null) {
             throw new \InvalidArgumentException('卡住 needs judgment：要是你来定，你选哪个、凭什么（不能只把选择交回去）');
         }
+        $newGround = $this->nullableText($trace['new_ground'] ?? null, null);
+        $nextOpen = isset($trace['next_open']) && $trace['next_open'] !== '' ? (int)$trace['next_open'] : null;
+        if ($nextOpen !== null && ($kind !== 'stop' || ($trace['act'] ?? null) !== '接着'
+                || ($this->getTrace($spaceType, $spaceId, $nextOpen)['kind'] ?? null) !== 'open')) {
+            throw new \InvalidArgumentException('next_open only goes with a 接着 stop, and must point to an open in this space');
+        }
         if ($kind === 'checked') {
             $target = $refId === null ? null : $this->getTrace($spaceType, $spaceId, $refId);
             if ($target === null || $target['judgment'] === null) {
@@ -154,6 +160,8 @@ final class SpaceService {
             'ref_id' => $qb->createNamedParameter($refId, IQueryBuilder::PARAM_INT),
             'governs' => $qb->createNamedParameter($this->nullableText($trace['governs'] ?? null, null)),
             'judgment' => $qb->createNamedParameter($judgment),
+            'new_ground' => $qb->createNamedParameter($newGround),
+            'next_open' => $qb->createNamedParameter($nextOpen, IQueryBuilder::PARAM_INT),
             'created_at' => $qb->createNamedParameter((int)($trace['created_at'] ?? $now), IQueryBuilder::PARAM_INT),
         ])->executeStatement();
 
@@ -684,6 +692,8 @@ final class SpaceService {
             'ref_id' => $row['ref_id'] === null ? null : (int)$row['ref_id'],
             'governs' => ($row['governs'] ?? null) === null ? null : (string)$row['governs'],
             'judgment' => ($row['judgment'] ?? null) === null ? null : (string)$row['judgment'],
+            'new_ground' => ($row['new_ground'] ?? null) === null ? null : (string)$row['new_ground'],
+            'next_open' => ($row['next_open'] ?? null) === null ? null : (int)$row['next_open'],
             'created_at' => (int)$row['created_at'],
         ];
     }
