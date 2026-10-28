@@ -19,8 +19,9 @@ use Psr\Log\LoggerInterface;
  * 提示之后看两样：这之间有没有外面来的东西（交互对象的话、没过的检查、别的主体、别人对的判断）；
  * 没有，就复核：下一次接着走必须写 new_ground，相比以前新增了什么依据或前提变化。说得出就放一次，
  * 放过一次以后口子还是像、外面还是没有新东西，才记〔世〕「原地」，这一件停下。接着走不等于往前走。
- * 还有别的没完的拉着时，下一次做哪一件由它凭理由选（stop_here 的 next_open，理由写 judgment），不按挂上的先后；
- * 它没选才退回：刚才那件，再按先后。
+ * 还有别的没完的时，下一次做哪一件由它凭理由选（stop_here 的 next_open，理由和还不确定的前提写 judgment），不按挂上的先后；
+ * 选的可以是停着的一件：写 new_ground 说清什么变了，就把它重新拉起来（转向）；收了的不行，那是交互对象定的。
+ * 选错了，它自己撤回那条停（correction withdrawn，理由留着），按撤回之前的停处算。它没选才退回：刚才那件，再按先后。
  *
  * 没有心跳、没有定时：只在一次运行结束、有东西还拉着时才叫；每片空间每天有上限（continue_daily）。
  * 交互对象说的话和押着的前提被顶，排在它前面（PushBackService::drain 先走）。
@@ -84,7 +85,7 @@ final class ContinuationService {
         $subject = $this->bridge->subjectFor($spaceType, $spaceId);
         $message = $this->message($open, $force, $this->reviewAgainst($spaceType, $spaceId, $openId), array_values(array_filter(
             $this->spaces->opens($spaceType, $spaceId),
-            static fn(array $o): bool => $o['pulls'] && $o['id'] !== $openId,
+            static fn(array $o): bool => !$o['closed'] && $o['id'] !== $openId,
         )));
         $entry = $this->entries->entry($space, $subject, ['caller' => 'Cognos（#' . $openId . ' 还没完）', 'message' => $message], array_merge(
             $this->bridge->canDo($spaceType, $spaceId),
@@ -237,19 +238,27 @@ final class ContinuationService {
      * @return ?array{called: bool, message: string} 没有还拉着的就是 null
      */
     public function resume(string $spaceType, string $spaceId, string $uid, ?int $prefer = null): ?array {
-        $pulling = array_values(array_filter($this->spaces->opens($spaceType, $spaceId), static fn(array $o): bool => $o['pulls']));
-        if ($pulling === []) {
-            return null;
-        }
-        // 刚走完的那件如果自己选了下一件（next_open，理由在它的 judgment 里），就照它选的；它没选才按顺序
-        $chosen = null;
+        $all = $this->spaces->opens($spaceType, $spaceId);
+        $pulling = array_values(array_filter($all, static fn(array $o): bool => $o['pulls']));
+        // 刚走完的那件如果自己选了下一件（next_open，理由在它的 judgment 里），就照它选的。
+        // 选的可以是停着的一件（卡住、原地、时限）：那是一次转向，写了 new_ground 说清什么变了，就把它重新拉起来；
+        // 收了的不行（那是交互对象定的）。它没选，才按顺序。
         foreach ($pulling as $o) {
-            if ($o['id'] === $prefer && ($o['last_stop']['next_open'] ?? null) !== null) {
-                $chosen = (int)$o['last_stop']['next_open'];
+            $chosen = $o['id'] === $prefer ? ($o['last_stop']['next_open'] ?? null) : null;
+            if ($chosen === null) {
+                continue;
+            }
+            foreach ($all as $target) {
+                if ($target['id'] === (int)$chosen && !$target['closed']) {
+                    if (!$target['pulls']) {
+                        $this->setReview($spaceType, $spaceId, $target['id'], 0, 0);
+                    }
+                    return $this->start($spaceType, $spaceId, $uid, $target['id'], !$target['pulls']);
+                }
             }
         }
-        if ($chosen !== null && in_array($chosen, array_column($pulling, 'id'), true)) {
-            return $this->start($spaceType, $spaceId, $uid, $chosen);
+        if ($pulling === []) {
+            return null;
         }
         usort($pulling, static fn(array $a, array $b): int => ($b['id'] === $prefer) <=> ($a['id'] === $prefer) ?: $a['id'] <=> $b['id']);
         return $this->start($spaceType, $spaceId, $uid, (int)$pulling[0]['id']);
@@ -311,11 +320,12 @@ final class ContinuationService {
         }
         if ($others !== []) {
             $lines[] = '';
-            $lines[] = '## 同一片空间里还有别的拉着的';
+            $lines[] = '## 这片空间里别的没完的';
             foreach ($others as $o) {
-                $lines[] = sprintf('- #%d（%s，走过 %d 次）%s', $o['id'], $o['state'], $o['runs'], mb_substr($o['content'], 0, 60));
+                $lines[] = sprintf('- #%d（%s，走过 %d 次%s）%s', $o['id'], $o['state'], $o['runs'], $o['pulls'] ? '' : '，停着', mb_substr($o['content'], 0, 60));
             }
-            $lines[] = '接着时下一次先做哪一件，由你选：stop_here 的 next_open 写它的 #id，judgment 写为什么现在做它比别的更值得、你预期它会碰回什么。不选，就还是这一件。';
+            $lines[] = '做哪件由你判断，不是按挂上的先后。接着时 stop_here 的 next_open 写它的 #id，judgment 写为什么现在做它比这一件更值得、你还不确定的前提是什么。转向一件停着的，还要在 new_ground 写相比它停下那时，什么变了。不选，就还是这一件。';
+            $lines[] = '选错了，不用等交互对象：用 leave_trace 写 kind=correction、ref_id 是你那条 stop 的 #id、status=withdrawn，content 写为什么改。那条停留在痕迹里，但不再算数，Cognos 按它之前的停处算，你再重新判断。';
         }
         $lines[] = '';
         $lines[] = '## 这一次';
