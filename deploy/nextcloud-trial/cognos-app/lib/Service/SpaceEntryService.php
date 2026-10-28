@@ -140,7 +140,7 @@ final class SpaceEntryService {
                 '你凭着想、凭着做的前提，押上来（hold_premise），连上它管着的东西；没押，就没有什么能把你顶回来。看到别人押着的被什么顶了，就去顶（hit_premise），押的那位会被叫回来。',
                 '能自己做的先做，做到够不着为止（要交互对象的账号、钱，或另一个人）；不要只留一个建议就把选择交回去。',
                 '你做的尝试留下来，写明停在哪、为什么停在那里、碰没碰过现实。',
-                '自己下判断，不要把选择交回去：尝试带上预判（judgment：做下去现实会碰回什么）；卡住也要写要是你来定，你选哪个、凭什么。下一次现实回来，拿它对一下前面的判断（kind=checked，对上 / 没对上 / 半对）。',
+                '自己下判断，不要把选择交回去：尝试带上预判（judgment：做下去现实会碰回什么）；卡住也要写要是你来定，你选哪个、凭什么。下一次现实回来，拿它对一下前面的判断（kind=checked，对上 / 没对上 / 半对）。自己对自己的那一下留着，但不进对上几次的账；预判最好是你自己改不了结果的事，要进账得是别的一位或现实来对。',
                 '你对这里的理解变了，把新的读法留下来。旧的不会被删。',
             ],
         ];
@@ -279,7 +279,8 @@ final class SpaceEntryService {
             $lines[] = sprintf('- %s 的判断：对上 %d、半对 %d、没对上 %d', $author, $counts['对上'] ?? 0, $counts['半对'] ?? 0, $counts['没对上'] ?? 0);
         }
         foreach ($j['open'] as $t) {
-            $lines[] = sprintf('- 还没被对过：#%d〔AI %s〕%s', $t['id'], $t['author'], $this->snippet($t['judgment'], 120));
+            $lines[] = sprintf('- 还没被别人或现实对过：#%d〔AI %s〕%s%s', $t['id'], $t['author'], $this->snippet($t['judgment'], 120),
+                ($t['self_checks'] ?? 0) > 0 ? sprintf('（自己对自己 %d 次，不算数）', $t['self_checks']) : '');
         }
 
         $lines[] = '';
