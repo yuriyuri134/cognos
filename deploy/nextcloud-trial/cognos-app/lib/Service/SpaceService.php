@@ -118,6 +118,25 @@ final class SpaceService {
         if ($kind === 'stop' && $source === 'AI' && ($trace['act'] ?? null) === '卡住' && $judgment === null) {
             throw new \InvalidArgumentException('卡住 needs judgment：要是你来定，你选哪个、凭什么（不能只把选择交回去）');
         }
+        $newGround = $this->nullableText($trace['new_ground'] ?? null, null);
+        $nextOpen = isset($trace['next_open']) && $trace['next_open'] !== '' ? (int)$trace['next_open'] : null;
+        if ($nextOpen !== null && ($kind !== 'stop' || ($trace['act'] ?? null) !== '接着'
+                || ($this->getTrace($spaceType, $spaceId, $nextOpen)['kind'] ?? null) !== 'open')) {
+            throw new \InvalidArgumentException('next_open only goes with a 接着 stop, and must point to an open in this space');
+        }
+        if ($nextOpen !== null && $nextOpen !== $refId && $source === 'AI') {
+            // 转向别的一件：这是一次方向判断，要有执行效力，也就要留下理由；转向一件停着的，还要说清什么变了
+            $target = $this->openState($spaceType, $spaceId, $nextOpen);
+            if ($target === null || $target['closed']) {
+                throw new \InvalidArgumentException('next_open points to an open that is already closed (收了，交互对象定的)');
+            }
+            if ($judgment === null) {
+                throw new \InvalidArgumentException('next_open to another open needs judgment：为什么现在做它比这一件更值得，你还不确定的前提是什么');
+            }
+            if (!$target['pulls'] && $newGround === null) {
+                throw new \InvalidArgumentException(sprintf('next_open #%d is stopped at 「%s」: needs new_ground，相比它停下那时，什么变了', $nextOpen, $target['state']));
+            }
+        }
         if ($kind === 'checked') {
             $target = $refId === null ? null : $this->getTrace($spaceType, $spaceId, $refId);
             if ($target === null || $target['judgment'] === null) {
@@ -154,6 +173,8 @@ final class SpaceService {
             'ref_id' => $qb->createNamedParameter($refId, IQueryBuilder::PARAM_INT),
             'governs' => $qb->createNamedParameter($this->nullableText($trace['governs'] ?? null, null)),
             'judgment' => $qb->createNamedParameter($judgment),
+            'new_ground' => $qb->createNamedParameter($newGround),
+            'next_open' => $qb->createNamedParameter($nextOpen, IQueryBuilder::PARAM_INT),
             'created_at' => $qb->createNamedParameter((int)($trace['created_at'] ?? $now), IQueryBuilder::PARAM_INT),
         ])->executeStatement();
 
@@ -387,6 +408,10 @@ final class SpaceService {
                 $t['steps'] = [];
                 $opens[$t['id']] = $t;
             } elseif (in_array($t['kind'], ['stop', 'reality'], true) && isset($opens[$t['ref_id']])) {
+                if ($t['kind'] === 'stop' && $t['effective_status'] === 'withdrawn') {
+                    // 它自己撤回的停（选错了，改向）：留在痕迹里，连同撤回的理由，但不再算数
+                    continue;
+                }
                 $opens[$t['ref_id']]['steps'][] = $t;
             }
         }
@@ -684,6 +709,8 @@ final class SpaceService {
             'ref_id' => $row['ref_id'] === null ? null : (int)$row['ref_id'],
             'governs' => ($row['governs'] ?? null) === null ? null : (string)$row['governs'],
             'judgment' => ($row['judgment'] ?? null) === null ? null : (string)$row['judgment'],
+            'new_ground' => ($row['new_ground'] ?? null) === null ? null : (string)$row['new_ground'],
+            'next_open' => ($row['next_open'] ?? null) === null ? null : (int)$row['next_open'],
             'created_at' => (int)$row['created_at'],
         ];
     }
