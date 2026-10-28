@@ -34,7 +34,7 @@
 | [`PROJECT-OVERVIEW.md`](../PROJECT-OVERVIEW.md) | 唯一的全局说明：七问、目的原话、反复犯的错和被接住的押注、产品结构、代码与运行、当前进展、开发方式 |
 | [`CLAUDE.md`](../CLAUDE.md)、[`AGENTS.md`](../AGENTS.md) | 给 Claude Code、Codex/Hermes 的工作规则，都先指向 PROJECT-OVERVIEW |
 | [`PRODUCT.md`](../PRODUCT.md)、[`JOURNEYS.md`](../JOURNEYS.md)、[`ACCEPTANCE.md`](../ACCEPTANCE.md)、[`MODEL.md`](../MODEL.md) | 10/07 选定 Nextcloud 底座时写的第一版产品目标、16 条核心旅程、验收证据、系统模型 |
-| [`README.md`](../README.md) | 9 月 `web/`、`phase0/` 原型的实现边界，已过时 |
+| [`README.md`](../README.md) | 仓库首页：这是什么、真实代码在哪、先读什么、哪些是旧原型 |
 | [`DSH_SESSION_ENTRY_2026-08-16.md`](../DSH_SESSION_ENTRY_2026-08-16.md) | 8/16 的会话交接，历史 |
 
 ### docs/ 下的现行思考（10/24 以后）
