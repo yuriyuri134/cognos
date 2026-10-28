@@ -49,6 +49,8 @@ final class ClaudeBridgeService {
             'hold_premise：把你押着的一条前提留下，连上它管着的代码或做法（governs）。',
             'hit_premise：顶别人押着的一条（ref_id 指过去），写清是什么顶回来的。押的那位会被叫回来面对。',
             'answer_hit：面对顶到你押着的一下：站住、碎了、或重新切（重新切要写出新的前提）。',
+            'hang_open：把一件还没完的挂在这片空间里（比如你自己的一个尝试，它还有你够不着的后续）。挂着的会拉着下一次，Cognos 会从它接着叫。',
+            'stop_here：走之前说清这一次停在哪件没完的哪里：接着（下一个你自己够得着的口子）、卡住（只有交互对象、钱或现实能给的那一件）、完了（凭什么算完）。',
             '这些工具都要填 space_id：这里是 ' . $spaceId . '，space_type 是 ' . $spaceType . '。',
         ];
         if ($this->isSelf($spaceType, $spaceId)) {

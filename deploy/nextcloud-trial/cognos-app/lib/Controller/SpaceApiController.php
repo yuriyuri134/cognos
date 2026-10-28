@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\Cognos\Controller;
 
 use OCA\Cognos\Service\ClaudeBridgeService;
+use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\HermesAgentService;
 use OCA\Cognos\Service\PushBackService;
@@ -32,6 +33,7 @@ final class SpaceApiController extends OCSController {
         private SpaceService $spaces,
         private SpaceEntryService $entries,
         private PushBackService $pushBack,
+        private ContinuationService $continuation,
         private HermesAgentService $hermes,
         private IConfig $config,
     ) {
@@ -98,6 +100,9 @@ final class SpaceApiController extends OCSController {
         $body = $this->body();
         if (($body['kind'] ?? '') === 'answer') {
             return new DataResponse(['message' => '面对一下顶，用 answer_hit（/hits/{hitId}/answer）'], 422);
+        }
+        if (($body['kind'] ?? '') === 'reality') {
+            return new DataResponse(['message' => '检查结果只能由桥在跑完检查后带回来，agent 不能自己写'], 422);
         }
         try {
             $trace = $this->spaces->addTrace($spaceType, $spaceId, [
@@ -175,7 +180,8 @@ final class SpaceApiController extends OCSController {
 
     /**
      * 被叫进来、在本机接着做的 agent（claude_bridge.py）做完以后，把回答发回这段对话。
-     * 它做的时候又有顶排着，就接着叫下一位。
+     * 它是从一件没完的叫起来的（open_id），先记下检查和它停在哪（ContinuationService::afterRun）。
+     * 然后接着叫下一位：排着的顶和交互对象的话先走，都没有，就从还拉着的那件没完的接着走。
      */
     #[NoAdminRequired]
     public function addMessage(string $spaceType, string $spaceId): DataResponse {
@@ -193,21 +199,39 @@ final class SpaceApiController extends OCSController {
         $message = $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo);
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
         $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
-        $this->callNext($spaceType, $spaceId, $uid);
+        $openId = isset($body['open_id']) && $body['open_id'] !== null ? (int)$body['open_id'] : null;
+        if ($openId !== null) {
+            $checks = is_array($body['checks'] ?? null)
+                ? ['ok' => (bool)($body['checks']['ok'] ?? false), 'text' => trim((string)($body['checks']['text'] ?? ''))]
+                : null;
+            try {
+                $this->continuation->afterRun($spaceType, $spaceId, $openId, (int)($body['run_started'] ?? 0),
+                    isset($body['branch']) ? (string)$body['branch'] : null, $checks, (bool)($body['timed_out'] ?? false));
+            } catch (\InvalidArgumentException $error) {
+                // 那件没完的不在了：回答照样留下，只是不接着走
+            }
+        }
+        $this->callNext($spaceType, $spaceId, $uid, $openId);
         return new DataResponse(['message' => $message], 201);
     }
 
-    /** 这一位做完了：排着的下一件接着叫（一下顶，或者交互对象在它忙时说的一句）。 */
-    private function callNext(string $spaceType, string $spaceId, string $uid): void {
-        $messageId = $this->pushBack->drain($spaceType, $spaceId, $uid);
-        if ($messageId === null) {
+    /** 这一位做完了：排着的下一件接着叫（一下顶，或者交互对象在它忙时说的一句）；都没有，就从还拉着的没完的接着走。 */
+    private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan): void {
+        $next = $this->pushBack->drain($spaceType, $spaceId, $uid);
+        if ($next === null) {
+            $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
+            return;
+        }
+        [$what, $messageId] = $next;
+        if ($what !== 'msg') {
             return;
         }
         try {
             $answer = $this->hermes->chatCreationFromMessage((int)$spaceId, $messageId);
             if ($answer !== null) {
-                // 叫来的是 Hermes：回答当场就有
+                // 叫来的是 Hermes：回答当场就有，没人占着桥，没完的接着走
                 $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $answer, $messageId);
+                $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
             }
         } catch (\Throwable $error) {
             if ($error instanceof \RuntimeException && $error->getCode() === ClaudeBridgeService::BUSY) {

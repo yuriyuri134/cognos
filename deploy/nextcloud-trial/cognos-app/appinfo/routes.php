@@ -45,6 +45,10 @@ return ['routes' => [
     ['name' => 'creationSpace#space', 'url' => '/creations/{id}/space', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#addSpaceTrace', 'url' => '/creations/{id}/space/traces', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#answerHit', 'url' => '/creations/{id}/space/hits/{hitId}/answer', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+', 'hitId' => '[0-9]+']],
+    // 没完的：挂上、接着走、收起来（见 ContinuationService）
+    ['name' => 'creationSpace#hangOpen', 'url' => '/creations/{id}/space/opens', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+']],
+    ['name' => 'creationSpace#continueOpen', 'url' => '/creations/{id}/space/opens/{openId}/continue', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+', 'openId' => '[0-9]+']],
+    ['name' => 'creationSpace#closeOpen', 'url' => '/creations/{id}/space/opens/{openId}/close', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+', 'openId' => '[0-9]+']],
 ], 'ocs' => [
     ['name'=>'edit#edit','url'=>'/api/v1.0/cards/{cardId}','verb'=>'PUT'],
     ['name'=>'assignment#assign','url'=>'/api/v1.0/cards/{cardId}/assign','verb'=>'POST'],
