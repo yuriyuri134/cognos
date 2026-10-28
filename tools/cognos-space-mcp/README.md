@@ -59,7 +59,7 @@ docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cogn
 - 这片空间自己的工作目录 `~/Documents/cognos-spaces/creation-<id>`（`COGNOS_SPACES_DIR` 可改）。读写文件只限这个目录，目录外的会被 Claude Code 拒掉；
 - 跑命令：起桥前设 `COGNOS_BRIDGE_COMMANDS=1` 才开。命令不受目录限制，Windows 上没有沙箱，只是从工作目录起步。8780 经 `start-public.ps1` 开到公网时（有 `deploy/nextcloud-trial/.public-access-state.json`），桥自动不开命令。
 
-它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度。同一片空间同时只做一件事，还在做时再叫会提示「还在做上一件事」。
+它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度：桥起 claude 前会去掉 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`，免得 PowerShell 配置文件里的中转站 key 顶掉订阅登录（10/27 的 401 余额不足就是这样来的）。真要走中转站，起桥前设 `COGNOS_BRIDGE_KEEP_API_ENV=1`。同一片空间同时只做一件事，还在做时再叫会提示「还在做上一件事」。
 
 起桥（已经在跑就什么都不做；默认开命令，`-NoCommands` 关掉）：
 
