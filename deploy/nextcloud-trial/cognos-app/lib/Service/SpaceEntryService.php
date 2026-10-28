@@ -62,7 +62,7 @@ final class SpaceEntryService {
             $bySubject[$trace['author']] = $trace;
             // 押着的、顶、面对单独成一块（立场），不混进别的
             // 没完的和它走过的每一次（stop、reality）也单独成一块
-            if (in_array($trace['kind'], ['correction', 'premise', 'hit', 'answer', 'open', 'stop', 'reality'], true)) {
+            if (in_array($trace['kind'], ['correction', 'premise', 'hit', 'answer', 'open', 'stop', 'reality', 'checked'], true)) {
                 continue;
             }
             $closed = in_array($trace['effective_status'], ['rejected', 'withdrawn'], true);
@@ -131,6 +131,7 @@ final class SpaceEntryService {
             'facts' => $facts,
             'others' => $others,
             'readings' => $this->spaces->currentReadings($type, $id),
+            'judgments' => $this->spaces->judgments($type, $id),
             'gaps' => $this->gaps($intents, $attempts, $traces, array_merge($held, $heldElsewhere)),
             'since' => $since,
             'can_do' => $canDo,
@@ -139,6 +140,7 @@ final class SpaceEntryService {
                 '你凭着想、凭着做的前提，押上来（hold_premise），连上它管着的东西；没押，就没有什么能把你顶回来。看到别人押着的被什么顶了，就去顶（hit_premise），押的那位会被叫回来。',
                 '能自己做的先做，做到够不着为止（要交互对象的账号、钱，或另一个人）；不要只留一个建议就把选择交回去。',
                 '你做的尝试留下来，写明停在哪、为什么停在那里、碰没碰过现实。',
+                '自己下判断，不要把选择交回去：尝试带上预判（judgment：做下去现实会碰回什么）；卡住也要写要是你来定，你选哪个、凭什么。下一次现实回来，拿它对一下前面的判断（kind=checked，对上 / 没对上 / 半对）。',
                 '你对这里的理解变了，把新的读法留下来。旧的不会被删。',
             ],
         ];
@@ -175,6 +177,9 @@ final class SpaceEntryService {
             $line = sprintf('- %s；%s', $this->traceLine($o, $newIds), $o['state']);
             if ($o['last_stop'] !== null && $o['last_stop']['stopped_at'] !== null) {
                 $line .= '，口子：' . $this->snippet($o['last_stop']['stopped_at'], 80);
+            }
+            if ($o['last_stop'] !== null && ($o['last_stop']['judgment'] ?? null) !== null) {
+                $line .= '，它自己的判断：' . $this->snippet($o['last_stop']['judgment'], 80);
             }
             $line .= $o['runs'] > 0 ? sprintf('（走过 %d 次）', $o['runs']) : '';
             $lines[] = $line;
@@ -260,7 +265,21 @@ final class SpaceEntryService {
             $line = '- ' . $this->traceLine($t, $newIds);
             $line .= $t['touched_reality'] === true ? '；碰过现实' : ($t['touched_reality'] === false ? '；只在模型上推过' : '');
             $line .= $t['stopped_at'] !== null ? '；停在：' . $t['stopped_at'] : '；没写停在哪';
+            $line .= $t['judgment'] !== null ? '；预判：' . $this->snippet($t['judgment'], 120) : '';
             $lines[] = $line;
+        }
+
+        $lines[] = '';
+        $lines[] = '## 判断和现实对没对上';
+        $j = $entry['judgments'];
+        if ($j['record'] === [] && $j['open'] === []) {
+            $lines[] = '还没有谁下过能被对上的判断。';
+        }
+        foreach ($j['record'] as $author => $counts) {
+            $lines[] = sprintf('- %s 的判断：对上 %d、半对 %d、没对上 %d', $author, $counts['对上'] ?? 0, $counts['半对'] ?? 0, $counts['没对上'] ?? 0);
+        }
+        foreach ($j['open'] as $t) {
+            $lines[] = sprintf('- 还没被对过：#%d〔AI %s〕%s', $t['id'], $t['author'], $this->snippet($t['judgment'], 120));
         }
 
         $lines[] = '';

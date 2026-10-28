@@ -31,6 +31,12 @@ use OCP\IDBConnection;
  *   stopped_at 是口子：接着时是下一个自己够得着的口子，卡住时是只有交互对象、钱或现实能给的那一件。
  *   Cognos 自己看到的也记成 stop，来源〔世〕：原地（口子和以前走过的几乎一样）、没说（走完没说停在哪）、时限（做到一半被停下）。
  * - reality：现实碰回来的检查结果（ref_id 指向 open），act 是 过了 / 没过。
+ *
+ * 判断也是发生，而且要能被现实对上（交互对象 10/28：「所以在于判断，没有自主判断」）：
+ * - judgment：一条发生上自己下的判断。尝试上是预判：这一步做下去，现实会碰回什么；
+ *   卡住（AI 的 stop act=卡住）必须带：要是我来定，我选哪个、凭什么。不许只把选择交回去。
+ * - checked：拿现实对一条判断（ref_id 指向带 judgment 的那条），act 是 对上 / 没对上 / 半对，
+ *   content 写现实碰回了什么。对不上的留着；每位的判断对上几次、没对上几次，入口里看得见。
  */
 final class SpaceService {
     public const SOURCES = ['原', '世', 'AI'];
@@ -40,6 +46,7 @@ final class SpaceService {
     /** Cognos 自己看到的停：原地、没说、时限（做到一半被停下，还拉着） */
     public const OBSERVED_STOPS = ['原地', '没说', '时限'];
     public const REALITY_ACTS = ['过了', '没过'];
+    public const CHECK_ACTS = ['对上', '没对上', '半对'];
 
     public function __construct(
         private IDBConnection $db,
@@ -105,6 +112,19 @@ final class SpaceService {
                 throw new \InvalidArgumentException("a $kind needs act: " . implode(' / ', $acts));
             }
         }
+        $judgment = $this->nullableText($trace['judgment'] ?? null, null);
+        if ($kind === 'stop' && $source === 'AI' && ($trace['act'] ?? null) === '卡住' && $judgment === null) {
+            throw new \InvalidArgumentException('卡住 needs judgment：要是你来定，你选哪个、凭什么（不能只把选择交回去）');
+        }
+        if ($kind === 'checked') {
+            $target = $refId === null ? null : $this->getTrace($spaceType, $spaceId, $refId);
+            if ($target === null || $target['judgment'] === null) {
+                throw new \InvalidArgumentException('checked needs ref_id pointing to a trace that carries a judgment, in this space');
+            }
+            if (!in_array($trace['act'] ?? null, self::CHECK_ACTS, true)) {
+                throw new \InvalidArgumentException('checked needs act: ' . implode(' / ', self::CHECK_ACTS));
+            }
+        }
         $confidence = isset($trace['confidence']) ? max(0, min(100, (int)$trace['confidence'])) : null;
         if ($source !== 'AI') {
             $confidence = null;
@@ -131,6 +151,7 @@ final class SpaceService {
             'touched_reality' => $qb->createNamedParameter($touched, IQueryBuilder::PARAM_INT),
             'ref_id' => $qb->createNamedParameter($refId, IQueryBuilder::PARAM_INT),
             'governs' => $qb->createNamedParameter($this->nullableText($trace['governs'] ?? null, null)),
+            'judgment' => $qb->createNamedParameter($judgment),
             'created_at' => $qb->createNamedParameter((int)($trace['created_at'] ?? $now), IQueryBuilder::PARAM_INT),
         ])->executeStatement();
 
@@ -606,6 +627,37 @@ final class SpaceService {
         return $row ? $this->normalizeReading($row) : null;
     }
 
+    /**
+     * 自己下过的判断，和现实对它的每一次对照。
+     * 返回 ['open' => 还没被对过的判断, 'record' => [author => ['对上' => n, '没对上' => n, '半对' => n]]]。
+     * 只算〔AI〕下的判断：判断要自己下，也要自己被对。
+     */
+    public function judgments(string $spaceType, string $spaceId): array {
+        $traces = $this->listTraces($spaceType, $spaceId);
+        $judged = [];
+        foreach ($traces as $t) {
+            if ($t['judgment'] !== null && $t['source'] === 'AI' && $t['kind'] !== 'checked') {
+                $judged[$t['id']] = $t + ['checks' => []];
+            }
+        }
+        foreach ($traces as $t) {
+            if ($t['kind'] === 'checked' && isset($judged[$t['ref_id']])) {
+                $judged[$t['ref_id']]['checks'][] = $t;
+            }
+        }
+        $open = [];
+        $record = [];
+        foreach ($judged as $j) {
+            if ($j['checks'] === []) {
+                $open[] = $j;
+                continue;
+            }
+            $last = $j['checks'][count($j['checks']) - 1];
+            $record[$j['author']][$last['act']] = ($record[$j['author']][$last['act']] ?? 0) + 1;
+        }
+        return ['open' => $open, 'record' => $record];
+    }
+
     private function normalizeTrace(array $row): array {
         return [
             'id' => (int)$row['id'],
@@ -622,6 +674,7 @@ final class SpaceService {
             'touched_reality' => $row['touched_reality'] === null ? null : ((int)$row['touched_reality'] === 1),
             'ref_id' => $row['ref_id'] === null ? null : (int)$row['ref_id'],
             'governs' => ($row['governs'] ?? null) === null ? null : (string)$row['governs'],
+            'judgment' => ($row['judgment'] ?? null) === null ? null : (string)$row['judgment'],
             'created_at' => (int)$row['created_at'],
         ];
     }

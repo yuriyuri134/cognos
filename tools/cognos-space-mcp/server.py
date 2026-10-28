@@ -70,6 +70,7 @@ TOOLS = [
                 "about": {"type": "string", "description": "和哪个意图有关，用入口里意图「标为」的那个词"},
                 "stopped_at": {"type": "string", "description": "尝试停在哪里、为什么停"},
                 "touched_reality": {"type": "boolean", "description": "碰过现实为 true，只在模型上推为 false"},
+                "judgment": {"type": "string", "description": "预判：这一步做下去，现实会碰回什么；碰不回来就说明哪里想错了。下一次有人拿现实对它（check_judgment）"},
                 "act": {"type": "string", "description": "这条在做什么：陈述、推测、提问、举例……"},
                 "confidence": {"type": "integer", "description": "你的把握，0-100"},
                 "ref_id": {"type": "integer", "description": "kind=correction 时被更正那一条的 #id"},
@@ -189,10 +190,31 @@ TOOLS += [
         },
     },
     {
+        "name": "check_judgment",
+        "description": (
+            "拿现实对一条前面下过的判断（入口「判断和现实对没对上」里还没被对过的 #id，或带预判的尝试、卡住）。"
+            "act：对上 / 没对上 / 半对；content 写现实碰回了什么、哪里和判断不一样。对不上的会留着，每一位的判断对上几次都看得见。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "judgment_id": {"type": "integer", "description": "带判断的那一条的 #id"},
+                "act": {"type": "string", "enum": ["对上", "没对上", "半对"]},
+                "content": {"type": "string", "description": "现实碰回了什么，和判断哪里一样、哪里不一样"},
+                "touched_reality": {"type": "boolean", "description": "这次对照碰过现实为 true"},
+                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+            },
+            "required": ["space_id", "judgment_id", "act", "content", "confidence"],
+        },
+    },
+    {
         "name": "stop_here",
         "description": (
             "走之前说清这一次停在哪件没完的哪里。act=接着：下一个你自己够得着的口子（edge），"
-            "Cognos 会马上从它叫下一次；act=卡住：只有交互对象、钱或现实能给的那一件（edge）；act=完了：凭什么算完。"
+            "Cognos 会马上从它叫下一次；act=卡住：只有交互对象、钱或现实能给的那一件（edge），而且要写 judgment："
+            "要是你来定，你选哪个、凭什么，不能只把选择交回去；act=完了：凭什么算完。"
             "moved 写这一次往前走了什么（和上一次比多了什么、哪里变了），不是做了哪些动作。"
         ),
         "inputSchema": {
@@ -204,6 +226,7 @@ TOOLS += [
                 "act": {"type": "string", "enum": ["接着", "卡住", "完了"]},
                 "moved": {"type": "string", "description": "这一次往前走了什么"},
                 "edge": {"type": "string", "description": "接着：下一个口子，具体到一进来就能动手；卡住：卡在哪一件"},
+                "judgment": {"type": "string", "description": "你自己的判断。卡住时必填：要是你来定，选哪个、凭什么；接着时可写预判：下一个口子走下去现实会碰回什么"},
                 "confidence": {"type": "integer", "description": "你的把握，0-100"},
             },
             "required": ["space_id", "open_id", "act", "moved", "confidence"],
@@ -297,10 +320,19 @@ def run_tool(name: str, args: dict) -> str:
         body = {
             "kind": "stop", "subject": SUBJECT, "ref_id": int(args["open_id"]), "act": args.get("act"),
             "content": args.get("moved", ""), "stopped_at": args.get("edge"), "confidence": args.get("confidence"),
+            "judgment": args.get("judgment"),
         }
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}
         return f"已记下停在哪 #{trace['id']}（{trace['act']}）。{then.get(trace['act'], '')}。"
+    if name == "check_judgment":
+        body = {
+            "kind": "checked", "subject": SUBJECT, "ref_id": int(args["judgment_id"]), "act": args.get("act"),
+            "content": args.get("content", ""), "confidence": args.get("confidence"),
+            "touched_reality": args.get("touched_reality"),
+        }
+        trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
+        return f"已拿现实对了 #{int(args['judgment_id'])}：{trace['act']}（#{trace['id']}）。"
     if name == "search_traces":
         traces = call_api("GET", space_path(args) + "/traces", {"q": args.get("query", ""), "limit": args.get("limit", 20)})["traces"]
         if not traces:

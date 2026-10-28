@@ -118,6 +118,7 @@ final class SpaceApiController extends OCSController {
                 'ref_id' => isset($body['ref_id']) ? (int)$body['ref_id'] : null,
                 'status' => (string)($body['status'] ?? 'said'),
                 'governs' => $body['governs'] ?? null,
+                'judgment' => $body['judgment'] ?? null,
             ]);
             // 顶到一条押着的前提：去找押的那位
             $pushback = $trace['kind'] === 'hit' ? $this->pushBack->afterHit($spaceType, $spaceId, $uid, $trace) : null;

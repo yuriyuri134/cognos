@@ -66,7 +66,7 @@ HERE = Path(__file__).resolve().parent
 SECRETS = HERE.parent.parent / "deploy" / "nextcloud-trial" / ".secrets"
 SERVER = HERE / "server.py"
 PUBLIC_STATE = SECRETS.parent / ".public-access-state.json"
-TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here"]
+TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here", "check_judgment"]
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 

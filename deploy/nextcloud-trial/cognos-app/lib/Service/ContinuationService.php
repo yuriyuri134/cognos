@@ -221,7 +221,7 @@ final class ContinuationService {
         $lines[] = '从口子接着走，不从头复述。做到你自己够不着为止。';
         $lines[] = sprintf('走之前用 stop_here（open_id=%d）说清停在哪：', $open['id']);
         $lines[] = '- 接着：下一个你自己够得着的口子，要具体到下一次一进来就能动手；Cognos 会马上从它叫下一次。';
-        $lines[] = '- 卡住：只有交互对象、钱或现实能给的是哪一件。';
+        $lines[] = '- 卡住：只有交互对象、钱或现实能给的是哪一件；还要写你自己的判断（judgment）：要是你来定，选哪个、凭什么。';
         $lines[] = '- 完了：凭什么算完。收不收由交互对象定。';
         $lines[] = 'content 写这一次往前走了什么（和上一次比，多了什么、哪里变了），不是做了哪些动作。';
         return implode("\n", $lines);
