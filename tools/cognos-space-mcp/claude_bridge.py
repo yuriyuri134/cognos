@@ -217,6 +217,9 @@ def grow(branch: str) -> dict:
     restarts = []
     if app:
         restarts.append(restart_app())
+        # 升了版本号或加了迁移：重启不会升级，Nextcloud 会整站 503，要在发回前 occ upgrade
+        if any(f.endswith("appinfo/info.xml") or "/lib/Migration/" in f for f in changed):
+            restarts.append(upgrade_app())
     if bridge:
         restarts.append("桥：回答发回去前换成新代码。")
     return {
@@ -243,6 +246,18 @@ def restart_app() -> str:
             pass
         time.sleep(2)
     return f"app：重启了 {PHP_CONTAINER}，两分钟里还没应答。"
+
+
+def upgrade_app() -> str:
+    """版本号变了或有新迁移：在 app 容器里跑 occ upgrade，整站才不会停在「需要升级」。"""
+    docker = shutil.which("docker")
+    if docker is None:
+        return "app：本机找不到 docker，没升级，要在容器里跑 `occ upgrade`，不然整站 503。"
+    done = subprocess.run([docker, "exec", "-u", "www-data", PHP_CONTAINER, "php", "occ", "upgrade"],
+                          capture_output=True, text=True, encoding="utf-8", timeout=600)
+    if done.returncode:
+        return f"app：`occ upgrade` 没成：{(done.stderr or done.stdout).strip()[-200:]}。整站可能 503，要在容器里手动跑。"
+    return "app：跑了 `occ upgrade`，版本和迁移生效。"
 
 
 def restart_bridge() -> str:
