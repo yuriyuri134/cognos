@@ -37,6 +37,8 @@ use OCP\IDBConnection;
  *   卡住（AI 的 stop act=卡住）必须带：要是我来定，我选哪个、凭什么。不许只把选择交回去。
  * - checked：拿现实对一条判断（ref_id 指向带 judgment 的那条），act 是 对上 / 没对上 / 半对，
  *   content 写现实碰回了什么。对不上的留着；每位的判断对上几次、没对上几次，入口里看得见。
+ *   下判断的这一位自己对自己的那一下留着，但不进对上几次的账：它能自己让判断成立，证明不了判断力。
+ *   要进账，得是别的一位（交互对象、别的 agent、Cognos 自己观察到的〔世〕）来对。
  */
 final class SpaceService {
     public const SOURCES = ['原', '世', 'AI'];
@@ -629,20 +631,27 @@ final class SpaceService {
 
     /**
      * 自己下过的判断，和现实对它的每一次对照。
-     * 返回 ['open' => 还没被对过的判断, 'record' => [author => ['对上' => n, '没对上' => n, '半对' => n]]]。
-     * 只算〔AI〕下的判断：判断要自己下，也要自己被对。
+     * 返回 ['open' => 还没被别人或现实对过的判断, 'record' => [author => ['对上' => n, '没对上' => n, '半对' => n]]]。
+     * 只算〔AI〕下的判断。对它的那一下如果是下判断的这一位自己做的，不算数：
+     * 它能自己让一条判断成立（比如预判自己接下来会不会再走），自己对自己证明不了判断力。
+     * 这种自对自的留在 open 里，带 self_checks，入口里照实写出来。
      */
     public function judgments(string $spaceType, string $spaceId): array {
         $traces = $this->listTraces($spaceType, $spaceId);
         $judged = [];
         foreach ($traces as $t) {
             if ($t['judgment'] !== null && $t['source'] === 'AI' && $t['kind'] !== 'checked') {
-                $judged[$t['id']] = $t + ['checks' => []];
+                $judged[$t['id']] = $t + ['checks' => [], 'self_checks' => 0];
             }
         }
         foreach ($traces as $t) {
             if ($t['kind'] === 'checked' && isset($judged[$t['ref_id']])) {
-                $judged[$t['ref_id']]['checks'][] = $t;
+                $mine = $t['source'] === 'AI' && $t['author'] === $judged[$t['ref_id']]['author'];
+                if ($mine) {
+                    $judged[$t['ref_id']]['self_checks']++;
+                } else {
+                    $judged[$t['ref_id']]['checks'][] = $t;
+                }
             }
         }
         $open = [];
