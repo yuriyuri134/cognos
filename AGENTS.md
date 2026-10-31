@@ -1,23 +1,8 @@
 # Cognos working rule
 
-First read `PROJECT-OVERVIEW.md` for the whole-project picture.
+Project background, implementation, code locations, and development commands are in `PROJECT-OVERVIEW.md`. Historical discussions and experience are in `docs/`; consult them as relevant to the task.
 
-Before deciding *what* to build, read sections 〇–二 of `PROJECT-OVERVIEW.md` (the seven guiding questions, what the project is for in 小林's own words, the mistakes AIs keep making here, and the bets 小林 accepted) and state which of those goals this step serves. Commit to at least one concrete judgement (what to change, build, or where to go), with a confidence percentage and where it would break. Open each session with a 「位置·上次」 line (the last line for the same 线 in `docs/位置.md`) and close it with a 「位置·这次」 line (站住 / 碎了 / 重新切, or 「这次在转圈」), appended to `docs/位置.md` in the same commit. The rules below govern *how* to deliver and verify; they do not decide what is worth doing. "Cognitive effect" evidence is not a score: a measurable proxy (e.g. prediction accuracy) must not stand in for the question 小林 actually asked.
-
-Before substantial Cognos work, read `docs/Cognos-v3-施工台账.md` and `docs/Cognos-v3-行动思想.md` together.
-
-The ledger records current construction state and evidence. The action-thought document records what the project process has changed in our understanding and therefore in how we act next. Do not collapse these into one kind of claim.
-
-After a substantive Packet, real-model trial, architectural deletion/merge, continuity failure, or bug that changes a design assumption:
-
-1. update the construction ledger with what actually happened and its evidence;
-2. ask whether the event changes any action-level understanding;
-3. if it does, revise `Cognos-v3-行动思想.md` with the process origin, current understanding, operational consequence, and what future evidence could overturn it;
-4. if it does not, do not manufacture a philosophical conclusion just to make the file grow.
-
-Engineering correctness, cognitive effect, and observability/provenance are distinct evidence classes. Passing tests must not be promoted into a claim of better reasoning; an impressive model response must not substitute for engineering verification.
-
-Prefer revising, narrowing, merging, or deleting existing concepts when project evidence warrants it. The action-thought layer is living and revisable, not a doctrine that implementation must protect.
+Engineering verification, reasoning quality, and provenance are different kinds of evidence. Passing tests does not establish better reasoning. Report actual execution results and distinguish unverified inferences from confirmed facts.
 
 ## Agent/request pacing
 
