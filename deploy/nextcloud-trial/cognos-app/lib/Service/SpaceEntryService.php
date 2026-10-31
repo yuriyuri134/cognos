@@ -305,7 +305,7 @@ final class SpaceEntryService {
             $lines[] = '- ' . $line;
         }
         $lines[] = '';
-        $lines[] = '标记：〔原〕是交互对象的原话或他给的事实，〔世〕是现实碰回来的，〔AI〕是某个 AI 推的，后面跟把握。';
+        $lines[] = '标记：〔原〕是交互对象的原话或他给的事实，〔世〕是现实碰回来的，〔AI〕是某个 AI 推的；把握估计可选。';
 
         return implode("\n", $lines);
     }
