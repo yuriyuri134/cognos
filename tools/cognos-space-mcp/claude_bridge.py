@@ -42,6 +42,12 @@ Cognos 把入口（和 Hermes 拿到的是同一份，只是主体换成 Claude 
   COGNOS_PHP_CONTAINER Nextcloud 的 app 容器：本机没有 php 时用它检查 PHP 语法，长进身体后重启它，默认 cognos-nextcloud-trial-app-1
   COGNOS_SELF_MERGE    设成 1：Cognos 自己的空间里改的代码检查过了，就合进本机正在跑的分支（身体），
                        改了 cognos-app 就重启 app 容器，改了桥就重启桥。合之前打本机标签 cognos-body/...，可以退回；不推。
+  COGNOS_RUN_LOG_DIR   每次运行的完整输入输出存到哪，默认 deploy/nextcloud-trial/evidence/claude-bridge/runs（不进 git）
+  COGNOS_RUN_LABEL     给这段时间的运行打个标签（比如 A、B），写进每次的 meta.json，对照时分组用
+
+每次运行存一个目录：system.txt（入口 + 桥加的话，就是 --system-prompt-file 的全文）、prompt.txt（stdin 的全文）、
+stream.jsonl（stream-json 原样，含每次用工具）、stderr.txt、meta.json（空间、主体、标签、身体的提交、用时、退出码）。
+mcp.json 里有应用密码，不存。
 """
 from __future__ import annotations
 
@@ -89,11 +95,17 @@ MODEL = os.environ.get("CLAUDE_BRIDGE_MODEL", "")
 SPACES_DIR = Path(os.environ.get("COGNOS_SPACES_DIR") or Path.home() / "Documents" / "cognos-spaces")
 COMMANDS = os.environ.get("COGNOS_BRIDGE_COMMANDS", "") == "1"
 TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
+# 10/27：PowerShell 配置文件里设的中转站 key 会被继承，claude 就不走交互对象自己的订阅登录了。
+# 默认起 claude 前把这几个去掉；真想走中转站，设 COGNOS_BRIDGE_KEEP_API_ENV=1
+API_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
+KEEP_API_ENV = os.environ.get("COGNOS_BRIDGE_KEEP_API_ENV", "") == "1"
 REPO = Path(os.environ.get("COGNOS_REPO") or HERE.parent.parent)
 SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "HEAD")
 SELF_CHECK = os.environ.get("COGNOS_SELF_CHECK", "").strip()
 PHP_CONTAINER = os.environ.get("COGNOS_PHP_CONTAINER", "cognos-nextcloud-trial-app-1")
 SELF_MERGE = os.environ.get("COGNOS_SELF_MERGE", "") == "1"
+RUN_LOG_DIR = Path(os.environ.get("COGNOS_RUN_LOG_DIR") or REPO / "deploy" / "nextcloud-trial" / "evidence" / "claude-bridge" / "runs")
+RUN_LABEL = os.environ.get("COGNOS_RUN_LABEL", "").strip()
 APP_DIR = "deploy/nextcloud-trial/cognos-app/"
 BRIDGE_DIR = "tools/cognos-space-mcp/"
 HTTPD: ThreadingHTTPServer | None = None
@@ -326,6 +338,9 @@ def grow(branch: str) -> dict:
     restarts = []
     if app:
         restarts.append(restart_app())
+        # 升了版本号或加了迁移：重启不会升级，Nextcloud 会整站 503，要在发回前 occ upgrade
+        if any(f.endswith("appinfo/info.xml") or "/lib/Migration/" in f for f in changed):
+            restarts.append(upgrade_app())
     if bridge:
         restarts.append("桥：回答发回去前换成新代码。")
     return {
@@ -352,6 +367,18 @@ def restart_app() -> str:
             pass
         time.sleep(2)
     return f"app：重启了 {PHP_CONTAINER}，两分钟里还没应答。"
+
+
+def upgrade_app() -> str:
+    """版本号变了或有新迁移：在 app 容器里跑 occ upgrade，整站才不会停在「需要升级」。"""
+    docker = shutil.which("docker")
+    if docker is None:
+        return "app：本机找不到 docker，没升级，要在容器里跑 `occ upgrade`，不然整站 503。"
+    done = subprocess.run([docker, "exec", "-u", "www-data", PHP_CONTAINER, "php", "occ", "upgrade"],
+                          capture_output=True, text=True, encoding="utf-8", timeout=600)
+    if done.returncode:
+        return f"app：`occ upgrade` 没成：{(done.stderr or done.stdout).strip()[-200:]}。整站可能 503，要在容器里手动跑。"
+    return "app：跑了 `occ upgrade`，版本和迁移生效。"
 
 
 def restart_bridge() -> str:
@@ -456,7 +483,7 @@ def hands(workdir: Path, wt: dict | None = None) -> str:
         lines += [
             f"- 工作目录：{workdir}。这是 Cognos 仓库的一份副本，在新分支 {wt['branch']} 上（从 {wt['base']} 切出来）。"
             "产品代码在 deploy/nextcloud-trial/cognos-app/，项目全貌在 PROJECT-OVERVIEW.md。",
-            "- 你押着的前提，governs 写着它管着这里的哪段代码。被顶了要重新切，就去改那段代码；只改说法不算。"
+            "- 前提的 governs 写着它管着这里的哪段代码。"
             "改完不用提交：你做完以后桥会把改动提交到这条分支，由交互对象来看、来合。不要切别的分支，不要推。",
         ]
         if wt.get("body"):
@@ -473,8 +500,7 @@ def hands(workdir: Path, wt: dict | None = None) -> str:
     else:
         lines.append("- 不能跑命令。要跑的，把脚本和怎么跑写进工作目录，停在这里并写明。")
     lines += [
-        "- 时间：你回完话不用马上走。能自己做的先做到够不着为止（要交互对象的账号、钱、或另一个人），"
-        f"最多 {TIMEOUT // 60} 分钟。最后的回答会发回这段对话，交互对象可能不在线，回答里写清做了什么、东西在哪、停在哪。",
+        f"- 时间：最多 {TIMEOUT // 60} 分钟。最后的回答会发回这段对话，交互对象可能不在线。",
     ]
     return "\n".join(lines)
 
@@ -492,7 +518,73 @@ def prompt_from(history: list[dict], message: str, caller: str) -> str:
     return "\n".join(lines)
 
 
-def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict | None = None) -> str:
+def body_commit() -> str:
+    """身体（桥和 app 跑的那份仓库）现在在哪个提交上，有没改的就带上 +dirty。"""
+    try:
+        head = git("rev-parse", "--short", "HEAD", cwd=REPO).strip()
+        dirty = git("status", "--porcelain", "--untracked-files=no", cwd=REPO).strip()
+        return head + ("+dirty" if dirty else "")
+    except Exception as error:  # 记不下也不挡运行
+        return f"unknown（{error}）"
+
+
+_CLAUDE_VERSION: str | None = None
+
+
+def claude_version() -> str:
+    """本机 claude 的版本：--setting-sources 等参数的行为随版本变，对照时要知道是哪一版。"""
+    global _CLAUDE_VERSION
+    if _CLAUDE_VERSION is None:
+        exe = shutil.which("claude.cmd") or shutil.which("claude")
+        try:
+            _CLAUDE_VERSION = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=30).stdout.strip() if exe else "not found"
+        except Exception as error:
+            _CLAUDE_VERSION = f"unknown（{error}）"
+    return _CLAUDE_VERSION
+
+
+def record_run(job: dict, subject: str, system_text: str, prompt: str, started: float,
+               stdout: str, stderr: str, returncode, timed_out: bool) -> Path | None:
+    """把这一次实际给出去的和拿回来的原样存下，改前改后才有东西可比。存不下只写 stderr，不挡运行。"""
+    try:
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(started))
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in subject)
+        run_dir = RUN_LOG_DIR / f"{stamp}-{job.get('space_type')}-{job.get('space_id')}-{safe}"
+        n = 1
+        while run_dir.exists():
+            n += 1
+            run_dir = run_dir.with_name(f"{run_dir.name.split('~')[0]}~{n}")
+        run_dir.mkdir(parents=True)
+        (run_dir / "system.txt").write_text(system_text, encoding="utf-8")
+        (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
+        (run_dir / "stream.jsonl").write_text(stdout or "", encoding="utf-8")
+        (run_dir / "stderr.txt").write_text(stderr or "", encoding="utf-8")
+        meta = {
+            "label": RUN_LABEL or None,
+            "started": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(started)),
+            "seconds": round(time.time() - started, 1),
+            "space_type": job.get("space_type"),
+            "space_id": job.get("space_id"),
+            "subject": subject,
+            "caller": job.get("caller"),
+            "reply_to": job.get("reply_to"),
+            "hit_id": job.get("hit_id"),
+            "open_id": job.get("open_id"),
+            "repo": bool(job.get("repo")),
+            "body_commit": body_commit(),
+            "model": MODEL or None,
+            "claude_version": claude_version(),
+            "returncode": returncode,
+            "timed_out": timed_out,
+        }
+        (run_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        return run_dir
+    except Exception as error:
+        sys.stderr.write(f"[claude-bridge] 这次运行没存下：{error}\n")
+        return None
+
+
+def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict | None = None, job: dict | None = None) -> str:
     exe = shutil.which("claude.cmd") or shutil.which("claude")
     if exe is None:
         raise RuntimeError("本机 PATH 里找不到 claude")
@@ -502,7 +594,8 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
     with tempfile.TemporaryDirectory(prefix="cognos-claude-") as tmp:
         tmpdir = Path(tmp)
         # claude.cmd（批处理）遇到换行会丢掉后面的参数，所以入口写成文件传进去
-        (tmpdir / "system.txt").write_text(system + "\n" + hands(workdir, wt), encoding="utf-8")
+        system_text = system + "\n" + hands(workdir, wt)
+        (tmpdir / "system.txt").write_text(system_text, encoding="utf-8")
         (tmpdir / "mcp.json").write_text(json.dumps({"mcpServers": {"cognos-space": {
             "command": sys.executable,
             "args": [str(SERVER)],
@@ -523,8 +616,17 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
                "--output-format", "stream-json", "--verbose"]
         if MODEL:
             cmd += ["--model", MODEL]
-        done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
-                              cwd=workdir, timeout=TIMEOUT)
+        env = dict(os.environ) if KEEP_API_ENV else {k: v for k, v in os.environ.items() if k not in API_ENV}
+        started = time.time()
+        try:
+            done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
+                                  cwd=workdir, env=env, timeout=TIMEOUT)
+        except subprocess.TimeoutExpired as error:
+            out = error.stdout.decode("utf-8", "replace") if isinstance(error.stdout, bytes) else (error.stdout or "")
+            err = error.stderr.decode("utf-8", "replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+            record_run(job or {}, subject, system_text, prompt, started, out, err, None, True)
+            raise
+        record_run(job or {}, subject, system_text, prompt, started, done.stdout, done.stderr, done.returncode, False)
     return answer_from(done.stdout, done.stderr)
 
 
@@ -602,7 +704,7 @@ def work(job: dict) -> None:
             if job.get("repo"):
                 wt = open_worktree(space_type, space_id, job.get("hit_id"), job.get("base_branch"), job.get("open_id"))
             workdir = wt["path"] if wt else workdir_for(space_type, space_id)
-            content = run_claude(subject, job["system"], job["prompt"], workdir, wt)
+            content = run_claude(subject, job["system"], job["prompt"], workdir, wt, job)
         except subprocess.TimeoutExpired:
             content = f"（{subject} 做了 {TIMEOUT // 60} 分钟还没做完，被停下了。做到哪里，看侧栏里它留下的发生和工作目录。）"
             back["timed_out"] = True
@@ -672,6 +774,7 @@ class Handler(BaseHTTPRequestHandler):
                 "subject": str(body.get("subject") or "Claude Code"),
                 "system": str(body["system"]),
                 "prompt": prompt_from(body.get("history") or [], str(body["message"]), str(body.get("caller") or "交互对象")),
+                "caller": str(body.get("caller") or "交互对象"),
                 "repo": bool(body.get("repo")),
                 "hit_id": body.get("hit_id"),
                 "reply_to": body.get("reply_to"),

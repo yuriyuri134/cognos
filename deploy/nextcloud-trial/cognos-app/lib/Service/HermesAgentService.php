@@ -143,7 +143,7 @@ final class HermesAgentService {
         // 空间里的工具：只在被叫进一片空间时提供（见 chatCreation），不进通用工具表
         $this->registerSpaceTool(
             'leave_trace',
-            '在这片空间里留下一条发生。你做了一次尝试（在模型上推，或者碰了现实），就用 kind=attempt 留下，写明停在哪、碰没碰过现实。来源固定记为 AI 和你的名字，不能代替交互对象写原话。',
+            '在这片空间里留下一条发生。你做了一次尝试（在模型上推，或者碰了现实），可以用 kind=attempt 留下，stopped_at、touched_reality 可选。来源固定记为 AI 和你的名字，不能代替交互对象写原话。',
             [
                 'kind' => ['type' => 'string', 'description' => 'attempt（尝试，默认）、fact（推出来的事实）、material（材料）、correction（更正某一条，要带 ref_id 和 status）等，自由文本'],
                 'content' => ['type' => 'string', 'description' => '正文：你做了什么、看到了什么'],
@@ -151,11 +151,11 @@ final class HermesAgentService {
                 'stopped_at' => ['type' => 'string', 'description' => '尝试停在哪里、为什么停'],
                 'touched_reality' => ['type' => 'boolean', 'description' => '碰过现实为 true，只在模型上推为 false'],
                 'act' => ['type' => 'string', 'description' => '这条在做什么：陈述、推测、提问、举例……'],
-                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
                 'ref_id' => ['type' => 'integer', 'description' => 'kind=correction 时，指向被更正的那一条的 #id'],
                 'status' => ['type' => 'string', 'description' => 'kind=correction 时，那一条的新状态：confirmed / rejected / withdrawn'],
             ],
-            ['content', 'confidence'],
+            ['content'],
             [$this, 'toolLeaveTrace']
         );
         $this->registerSpaceTool(
@@ -163,10 +163,10 @@ final class HermesAgentService {
             '留下你对这片空间的读法：你怎么理解这里的意图、尝试和它们的关系。它和原话分开放，标是你的；你之前的读法不会被删，只会被标为已替换。',
             [
                 'content' => ['type' => 'string', 'description' => '读法正文'],
-                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
                 'refs' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => '它读的是哪几条（入口里的 #id）'],
             ],
-            ['content', 'confidence'],
+            ['content'],
             [$this, 'toolAddReading']
         );
         $this->registerSpaceTool(
@@ -181,13 +181,13 @@ final class HermesAgentService {
         );
         $this->registerSpaceTool(
             'hold_premise',
-            '押上一条你自己的前提：你凭它在想、在做的那一条，连上它管着的代码或做法。押着的东西能被顶回来，被顶到时你要面对它。',
+            '押上一条你自己的前提：你凭它在想、在做的那一条，连上它管着的代码或做法。押着的东西能被顶回来，被顶到时你会被叫回来。',
             [
                 'content' => ['type' => 'string', 'description' => '前提本身，一句话说清'],
                 'governs' => ['type' => 'string', 'description' => '它管着什么：哪段代码、哪个做法、哪个判断'],
-                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
             ],
-            ['content', 'confidence'],
+            ['content'],
             [$this, 'toolHoldPremise']
         );
         $this->registerSpaceTool(
@@ -196,9 +196,9 @@ final class HermesAgentService {
             [
                 'ref_id' => ['type' => 'integer', 'description' => '被顶的那条前提的 #id'],
                 'content' => ['type' => 'string', 'description' => '顶回来的是什么：事实、矛盾、反例、现实的结果'],
-                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
             ],
-            ['ref_id', 'content', 'confidence'],
+            ['ref_id', 'content'],
             [$this, 'toolHitPremise']
         );
         $this->registerSpaceTool(
@@ -210,9 +210,9 @@ final class HermesAgentService {
                 'content' => ['type' => 'string', 'description' => '你怎么面对的，这一下之后什么变了'],
                 'new_premise' => ['type' => 'string', 'description' => 'act=重新切 时，新的前提'],
                 'governs' => ['type' => 'string', 'description' => 'act=重新切 时新前提管着什么；不填就沿用旧的'],
-                'confidence' => ['type' => 'integer', 'description' => '你的把握，0-100'],
+                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
             ],
-            ['hit_id', 'act', 'content', 'confidence'],
+            ['hit_id', 'act', 'content'],
             [$this, 'toolAnswerHit']
         );
     }

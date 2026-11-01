@@ -80,7 +80,7 @@ final class ContinuationService {
         $message = $this->message($open, $force);
         $entry = $this->entries->entry($space, $subject, ['caller' => 'Cognos（#' . $openId . ' 还没完）', 'message' => $message], array_merge(
             $this->bridge->canDo($spaceType, $spaceId),
-            ['stop_here：走之前说清这一次停在哪（open_id=' . $openId . '）。不说，Cognos 就不知道从哪接着。'],
+            ['stop_here：记下这一次停在哪（open_id=' . $openId . '）。不记，Cognos 就不知道从哪接着。'],
         ));
         try {
             // history 是空的：从口子接着走，不从整段对话重新开始
@@ -191,7 +191,7 @@ final class ContinuationService {
         $lines[] = '';
         if ($stop === null) {
             $lines[] = '## 还没有谁从它走过';
-            $lines[] = '这是第一次。先答：它在问什么、在什么情况里、你押着什么去走；然后走到够不着为止。';
+            $lines[] = '这是第一次从它走。';
         } else {
             $lines[] = '## 上一次停在';
             $lines[] = sprintf('- 停：%s（#%d，%s）', $stop['act'], $stop['id'], $stop['author']);
@@ -205,25 +205,20 @@ final class ContinuationService {
             $lines[] = '';
             $lines[] = sprintf('## 检查（〔世〕，%s）', $last['act']);
             $lines[] = $last['content'];
-            if ($last['act'] === '没过') {
-                $lines[] = '没过的先面对：是改错了，还是检查本身不对，写清楚。';
-            }
         }
         if (count($open['edges']) > 1) {
             $lines[] = '';
-            $lines[] = '## 走过的口子（再回到其中一个，就是在原地转，Cognos 会停下这一件）';
+            $lines[] = '## 走过的口子（新写的口子和其中一个太像，Cognos 会停下这一件）';
             foreach ($open['edges'] as $e) {
                 $lines[] = sprintf('- #%d %s', $e['id'], $e['edge']);
             }
         }
         $lines[] = '';
-        $lines[] = '## 这一次';
-        $lines[] = '从口子接着走，不从头复述。做到你自己够不着为止。';
-        $lines[] = sprintf('走之前用 stop_here（open_id=%d）说清停在哪：', $open['id']);
-        $lines[] = '- 接着：下一个你自己够得着的口子，要具体到下一次一进来就能动手；Cognos 会马上从它叫下一次。';
-        $lines[] = '- 卡住：只有交互对象、钱或现实能给的是哪一件；还要写你自己的判断（judgment）：要是你来定，选哪个、凭什么。';
-        $lines[] = '- 完了：凭什么算完。收不收由交互对象定。';
-        $lines[] = 'content 写这一次往前走了什么（和上一次比，多了什么、哪里变了），不是做了哪些动作。';
+        $lines[] = '## 停下时';
+        $lines[] = sprintf('Cognos 靠 stop_here（open_id=%d）知道这一次停在哪：', $open['id']);
+        $lines[] = '- 接着：Cognos 会从你写的口子马上叫下一次。';
+        $lines[] = '- 卡住：Cognos 不再自己叫，等交互对象。卡住要带 judgment（要是你来定选哪个、凭什么），不带记不下。';
+        $lines[] = '- 完了：收不收由交互对象定。';
         return implode("\n", $lines);
     }
 

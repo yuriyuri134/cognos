@@ -33,7 +33,7 @@ Codex 等别的 agent 也一样，各自报自己的 `COGNOS_SUBJECT`。
 | `search_traces` | 在全部痕迹里找 |
 | `hold_premise` / `hit_premise` / `answer_hit` | 押上前提、顶别人押着的、面对顶到自己的 |
 | `hang_open` | 挂上一件还没完的：它会拉着下一次 |
-| `stop_here` | 走之前说清停在哪件没完的哪里：接着（下一个口子）/ 卡住（卡在哪）/ 完了 |
+| `stop_here` | 记下停在哪件没完的哪里：接着（下一个口子）/ 卡住（卡在哪）/ 完了 |
 
 后台走的是 OCS 接口 `/ocs/v2.php/apps/cognos/api/v1.0/spaces/...`，见 `deploy/nextcloud-trial/cognos-app/lib/Controller/SpaceApiController.php`。
 
@@ -54,7 +54,7 @@ docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cogn
 
 换回 Hermes：`creation_agent` 设成 `hermes`。容器里连不到 `127.0.0.1` 时，起桥前设 `COGNOS_BRIDGE_HOST=0.0.0.0`。
 
-每次被叫，桥马上回「收到」，然后在后台起一次 `claude -p`：入口作为系统提示（和 Hermes 拿到的是同一份，主体换成 Claude Code），之前的对话和这次的原话作为输入。它回完话不用马上走，能自己做的先做到够不着为止（默认最多 30 分钟），做完把回答发回这段对话；页面上会显示「Claude Code 进来了，在接着做」，它留下的尝试和读法侧栏里会陆续出现。
+每次被叫，桥马上回「收到」，然后在后台起一次 `claude -p`：入口作为系统提示（和 Hermes 拿到的是同一份，主体换成 Claude Code），之前的对话和这次的原话作为输入。它可以做一阵（默认最多 30 分钟），做完把回答发回这段对话；页面上会显示「Claude Code 进来了，在接着做」，它留下的尝试和读法侧栏里会陆续出现。
 
 它手里有：
 - 空间里的 `leave_trace`、`add_reading`、`search_traces`；
@@ -62,7 +62,7 @@ docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cogn
 - 这片空间自己的工作目录 `~/Documents/cognos-spaces/creation-<id>`（`COGNOS_SPACES_DIR` 可改）。读写文件只限这个目录，目录外的会被 Claude Code 拒掉；
 - 跑命令：起桥前设 `COGNOS_BRIDGE_COMMANDS=1` 才开。命令不受目录限制，Windows 上没有沙箱，只是从工作目录起步。8780 经 `start-public.ps1` 开到公网时（有 `deploy/nextcloud-trial/.public-access-state.json`），桥自动不开命令。
 
-它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度。同一片空间同时只做一件事，还在做时再叫会提示「还在做上一件事」。
+它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度：桥起 claude 前会去掉 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`，免得 PowerShell 配置文件里的中转站 key 顶掉订阅登录（10/27 的 401 余额不足就是这样来的）。真要走中转站，起桥前设 `COGNOS_BRIDGE_KEEP_API_ENV=1`。同一片空间同时只做一件事，还在做时再叫会提示「还在做上一件事」。
 
 起桥（已经在跑就什么都不做；默认开命令，`-NoCommands` 关掉）：
 
@@ -87,7 +87,8 @@ powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-bridge.ps1
 - 没有心跳和定时：只在一次走完、还有东西拉着时才叫。每片空间每天最多接着走 12 次（`occ config:app:set cognos continue_daily --value=<次数>`），到了就挂着，明天或你按「接着走」再叫。
 - 侧栏里每件没完的有「接着走」（停在原地、卡住、完了的也再叫一次）和「这件完了」（收起来）。
 
-- 长进身体（起桥前设 `COGNOS_SELF_MERGE=1` 才开）：Cognos 自己的空间里改的代码检查过了，桥就把它合进本机正在跑的那条分支，不用等你来合。改了 `cognos-app` 就重启 app 容器，改了桥就换成新桥，然后才发回回答，下一次叫到的就是新的。合之前打本机标签 `cognos-body/<时间>`，回答里写着怎么退回（`git reset --hard <标签>`）。跑着的那份有没提交的改动、合不上、检查没过，都不合，留在分支上等你。不推，不碰 master。副本也从跑着的那份切（`COGNOS_SELF_BASE` 默认还是 master，开了长进身体建议设成 `HEAD`）。
+- 长进身体（起桥前设 `COGNOS_SELF_MERGE=1` 才开）：Cognos 自己的空间里改的代码检查过了，桥就把它合进本机正在跑的那条分支，不用等你来合。改了 `cognos-app` 就重启 app 容器（升了 `info.xml` 版本号或加了迁移，还会在容器里跑 `occ upgrade`，不然整站 503），改了桥就换成新桥，然后才发回回答，下一次叫到的就是新的。合之前打本机标签 `cognos-body/<时间>`，回答里写着怎么退回（`git reset --hard <标签>`）。跑着的那份有没提交的改动、合不上、检查没过，都不合，留在分支上等你。不推，不碰 master。副本也从跑着的那份切（`COGNOS_SELF_BASE` 默认还是 master，开了长进身体建议设成 `HEAD`）。
 
 接着走总是叫本机的 Claude Code（经桥），和 `creation_agent` 设的是谁无关。来路见项目文件 `框架审视/为什么会停-2026-10-27.md`。
 
+每次运行的完整输入输出（`system.txt`、`prompt.txt`、`stream.jsonl`、`meta.json`）存在 `deploy/nextcloud-trial/evidence/claude-bridge/runs/`，起桥前设 `COGNOS_RUN_LABEL` 可以给运行打标签；`compare_runs.py` 按标签对照。见 `docs/条件B对照-2026-11-01.md`。

@@ -185,7 +185,11 @@ final class PushBackService {
         $against = (int)$hit['ref_id'] !== (int)$premise['id'] ? sprintf('，顶的是你对它的那次站住 #%d', $hit['ref_id']) : '';
         $evaded = $premise['evaded'] > 0 ? sprintf("\n\n（你押着的这条，以前被叫回来过 %d 次，做完走了没面对，那几次都记着。）", $premise['evaded']) : '';
         $message = sprintf(
-            "你押着的 #%d「%s」被 %s 顶了（#%d%s）：\n\n%s%s\n\n先面对这一下，再做别的：用 answer_hit（hit_id=%d）留下你怎么面对。站住，就写清凭什么还站得住；碎了，就写清碎在哪；重新切，就写出新的前提%s。不要只改说法：要说清这一下之后，什么变了。做完没面对，也会被记下来。",
+            "你押着的 #%d「%s」被 %s 顶了（#%d%s）：
+
+%s%s
+
+回应这一下用 answer_hit（hit_id=%d，act 是站住、碎了或重新切）%s。这次做完没 answer_hit，会记一条 unanswered（〔世〕）。",
             $premise['id'],
             $premise['content'],
             $hitter,
@@ -194,7 +198,7 @@ final class PushBackService {
             $hit['content'],
             $evaded,
             $hit['id'],
-            $premise['governs'] !== null ? '，并去改它管着的东西（' . $premise['governs'] . '）' : '',
+            $premise['governs'] !== null ? '。这条前提写着它管着：' . $premise['governs'] : '',
         );
         $entry = $this->entries->entry($space, $holder, ['caller' => $hitter, 'message' => $message], $this->bridge->canDo($spaceType, $spaceId));
         try {

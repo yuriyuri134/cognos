@@ -3,7 +3,7 @@
 
 和 Hermes 在 Cognos 里用的是同一套动作：进来（拿到入口）、留下尝试、留下读法、在痕迹里找，
 押上前提（hold_premise）、顶别人押着的（hit_premise）、面对顶到自己的（answer_hit），
-挂上没完的（hang_open）、走之前说停在哪（stop_here）。
+挂上没完的（hang_open）、记下停在哪（stop_here）。
 它写下的东西一律记为〔AI〕和 COGNOS_SUBJECT 这个名字，不能代替交互对象写原话。
 
 只用标准库，stdio 上一行一个 JSON-RPC 消息。环境变量：
@@ -57,7 +57,7 @@ TOOLS = [
     {
         "name": "leave_trace",
         "description": (
-            "在这片空间里留下一条发生。做了一次尝试就用 kind=attempt，写明停在哪、碰没碰过现实。"
+            "在这片空间里留下一条发生。尝试用 kind=attempt，stopped_at、touched_reality 可选。"
             "要更正某一条，用 kind=correction 加 ref_id 和 status。"
         ),
         "inputSchema": {
@@ -72,11 +72,11 @@ TOOLS = [
                 "touched_reality": {"type": "boolean", "description": "碰过现实为 true，只在模型上推为 false"},
                 "judgment": {"type": "string", "description": "预判：这一步做下去，现实会碰回什么；碰不回来就说明哪里想错了。下一次有人拿现实对它（check_judgment）"},
                 "act": {"type": "string", "description": "这条在做什么：陈述、推测、提问、举例……"},
-                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
                 "ref_id": {"type": "integer", "description": "kind=correction 时被更正那一条的 #id"},
                 "status": {"type": "string", "description": "kind=correction 时那一条的新状态：confirmed / rejected / withdrawn"},
             },
-            "required": ["space_id", "content", "confidence"],
+            "required": ["space_id", "content"],
         },
     },
     {
@@ -88,10 +88,10 @@ TOOLS = [
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
                 "content": {"type": "string"},
-                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
                 "refs": {"type": "array", "items": {"type": "integer"}, "description": "读的是哪几条 #id"},
             },
-            "required": ["space_id", "content", "confidence"],
+            "required": ["space_id", "content"],
         },
     },
     {
@@ -124,9 +124,9 @@ TOOLS += [
                 "space_type": SPACE_TYPE,
                 "content": {"type": "string", "description": "前提本身，一句话说清"},
                 "governs": {"type": "string", "description": "它管着什么：哪段代码（路径、类、方法）、哪个做法、哪个判断"},
-                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
             },
-            "required": ["space_id", "content", "confidence"],
+            "required": ["space_id", "content"],
         },
     },
     {
@@ -143,16 +143,16 @@ TOOLS += [
                 "space_type": SPACE_TYPE,
                 "ref_id": {"type": "integer", "description": "被顶的那条前提的 #id"},
                 "content": {"type": "string", "description": "顶回来的是什么"},
-                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
             },
-            "required": ["space_id", "ref_id", "content", "confidence"],
+            "required": ["space_id", "ref_id", "content"],
         },
     },
     {
         "name": "answer_hit",
         "description": (
             "面对顶到你押着的前提的一下：站住（写清凭什么还站得住）、碎了（写清碎在哪）、"
-            "重新切（写出新的前提；在 Cognos 自己的空间里，还要去改它管着的代码）。"
+            "重新切（写出新的前提）。"
         ),
         "inputSchema": {
             "type": "object",
@@ -164,9 +164,9 @@ TOOLS += [
                 "content": {"type": "string", "description": "你怎么面对的，这一下之后什么变了"},
                 "new_premise": {"type": "string", "description": "act=重新切 时，新的前提"},
                 "governs": {"type": "string", "description": "act=重新切 时新前提管着什么；不填就沿用旧的"},
-                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
             },
-            "required": ["space_id", "hit_id", "act", "content", "confidence"],
+            "required": ["space_id", "hit_id", "act", "content"],
         },
     },
 ]
@@ -184,9 +184,9 @@ TOOLS += [
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
                 "content": {"type": "string", "description": "还没完的是什么，一句话说清"},
-                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
             },
-            "required": ["space_id", "content", "confidence"],
+            "required": ["space_id", "content"],
         },
     },
     {
@@ -212,9 +212,9 @@ TOOLS += [
     {
         "name": "stop_here",
         "description": (
-            "走之前说清这一次停在哪件没完的哪里。act=接着：下一个你自己够得着的口子（edge），"
-            "Cognos 会马上从它叫下一次；act=卡住：只有交互对象、钱或现实能给的那一件（edge），而且要写 judgment："
-            "要是你来定，你选哪个、凭什么，不能只把选择交回去；act=完了：凭什么算完。"
+            "记下这一次停在哪件没完的哪里。act=接着：下一个你自己够得着的口子（edge），"
+            "Cognos 会马上从它叫下一次；act=卡住：只有交互对象、钱或现实能给的那一件（edge），要带 judgment："
+            "要是你来定，你选哪个、凭什么，不带记不下；act=完了：凭什么算完。"
             "moved 写这一次往前走了什么（和上一次比多了什么、哪里变了），不是做了哪些动作。"
         ),
         "inputSchema": {
@@ -225,11 +225,11 @@ TOOLS += [
                 "open_id": {"type": "integer", "description": "那件没完的 #id"},
                 "act": {"type": "string", "enum": ["接着", "卡住", "完了"]},
                 "moved": {"type": "string", "description": "这一次往前走了什么"},
-                "edge": {"type": "string", "description": "接着：下一个口子，具体到一进来就能动手；卡住：卡在哪一件"},
-                "judgment": {"type": "string", "description": "你自己的判断。卡住时必填：要是你来定，选哪个、凭什么；接着时可写预判：下一个口子走下去现实会碰回什么"},
-                "confidence": {"type": "integer", "description": "你的把握，0-100"},
+                "edge": {"type": "string", "description": "接着：下一个口子；卡住：卡在哪一件"},
+                "judgment": {"type": "string", "description": "你自己的判断。act=卡住时必须带（不带记不下）：要是你来定，选哪个、凭什么；接着时可选：下一个口子走下去现实会碰回什么"},
+                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
             },
-            "required": ["space_id", "open_id", "act", "moved", "confidence"],
+            "required": ["space_id", "open_id", "act", "moved"],
         },
     },
 ]
