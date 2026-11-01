@@ -143,7 +143,7 @@ final class HermesAgentService {
         // 空间里的工具：只在被叫进一片空间时提供（见 chatCreation），不进通用工具表
         $this->registerSpaceTool(
             'leave_trace',
-            '在这片空间里留下一条发生。你做了一次尝试（在模型上推，或者碰了现实），就用 kind=attempt 留下，写明停在哪、碰没碰过现实。来源固定记为 AI 和你的名字，不能代替交互对象写原话。',
+            '在这片空间里留下一条发生。你做了一次尝试（在模型上推，或者碰了现实），可以用 kind=attempt 留下，stopped_at、touched_reality 可选。来源固定记为 AI 和你的名字，不能代替交互对象写原话。',
             [
                 'kind' => ['type' => 'string', 'description' => 'attempt（尝试，默认）、fact（推出来的事实）、material（材料）、correction（更正某一条，要带 ref_id 和 status）等，自由文本'],
                 'content' => ['type' => 'string', 'description' => '正文：你做了什么、看到了什么'],
@@ -181,7 +181,7 @@ final class HermesAgentService {
         );
         $this->registerSpaceTool(
             'hold_premise',
-            '押上一条你自己的前提：你凭它在想、在做的那一条，连上它管着的代码或做法。押着的东西能被顶回来，被顶到时你要面对它。',
+            '押上一条你自己的前提：你凭它在想、在做的那一条，连上它管着的代码或做法。押着的东西能被顶回来，被顶到时你会被叫回来。',
             [
                 'content' => ['type' => 'string', 'description' => '前提本身，一句话说清'],
                 'governs' => ['type' => 'string', 'description' => '它管着什么：哪段代码、哪个做法、哪个判断'],

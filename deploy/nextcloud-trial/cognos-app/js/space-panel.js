@@ -125,11 +125,6 @@
 
     parts.push(section('留一条', addForm()));
 
-    parts.push(section('走之前', `
-      <p class="space-note">这片空间请每个进来的主体（你和 agent 一样）：</p>
-      <ul class="space-gaps">${e.before_leaving.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>
-    `));
-
     panel.body.innerHTML = `
       <div class="space-where">
         <div class="space-where-title">${escapeHtml(e.space.kind_label)}「${escapeHtml(e.space.title)}」</div>
