@@ -104,6 +104,14 @@ final class SpaceApiController extends OCSController {
         if (($body['kind'] ?? '') === 'reality') {
             return new DataResponse(['message' => '检查结果只能由桥在跑完检查后带回来，agent 不能自己写'], 422);
         }
+        if (($body['kind'] ?? '') === 'stop' && ($body['act'] ?? '') === '接着' && isset($body['ref_id'])
+                && trim((string)($body['new_ground'] ?? '')) === ''
+                && ($against = $this->continuation->reviewAgainst($spaceType, $spaceId, (int)$body['ref_id'])) !== null) {
+            return new DataResponse(['message' => sprintf(
+                '接着需要 new_ground：这一件的口子和 #%d 像，这之间又没有外面来的新东西。写清相比 #%d 新增了什么依据、或者哪条前提变了；说不出，就停（卡住 / 完了），不要换个说法接着走',
+                $against, $against,
+            )], 422);
+        }
         try {
             $trace = $this->spaces->addTrace($spaceType, $spaceId, [
                 'kind' => (string)($body['kind'] ?? 'attempt'),
@@ -119,6 +127,8 @@ final class SpaceApiController extends OCSController {
                 'status' => (string)($body['status'] ?? 'said'),
                 'governs' => $body['governs'] ?? null,
                 'judgment' => $body['judgment'] ?? null,
+                'new_ground' => $body['new_ground'] ?? null,
+                'next_open' => $body['next_open'] ?? null,
             ]);
             // 顶到一条押着的前提：去找押的那位
             $pushback = $trace['kind'] === 'hit' ? $this->pushBack->afterHit($spaceType, $spaceId, $uid, $trace) : null;

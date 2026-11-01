@@ -2,7 +2,7 @@
 
 First read `PROJECT-OVERVIEW.md` for the whole-project picture.
 
-Before deciding *what* to build, read sections 〇–二 of `PROJECT-OVERVIEW.md` (the six guiding questions, what the project is for in 小林's own words, and the mistakes AIs keep making here) and state which of those goals this step serves. The rules below govern *how* to deliver and verify; they do not decide what is worth doing. "Cognitive effect" evidence is not a score: a measurable proxy (e.g. prediction accuracy) must not stand in for the question 小林 actually asked.
+Before deciding *what* to build, read sections 〇–二 of `PROJECT-OVERVIEW.md` (the seven guiding questions, what the project is for in 小林's own words, the mistakes AIs keep making here, and the bets 小林 accepted) and state which of those goals this step serves. Commit to at least one concrete judgement (what to change, build, or where to go), with a confidence percentage and where it would break. Open each session with a 「位置·上次」 line (the last line for the same 线 in `docs/位置.md`) and close it with a 「位置·这次」 line (站住 / 碎了 / 重新切, or 「这次在转圈」), appended to `docs/位置.md` in the same commit. The rules below govern *how* to deliver and verify; they do not decide what is worth doing. "Cognitive effect" evidence is not a score: a measurable proxy (e.g. prediction accuracy) must not stand in for the question 小林 actually asked.
 
 Before substantial Cognos work, read `docs/Cognos-v3-施工台账.md` and `docs/Cognos-v3-行动思想.md` together.
 

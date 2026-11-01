@@ -89,6 +89,10 @@ MODEL = os.environ.get("CLAUDE_BRIDGE_MODEL", "")
 SPACES_DIR = Path(os.environ.get("COGNOS_SPACES_DIR") or Path.home() / "Documents" / "cognos-spaces")
 COMMANDS = os.environ.get("COGNOS_BRIDGE_COMMANDS", "") == "1"
 TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
+# 10/27：PowerShell 配置文件里设的中转站 key 会被继承，claude 就不走交互对象自己的订阅登录了。
+# 默认起 claude 前把这几个去掉；真想走中转站，设 COGNOS_BRIDGE_KEEP_API_ENV=1
+API_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
+KEEP_API_ENV = os.environ.get("COGNOS_BRIDGE_KEEP_API_ENV", "") == "1"
 REPO = Path(os.environ.get("COGNOS_REPO") or HERE.parent.parent)
 SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "HEAD")
 SELF_CHECK = os.environ.get("COGNOS_SELF_CHECK", "").strip()
@@ -326,6 +330,9 @@ def grow(branch: str) -> dict:
     restarts = []
     if app:
         restarts.append(restart_app())
+        # 升了版本号或加了迁移：重启不会升级，Nextcloud 会整站 503，要在发回前 occ upgrade
+        if any(f.endswith("appinfo/info.xml") or "/lib/Migration/" in f for f in changed):
+            restarts.append(upgrade_app())
     if bridge:
         restarts.append("桥：回答发回去前换成新代码。")
     return {
@@ -352,6 +359,18 @@ def restart_app() -> str:
             pass
         time.sleep(2)
     return f"app：重启了 {PHP_CONTAINER}，两分钟里还没应答。"
+
+
+def upgrade_app() -> str:
+    """版本号变了或有新迁移：在 app 容器里跑 occ upgrade，整站才不会停在「需要升级」。"""
+    docker = shutil.which("docker")
+    if docker is None:
+        return "app：本机找不到 docker，没升级，要在容器里跑 `occ upgrade`，不然整站 503。"
+    done = subprocess.run([docker, "exec", "-u", "www-data", PHP_CONTAINER, "php", "occ", "upgrade"],
+                          capture_output=True, text=True, encoding="utf-8", timeout=600)
+    if done.returncode:
+        return f"app：`occ upgrade` 没成：{(done.stderr or done.stdout).strip()[-200:]}。整站可能 503，要在容器里手动跑。"
+    return "app：跑了 `occ upgrade`，版本和迁移生效。"
 
 
 def restart_bridge() -> str:
@@ -523,8 +542,9 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
                "--output-format", "stream-json", "--verbose"]
         if MODEL:
             cmd += ["--model", MODEL]
+        env = dict(os.environ) if KEEP_API_ENV else {k: v for k, v in os.environ.items() if k not in API_ENV}
         done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
-                              cwd=workdir, timeout=TIMEOUT)
+                              cwd=workdir, env=env, timeout=TIMEOUT)
     return answer_from(done.stdout, done.stderr)
 
 
