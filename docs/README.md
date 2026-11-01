@@ -79,7 +79,7 @@
 
 | 位置 | 是什么 |
 |---|---|
-| `deploy/nextcloud-trial/cognos-app/` | 现行产品代码（PHP 8 + Vanilla JS）；`seeds/cognos-self.json` 是 Cognos 自己那片空间的种子 |
+| `deploy/nextcloud-trial/cognos-app/` | 现行产品代码（PHP 8 + Vanilla JS）；`seeds/cognos-self.json` 是 Cognos 自己那片空间的种子，`seeds/overview.json` 是「总观」那片空间的种子（11/01，全部的线） |
 | `tools/cognos-space-mcp/` | 外面的 agent 走进空间的 MCP，和叫本机 Claude Code 进来的桥；有自己的 README |
 | `experiments/reading-engine/` | 10/24 读法引擎试验（一次尝试的记录，不是方向） |
 | `web/`、`phase0/`、`phase1/`、`probe/`、`boundary/`、根目录的 `models.py` 等 | 早期原型和实验证据 |
