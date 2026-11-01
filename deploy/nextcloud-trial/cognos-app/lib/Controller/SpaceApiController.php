@@ -71,7 +71,7 @@ final class SpaceApiController extends OCSController {
             'search_traces：在这片空间留下的发生里找。',
             'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你报的名字。',
             'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
-            '你的其他能力（读文件、跑命令、上网）照你自己那边的权限，这片空间不知道，请在开头两三行里写明。',
+            '你的其他能力（读文件、跑命令、上网）照你自己那边的权限，这片空间不知道。',
         ]);
         $text = $this->entries->renderText($entry);
         if ($call !== null) {

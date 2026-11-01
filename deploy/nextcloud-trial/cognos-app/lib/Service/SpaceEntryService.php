@@ -13,8 +13,7 @@ use OCP\App\IAppManager;
  * 不是角色，不说「你是谁、该怎么表现」，只说这里在哪、有什么、以前谁试过什么、停在哪、哪里还空着。
  * 设计见项目文件 空间入口/第一片空间-实现说明.md 第三节。
  *
- * 位置就是立场：入口先说进来的这位押着什么、哪里被顶了，再说这里有什么。
- * 见项目文件 框架审视/会不会全错-2026-10-27.md 第八到十一节。
+ * 入口只摆这里有什么，不规定进来的这位开头要写什么、走之前要做什么（2026-11-01 去掉了「走之前」）。
  */
 final class SpaceEntryService {
     private const ATTEMPT_LIMIT = 15;
@@ -134,13 +133,6 @@ final class SpaceEntryService {
             'gaps' => $this->gaps($intents, $attempts, $traces, array_merge($held, $heldElsewhere)),
             'since' => $since,
             'can_do' => $canDo,
-            'before_leaving' => [
-                '开头两三行写清楚：你站在哪、押着什么；你读到的意图是什么，经过了上面哪几条；这一步是不是因为好做才选的。',
-                '你凭着想、凭着做的前提，押上来（hold_premise），连上它管着的东西；没押，就没有什么能把你顶回来。看到别人押着的被什么顶了，就去顶（hit_premise），押的那位会被叫回来。',
-                '能自己做的先做，做到够不着为止（要交互对象的账号、钱，或另一个人）；不要只留一个建议就把选择交回去。',
-                '你做的尝试留下来，写明停在哪、为什么停在那里、碰没碰过现实。',
-                '你对这里的理解变了，把新的读法留下来。旧的不会被删。',
-            ],
         ];
     }
 
@@ -181,7 +173,7 @@ final class SpaceEntryService {
         }
 
         $lines[] = '';
-        $lines[] = '## 你站在哪（你押着的）';
+        $lines[] = '## 你在这里押着的';
         $openHits = [];
         foreach ($entry['held'] as $p) {
             foreach ($p['hits'] as $h) {
@@ -191,7 +183,7 @@ final class SpaceEntryService {
             }
         }
         if ($openHits !== []) {
-            $lines[] = sprintf('有 %d 下顶到了你押着的。先面对它们，再做别的（answer_hit：站住、碎了、或重新切）：', count($openHits));
+            $lines[] = sprintf('有 %d 下顶到了你押着的，还没回应（answer_hit）：', count($openHits));
             foreach ($openHits as [$h, $p]) {
                 $lines[] = sprintf('- %s → 顶的是你押着的 #%d', $this->traceLine($h, $newIds), $p['id']);
             }
@@ -256,7 +248,7 @@ final class SpaceEntryService {
         foreach ($entry['attempts'] as $t) {
             $line = '- ' . $this->traceLine($t, $newIds);
             $line .= $t['touched_reality'] === true ? '；碰过现实' : ($t['touched_reality'] === false ? '；只在模型上推过' : '');
-            $line .= $t['stopped_at'] !== null ? '；停在：' . $t['stopped_at'] : '；没写停在哪';
+            $line .= $t['stopped_at'] !== null ? '；停在：' . $t['stopped_at'] : '';
             $lines[] = $line;
         }
 
@@ -299,13 +291,7 @@ final class SpaceEntryService {
         }
 
         $lines[] = '';
-        $lines[] = '## 走之前';
-        $lines[] = '这片空间请每个进来的主体（人和 agent 一样）：';
-        foreach ($entry['before_leaving'] as $line) {
-            $lines[] = '- ' . $line;
-        }
-        $lines[] = '';
-        $lines[] = '标记：〔原〕是交互对象的原话或他给的事实，〔世〕是现实碰回来的，〔AI〕是某个 AI 推的；把握估计可选。';
+        $lines[] = '标记：〔原〕是交互对象的原话或他给的事实，〔世〕是现实碰回来的，〔AI〕是某个 AI 推的。';
 
         return implode("\n", $lines);
     }
@@ -325,7 +311,6 @@ final class SpaceEntryService {
         foreach ($intents as $intent) {
             $label = $intent['about'];
             if ($label === null) {
-                $gaps[] = sprintf('意图「%s」没有标 about，看不出哪些尝试是朝着它的。', $this->snippet($intent['content'], 30));
                 continue;
             }
             $linked = array_filter($attempts, static fn(array $a): bool => $a['about'] !== null
@@ -355,11 +340,6 @@ final class SpaceEntryService {
             if ($t['act'] === '提问' && $t['source'] === '原' && !isset($answered[$t['id']])) {
                 $gaps[] = sprintf('还没答的问题：「%s」', $this->snippet($t['content'], 60));
             }
-        }
-
-        $noStop = count(array_filter($attempts, static fn(array $a): bool => $a['stopped_at'] === null));
-        if ($noStop > 0) {
-            $gaps[] = sprintf('有 %d 条尝试没写停在哪。', $noStop);
         }
         return $gaps;
     }

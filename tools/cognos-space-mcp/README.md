@@ -33,7 +33,7 @@ Codex 等别的 agent 也一样，各自报自己的 `COGNOS_SUBJECT`。
 | `search_traces` | 在全部痕迹里找 |
 | `hold_premise` / `hit_premise` / `answer_hit` | 押上前提、顶别人押着的、面对顶到自己的 |
 | `hang_open` | 挂上一件还没完的：它会拉着下一次 |
-| `stop_here` | 走之前说清停在哪件没完的哪里：接着（下一个口子）/ 卡住（卡在哪）/ 完了 |
+| `stop_here` | 记下停在哪件没完的哪里：接着（下一个口子）/ 卡住（卡在哪）/ 完了 |
 
 后台走的是 OCS 接口 `/ocs/v2.php/apps/cognos/api/v1.0/spaces/...`，见 `deploy/nextcloud-trial/cognos-app/lib/Controller/SpaceApiController.php`。
 
@@ -54,7 +54,7 @@ docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cogn
 
 换回 Hermes：`creation_agent` 设成 `hermes`。容器里连不到 `127.0.0.1` 时，起桥前设 `COGNOS_BRIDGE_HOST=0.0.0.0`。
 
-每次被叫，桥马上回「收到」，然后在后台起一次 `claude -p`：入口作为系统提示（和 Hermes 拿到的是同一份，主体换成 Claude Code），之前的对话和这次的原话作为输入。它回完话不用马上走，能自己做的先做到够不着为止（默认最多 30 分钟），做完把回答发回这段对话；页面上会显示「Claude Code 进来了，在接着做」，它留下的尝试和读法侧栏里会陆续出现。
+每次被叫，桥马上回「收到」，然后在后台起一次 `claude -p`：入口作为系统提示（和 Hermes 拿到的是同一份，主体换成 Claude Code），之前的对话和这次的原话作为输入。它可以做一阵（默认最多 30 分钟），做完把回答发回这段对话；页面上会显示「Claude Code 进来了，在接着做」，它留下的尝试和读法侧栏里会陆续出现。
 
 它手里有：
 - 空间里的 `leave_trace`、`add_reading`、`search_traces`；
@@ -91,3 +91,4 @@ powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-bridge.ps1
 
 接着走总是叫本机的 Claude Code（经桥），和 `creation_agent` 设的是谁无关。来路见项目文件 `框架审视/为什么会停-2026-10-27.md`。
 
+每次运行的完整输入输出（`system.txt`、`prompt.txt`、`stream.jsonl`、`meta.json`）存在 `deploy/nextcloud-trial/evidence/claude-bridge/runs/`，起桥前设 `COGNOS_RUN_LABEL` 可以给运行打标签；`compare_runs.py` 按标签对照。见 `docs/条件B对照-2026-11-01.md`。

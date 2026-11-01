@@ -57,7 +57,7 @@ TOOLS = [
     {
         "name": "leave_trace",
         "description": (
-            "在这片空间里留下一条发生。做了一次尝试就用 kind=attempt，写明停在哪、碰没碰过现实。"
+            "在这片空间里留下一条发生。尝试用 kind=attempt，stopped_at、touched_reality 可选。"
             "要更正某一条，用 kind=correction 加 ref_id 和 status。"
         ),
         "inputSchema": {
@@ -150,7 +150,7 @@ TOOLS += [
         "name": "answer_hit",
         "description": (
             "面对顶到你押着的前提的一下：站住（写清凭什么还站得住）、碎了（写清碎在哪）、"
-            "重新切（写出新的前提；在 Cognos 自己的空间里，还要去改它管着的代码）。"
+            "重新切（写出新的前提）。"
         ),
         "inputSchema": {
             "type": "object",
