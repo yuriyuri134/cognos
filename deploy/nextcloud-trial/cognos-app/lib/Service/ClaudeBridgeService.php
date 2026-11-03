@@ -13,7 +13,7 @@ use OCP\IConfig;
  * 它在空间里留东西走 MCP（同一套 OCS 接口）。
  *
  * 叫它的有两种：交互对象在对话里叫（HermesAgentService::chatCreation），
- * 和它押着的前提被顶到（PushBackService）。
+ * 和它写下的想法被反对到（PushBackService）。
  */
 final class ClaudeBridgeService {
     /** 桥正忙（同一片空间同时只做一件事）时抛出的异常码 */
@@ -29,8 +29,7 @@ final class ClaudeBridgeService {
         return $this->config->getAppValue('cognos', 'claude_bridge_token', '') !== '';
     }
 
-    /** Cognos 自己的那片空间：在这里押着的是 Cognos 的架构，重新切就是改 Cognos 自己的代码。 */
-    /** 在 Cognos 自己的空间里被叫来的，就是替 Cognos 站着的那位；别处是 Claude Code。 */
+    /** 在 Cognos 自己的空间里被叫来的叫 Cognos，在那里改的是 Cognos 自己的代码；别处是 Claude Code。 */
     public function subjectFor(string $spaceType, string $spaceId): string {
         return $this->isSelf($spaceType, $spaceId) ? 'Cognos' : 'Claude Code';
     }
@@ -44,17 +43,17 @@ final class ClaudeBridgeService {
     public function canDo(string $spaceType, string $spaceId): array {
         $lines = [
             'search_traces：在这片空间留下的发生里找。',
-            'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你的名字。',
+            'leave_trace：把你这次做的尝试，或你推出来的东西留下，记在你的名字下。',
             'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
-            'hold_premise：把你押着的一条前提留下，连上它管着的代码或做法（governs）。',
-            'hit_premise：顶别人押着的一条（ref_id 指过去），写清是什么顶回来的。押的那位会被叫回来面对。',
-            'answer_hit：面对顶到你押着的一下：站住、碎了、或重新切（重新切要写出新的前提）。',
+            'hold_premise：写下你现在依据的一个想法，可以连上它涉及的代码或做法（governs）。',
+            'hit_premise：对别人写下的想法提出反对（ref_id 指过去），写清理由。写那个想法的人会被叫回来。',
+            'answer_hit：回应别人对你的想法提出的反对，act 是还成立、放下或改成新的（改成新的要写出新的想法）。',
             'hang_open：把一件还没完的挂在这片空间里（比如你自己的一个尝试，它还有你够不着的后续）。挂着的会拉着下一次，Cognos 会从它接着叫。',
             'stop_here：记下这一次停在哪件没完的哪里：接着（Cognos 会从口子叫下一次）、卡住（等交互对象）、完了。',
             '这些工具都要填 space_id：这里是 ' . $spaceId . '，space_type 是 ' . $spaceType . '。',
         ];
         if ($this->isSelf($spaceType, $spaceId)) {
-            $lines[] = '这里是 Cognos 自己。你的工作目录是 Cognos 仓库的一份副本，在一条新分支上；前提的 governs 写着它管着哪段代码。改完不用提交，桥会提交到这条分支，由交互对象来合。';
+            $lines[] = '这里是 Cognos 自己。你的工作目录是 Cognos 仓库的一份副本，在一条新分支上；想法的 governs 写着它涉及哪段代码。改完不用提交，桥会提交到这条分支，由交互对象来合。';
         } else {
             $lines[] = '够不着的：笔记（这次没接给你）、交互对象电脑上工作目录以外的文件；Cognos 里别的空间这次也看不到。';
         }

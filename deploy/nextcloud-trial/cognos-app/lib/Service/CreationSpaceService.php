@@ -102,7 +102,7 @@ class CreationSpaceService {
     }
 
     /**
-     * @param ?int $replyTo 回答回的是哪一句；被顶叫回来的回答不回任何一句，传 0
+     * @param ?int $replyTo 回答回的是哪一句；被反对叫回来的回答不回任何一句，传 0
      */
     public function addMessage(int $creationId, string $userId, string $role, string $content, ?int $replyTo = null): array {
         $qb = $this->db->getQueryBuilder();

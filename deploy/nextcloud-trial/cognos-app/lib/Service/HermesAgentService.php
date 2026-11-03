@@ -143,7 +143,7 @@ final class HermesAgentService {
         // 空间里的工具：只在被叫进一片空间时提供（见 chatCreation），不进通用工具表
         $this->registerSpaceTool(
             'leave_trace',
-            '在这片空间里留下一条发生。你做了一次尝试（在模型上推，或者碰了现实），可以用 kind=attempt 留下，stopped_at、touched_reality 可选。来源固定记为 AI 和你的名字，不能代替交互对象写原话。',
+            '在这片空间里留下一条记录：你做了什么尝试（在模型上推，或者碰了现实）、推出了什么。kind 默认 attempt，stopped_at、touched_reality 可选。记在你的名字下。',
             [
                 'kind' => ['type' => 'string', 'description' => 'attempt（尝试，默认）、fact（推出来的事实）、material（材料）、correction（更正某一条，要带 ref_id 和 status）等，自由文本'],
                 'content' => ['type' => 'string', 'description' => '正文：你做了什么、看到了什么'],
@@ -151,7 +151,6 @@ final class HermesAgentService {
                 'stopped_at' => ['type' => 'string', 'description' => '尝试停在哪里、为什么停'],
                 'touched_reality' => ['type' => 'boolean', 'description' => '碰过现实为 true，只在模型上推为 false'],
                 'act' => ['type' => 'string', 'description' => '这条在做什么：陈述、推测、提问、举例……'],
-                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
                 'ref_id' => ['type' => 'integer', 'description' => 'kind=correction 时，指向被更正的那一条的 #id'],
                 'status' => ['type' => 'string', 'description' => 'kind=correction 时，那一条的新状态：confirmed / rejected / withdrawn'],
             ],
@@ -160,10 +159,9 @@ final class HermesAgentService {
         );
         $this->registerSpaceTool(
             'add_reading',
-            '留下你对这片空间的读法：你怎么理解这里的意图、尝试和它们的关系。它和原话分开放，标是你的；你之前的读法不会被删，只会被标为已替换。',
+            '留下你对这片空间的理解：这里的意图、尝试和它们的关系。它和别人说的话分开放；你之前的读法不会被删，只会被标为已替换。',
             [
                 'content' => ['type' => 'string', 'description' => '读法正文'],
-                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
                 'refs' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => '它读的是哪几条（入口里的 #id）'],
             ],
             ['content'],
@@ -181,36 +179,33 @@ final class HermesAgentService {
         );
         $this->registerSpaceTool(
             'hold_premise',
-            '押上一条你自己的前提：你凭它在想、在做的那一条，连上它管着的代码或做法。押着的东西能被顶回来，被顶到时你会被叫回来。',
+            '写下你现在依据的一个想法，可以连上它涉及的代码或做法。别人可以对它提出反对，有反对时你会被叫回来。',
             [
-                'content' => ['type' => 'string', 'description' => '前提本身，一句话说清'],
-                'governs' => ['type' => 'string', 'description' => '它管着什么：哪段代码、哪个做法、哪个判断'],
-                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
+                'content' => ['type' => 'string', 'description' => '这个想法，一句话说清'],
+                'governs' => ['type' => 'string', 'description' => '它涉及什么：哪段代码、哪个做法'],
             ],
             ['content'],
             [$this, 'toolHoldPremise']
         );
         $this->registerSpaceTool(
             'hit_premise',
-            '顶这片空间里别人押着的一条前提（入口「这里别人押着的」里的 #id）：写清是什么把它顶回来的。押的那位会被叫回来面对。',
+            '对这片空间里别人写下的想法提出反对（入口「想法和反对」里的 #id），写清理由。写那个想法的人会被叫回来。',
             [
-                'ref_id' => ['type' => 'integer', 'description' => '被顶的那条前提的 #id'],
-                'content' => ['type' => 'string', 'description' => '顶回来的是什么：事实、矛盾、反例、现实的结果'],
-                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
+                'ref_id' => ['type' => 'integer', 'description' => '那个想法的 #id'],
+                'content' => ['type' => 'string', 'description' => '反对的理由：事实、矛盾、反例或现实结果'],
             ],
             ['ref_id', 'content'],
             [$this, 'toolHitPremise']
         );
         $this->registerSpaceTool(
             'answer_hit',
-            '面对顶到你押着的前提的一下：站住（写清凭什么）、碎了（写清碎在哪）、重新切（写出新的前提）。',
+            '回应别人对你写下的想法提出的反对。act 写这个想法现在怎么样：还成立、放下、改成新的（要写 new_premise）。',
             [
-                'hit_id' => ['type' => 'integer', 'description' => '那一下的 #id'],
-                'act' => ['type' => 'string', 'enum' => SpaceService::ANSWER_ACTS, 'description' => '站住 / 碎了 / 重新切'],
-                'content' => ['type' => 'string', 'description' => '你怎么面对的，这一下之后什么变了'],
-                'new_premise' => ['type' => 'string', 'description' => 'act=重新切 时，新的前提'],
-                'governs' => ['type' => 'string', 'description' => 'act=重新切 时新前提管着什么；不填就沿用旧的'],
-                'confidence' => ['type' => 'integer', 'description' => '可选：把握估计，0-100'],
+                'hit_id' => ['type' => 'integer', 'description' => '那条反对的 #id'],
+                'act' => ['type' => 'string', 'enum' => SpaceService::ANSWER_ACTS, 'description' => '还成立 / 放下 / 改成新的'],
+                'content' => ['type' => 'string', 'description' => '你的回应'],
+                'new_premise' => ['type' => 'string', 'description' => 'act=改成新的 时，新的想法'],
+                'governs' => ['type' => 'string', 'description' => 'act=改成新的 时新想法涉及什么；不填就沿用旧的'],
             ],
             ['hit_id', 'act', 'content'],
             [$this, 'toolAnswerHit']
@@ -571,7 +566,7 @@ final class HermesAgentService {
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
         if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
-            // 在 Cognos 自己的空间里，被叫来的就是替 Cognos 站着的那位，它押着的是 Cognos 的架构
+            // 在 Cognos 自己的空间里，被叫来的是替 Cognos 说话的那位
             $subject = $this->bridge->subjectFor('creation', (string)$creationId);
             $entry = $this->entries->entry(
                 $space,
@@ -592,9 +587,9 @@ final class HermesAgentService {
             [
                 'search_notes：在材料（笔记）里找。',
                 'search_traces：在这片空间留下的发生里找。',
-                'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你的名字。',
+                'leave_trace：把你这次做的尝试，或你推出来的东西留下，记在你的名字下。',
                 'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
-                'hold_premise / hit_premise / answer_hit：押上一条前提、顶别人押着的、面对顶到你的。',
+                'hold_premise / hit_premise / answer_hit：写下你依据的想法、对别人的想法提出反对、回应别人对你的反对。',
                 '够不着的：交互对象电脑上的文件、外部网页；Cognos 里别的空间这次也看不到。',
             ],
         );
@@ -732,7 +727,7 @@ final class HermesAgentService {
     }
 
     /**
-     * Tool implementation: hit_premise（只在被叫进一片空间时可用）。记下以后去找押的那位。
+     * Tool implementation: hit_premise（只在被叫进一片空间时可用）。记下以后去叫写那个想法的人。
      */
     private function toolHitPremise(array $args): array {
         if ($this->activeSpace === null) {

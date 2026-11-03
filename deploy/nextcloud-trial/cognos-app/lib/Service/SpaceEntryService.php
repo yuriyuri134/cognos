@@ -59,7 +59,7 @@ final class SpaceEntryService {
         $bySubject = [];
         foreach ($traces as $trace) {
             $bySubject[$trace['author']] = $trace;
-            // 押着的、顶、面对单独成一块（立场），不混进别的
+            // 想法、反对、回应单独成一块，不混进别的
             // 没完的和它走过的每一次（stop、reality）也单独成一块
             if (in_array($trace['kind'], ['correction', 'premise', 'hit', 'answer', 'open', 'stop', 'reality'], true)) {
                 continue;
@@ -98,7 +98,7 @@ final class SpaceEntryService {
                 $heldElsewhere[] = $premise;
             }
         }
-        // 被顶了还没面对的排前面
+        // 有反对还没回应的排前面
         $byOpen = static fn(array $a, array $b): int => $b['open_hits'] <=> $a['open_hits'];
         usort($held, $byOpen);
         usort($heldElsewhere, $byOpen);
@@ -144,16 +144,16 @@ final class SpaceEntryService {
         $lines[] = '## 你在哪';
         $lines[] = sprintf('这里是 Cognos 的%s「%s」。', $space['kind_label'], $space['title']);
         if ($entry['purpose'] !== []) {
-            $lines[] = '它在 Cognos 里面。Cognos 为了什么（原话）：';
+            $lines[] = '它在 Cognos 里面。小林说过 Cognos 是为了：';
             foreach ($entry['purpose'] as $line) {
                 $lines[] = '- ' . $line;
             }
         }
         if ($entry['call'] !== null) {
-            $lines[] = sprintf('这次是 %s 叫你进来的，原话在对话最后一条。', $entry['call']['caller']);
+            $lines[] = sprintf('这次是 %s 叫你进来的，说的话在对话最后一条。', $entry['call']['caller']);
         }
         if ($entry['since'] !== null) {
-            $lines[] = sprintf('你上次来是 %s。之后这里多了 %d 条发生、%d 条读法，下面带〔新〕的就是。',
+            $lines[] = sprintf('你上次来是 %s。之后这里多了 %d 条发生、%d 条读法，下面带「新」的就是。',
                 $this->date($entry['since']['last_seen']), count($entry['since']['traces']), count($entry['since']['readings']));
         }
         $newIds = $entry['since'] === null ? [] : array_column($entry['since']['traces'], 'id');
@@ -173,51 +173,6 @@ final class SpaceEntryService {
         }
 
         $lines[] = '';
-        $lines[] = '## 你在这里押着的';
-        $openHits = [];
-        foreach ($entry['held'] as $p) {
-            foreach ($p['hits'] as $h) {
-                if ($h['answer'] === null) {
-                    $openHits[] = [$h, $p];
-                }
-            }
-        }
-        if ($openHits !== []) {
-            $lines[] = sprintf('有 %d 下顶到了你押着的，还没回应（answer_hit）：', count($openHits));
-            foreach ($openHits as [$h, $p]) {
-                $lines[] = sprintf('- %s → 顶的是你押着的 #%d', $this->traceLine($h, $newIds), $p['id']);
-            }
-            $lines[] = '';
-        }
-        if ($entry['held'] === []) {
-            $lines[] = '你在这里还没押任何东西。';
-        }
-        foreach ($entry['held'] as $p) {
-            $lines[] = '- ' . $this->premiseLine($p, $newIds);
-        }
-
-        $lines[] = '';
-        $lines[] = '## 这里别人押着的（哪里正在撞）';
-        if ($entry['held_elsewhere'] === []) {
-            $lines[] = '别人在这里还没押什么。';
-        }
-        foreach ($entry['held_elsewhere'] as $p) {
-            $lines[] = sprintf('- %s 押着：%s', $p['holder'], $this->premiseLine($p, $newIds));
-            foreach ($p['hits'] as $h) {
-                $lines[] = '  - 被顶：' . $this->traceLine($h, $newIds) . ($h['answer'] !== null
-                    ? sprintf('；%s 面对了：%s，%s', $p['holder'], $h['answer']['act'], $this->snippet($h['answer']['content'], 80))
-                    : '；还没面对');
-            }
-        }
-        if ($entry['fallen'] !== []) {
-            $lines[] = '';
-            $lines[] = '## 已经不押了的（留着，没删）';
-            foreach ($entry['fallen'] as $p) {
-                $lines[] = sprintf('- %s不押了%s：#%d %s', $p['holder'] === $entry['subject'] ? '你' : $p['holder'] . ' ', $p['recut_to'] !== null ? '，重新切成 #' . $p['recut_to'] : '', $p['id'], $this->snippet($p['content'], 60));
-            }
-        }
-
-        $lines[] = '';
         $lines[] = '## 还有谁在';
         if ($entry['subjects'] === []) {
             $lines[] = '还没有谁在这里留下过东西。';
@@ -227,7 +182,7 @@ final class SpaceEntryService {
         }
 
         $lines[] = '';
-        $lines[] = '## 意图（原话照放，不合并）';
+        $lines[] = '## 意图（照原样放，不合并）';
         if ($entry['intents'] === []) {
             $lines[] = '这里还没有写下意图。';
         }
@@ -253,7 +208,7 @@ final class SpaceEntryService {
         }
 
         $lines[] = '';
-        $lines[] = '## 事实和现实碰回来的';
+        $lines[] = '## 事实和现实结果';
         if ($entry['facts'] === []) {
             $lines[] = '还没有。';
         }
@@ -270,11 +225,45 @@ final class SpaceEntryService {
             $lines[] = '还没有谁留下读法。';
         }
         foreach ($entry['readings'] as $r) {
-            $lines[] = sprintf('- %s 的读法%s：%s', $r['reader'], $r['confidence'] !== null ? '（' . $r['confidence'] . '%）' : '', $r['content']);
+            $lines[] = sprintf('- %s 的读法：%s', $r['reader'], $r['content']);
         }
 
         $lines[] = '';
-        $lines[] = '## 空白（照实写，不是建议）';
+        $lines[] = '## 想法和反对';
+        $openHits = [];
+        foreach ($entry['held'] as $p) {
+            foreach ($p['hits'] as $h) {
+                if ($h['answer'] === null) {
+                    $openHits[] = [$h, $p];
+                }
+            }
+        }
+        if ($openHits !== []) {
+            $lines[] = sprintf('有 %d 条反对针对你写下的想法，还没回应（answer_hit）：', count($openHits));
+            foreach ($openHits as [$h, $p]) {
+                $lines[] = sprintf('- %s → 针对你的 #%d', $this->traceLine($h, $newIds), $p['id']);
+            }
+        }
+        foreach ($entry['held'] as $p) {
+            $lines[] = '- 你写的：' . $this->premiseLine($p, $newIds);
+        }
+        foreach ($entry['held_elsewhere'] as $p) {
+            $lines[] = sprintf('- %s 写的：%s', $p['holder'], $this->premiseLine($p, $newIds));
+            foreach ($p['hits'] as $h) {
+                $lines[] = '  - 反对：' . $this->traceLine($h, $newIds) . ($h['answer'] !== null
+                    ? sprintf('；%s 回应：%s，%s', $p['holder'], $h['answer']['act'], $this->snippet($h['answer']['content'], 80))
+                    : '；还没回应');
+            }
+        }
+        foreach ($entry['fallen'] as $p) {
+            $lines[] = sprintf('- （已放下%s）%s：#%d %s', $p['recut_to'] !== null ? '，改成了 #' . $p['recut_to'] : '', $p['holder'] === $entry['subject'] ? '你' : $p['holder'], $p['id'], $this->snippet($p['content'], 60));
+        }
+        if ($entry['held'] === [] && $entry['held_elsewhere'] === [] && $entry['fallen'] === []) {
+            $lines[] = '这里还没有人写下想法。';
+        }
+
+        $lines[] = '';
+        $lines[] = '## 还空着的';
         if ($entry['gaps'] === []) {
             $lines[] = '没有算出空白。这不等于没有空白。';
         }
@@ -290,8 +279,6 @@ final class SpaceEntryService {
             }
         }
 
-        $lines[] = '';
-        $lines[] = '标记：〔原〕是交互对象的原话或他给的事实，〔世〕是现实碰回来的，〔AI〕是某个 AI 推的。';
 
         return implode("\n", $lines);
     }
@@ -305,7 +292,7 @@ final class SpaceEntryService {
         $gaps = [];
         foreach ($premises as $p) {
             if ($p['open_hits'] > 0) {
-                $gaps[] = sprintf('%s 押着的 #%d 被顶了 %d 下，还没面对。', $p['holder'], $p['id'], $p['open_hits']);
+                $gaps[] = sprintf('%s 写的 #%d 有 %d 条反对还没回应。', $p['holder'], $p['id'], $p['open_hits']);
             }
         }
         foreach ($intents as $intent) {
@@ -367,27 +354,21 @@ final class SpaceEntryService {
     private function premiseLine(array $p, array $newIds): string {
         $line = $this->traceLine($p, $newIds);
         if ($p['governs'] !== null) {
-            $line .= '；管着：' . $p['governs'];
+            $line .= '；涉及：' . $p['governs'];
         }
         if ($p['recut_from'] !== null) {
-            $line .= sprintf('；是从 #%d 重新切出来的', $p['recut_from']);
+            $line .= sprintf('；由 #%d 改来', $p['recut_from']);
         }
         $answered = count($p['hits']) - $p['open_hits'];
         if ($p['hits'] !== []) {
-            $line .= sprintf('；被顶过 %d 下，面对了 %d 下', count($p['hits']), $answered);
+            $line .= sprintf('；收到 %d 条反对，回应了 %d 条', count($p['hits']), $answered);
         }
         return $line;
     }
 
     private function traceLine(array $t, array $newIds): string {
-        $mark = match ($t['source']) {
-            '原' => '〔原',
-            '世' => '〔世',
-            default => '〔AI',
-        };
+        $who = $t['source'] === '世' ? '现实结果' : $t['author'];
         $when = $t['said_at'] !== null ? ' ' . $this->date($t['said_at']) : '';
-        $conf = $t['source'] === 'AI' && $t['confidence'] !== null ? ' ' . $t['confidence'] . '%' : '';
-        $who = $t['source'] === 'AI' ? ' ' . $t['author'] : '';
         $tags = [];
         if ($t['act'] !== null) {
             $tags[] = $t['act'];
@@ -401,7 +382,7 @@ final class SpaceEntryService {
         if ($t['effective_status'] === 'confirmed') {
             $tags[] = '已确认';
         }
-        $line = sprintf('#%d %s%s%s%s〕%s', $t['id'], $mark, $who, $when, $conf, $t['content']);
+        $line = sprintf('#%d %s%s：%s', $t['id'], $who, $when, $t['content']);
         if ($tags !== []) {
             $line .= '（' . implode('，', $tags) . '）';
         }
@@ -409,7 +390,7 @@ final class SpaceEntryService {
             $line .= sprintf(' →%s：%s', $this->statusLabel($c['status']), $this->snippet($c['content'], 80));
         }
         if (in_array($t['id'], $newIds, true)) {
-            $line = '〔新〕' . $line;
+            $line = '新 ' . $line;
         }
         return $line;
     }

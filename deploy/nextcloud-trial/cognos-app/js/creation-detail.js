@@ -199,7 +199,7 @@
   function renderMessages() {
     if (!elements.messagesContainer) return;
 
-    // 空对话里也可能有人被叫进来（比如顶了一下押着的前提），那就显状态，不显「开始对话」
+    // 空对话里也可能有人被叫进来（比如提出了反对写下的想法），那就显状态，不显「开始对话」
     if (state.messages.length === 0 && !state.pending && !state.notice) {
       elements.messagesContainer.innerHTML = `
         <div class="empty-state">
@@ -226,7 +226,7 @@
 
   function isUnanswered(index) {
     // 你说的话没人回，而且现在没人在做。回答记着它回的是哪一句（reply_to）；
-    // 被顶叫回来的回答记 0，不算回了谁；以前的回答没记（null），照旧按「紧跟着的就是回答」算
+    // 被反对叫回来的回答记 0，不算回了谁；以前的回答没记（null），照旧按「紧跟着的就是回答」算
     const message = state.messages[index];
     if (message.role !== 'user' || state.pending || state.sending) return false;
     if (state.messages.some(m => m.role !== 'user' && m.reply_to === message.id)) return false;
@@ -411,7 +411,7 @@
       state.notice = response.ok ? null : (data.message || `HTTP ${response.status}`);
       if (data.pending) {
         if (state.pending) {
-          // 已经有人在做（比如押的那位正被叫回来）：这句排着
+          // 已经有人在做（比如写下想法的那位正被叫回来）：这句排着
           state.pending.queued = !!data.queued;
         } else {
           startPending(Math.floor(Date.now() / 1000) - 5, data.who || null);
@@ -443,7 +443,7 @@
     return div.innerHTML;
   }
 
-  // 侧栏里顶了一下、押的那位被叫回来时，对话这边也开始等它的回答
+  // 侧栏里提出了反对、写下想法的那位被叫回来时，对话这边也开始等它的回答
   window.CognosCreationDetail = {
     waitForAgent(who) {
       if (state.pending) return;
