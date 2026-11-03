@@ -13,6 +13,7 @@ use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Http\TemplateResponse;
+use OCP\IConfig;
 use OCP\IRequest;
 use OCP\IUserSession;
 use OCP\Util;
@@ -22,7 +23,7 @@ final class ProjectController extends Controller {
     public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects,
         private DecisionService $decisions, private DelegationService $delegations, private InitiumService $initium,
         private AdoptionService $adoptions, private RestructureService $restructures,
-        private LoggerInterface $logger) {
+        private IConfig $config, private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
 
@@ -81,11 +82,11 @@ final class ProjectController extends Controller {
     private function handoffText(string $uid, string $locationId): string {
         $detail = $this->projects->detail($uid, $locationId);
         $loc = $detail['location'];
-        $lines = ['这是 Cognos 项目「' . $detail['project']['title'] . '」里「' . $loc['title'] . '」这一处的现状（' . date('Y-m-d H:i') . ' 取出）。', '', '在生效的决定：'];
+        $lines = ['这是 Cognos 项目「' . $detail['project']['title'] . '」里「' . $loc['title'] . '」这一处的现状（' . $this->localTime($uid, time(), 'Y-m-d H:i') . ' 取出）。', '', '在生效的决定：'];
         $applicable = $this->decisions->applicable($uid, $locationId);
         if ($applicable === []) { $lines[] = '（这一处目前没有登记在生效的决定）'; }
         foreach ($applicable as $d) {
-            $lines[] = sprintf('- %s 说（%s）：「%s」', $d['author_name'], date('Y-m-d', $d['said_at'] ?? $d['created_at']), $d['content']);
+            $lines[] = sprintf('- %s 说（%s）：「%s」', $d['author_name'], $this->localTime($uid, (int)($d['said_at'] ?? $d['created_at']), 'Y-m-d'), $d['content']);
         }
         $lines[] = '';
         $lines[] = '当前内容（版本 ' . $loc['revision'] . '）：';
@@ -208,6 +209,13 @@ final class ProjectController extends Controller {
         string $reason = '', string $project_id = ''): DataResponse {
         return $this->respond(fn(string $uid) => $this->initium->form($uid, $creation_id, $message_ids, $title, $description,
             $reason, $project_id, $request_id));
+    }
+
+    /** 用户自己的时区，没设就按入口用的 Asia/Shanghai（容器里的 date() 是 UTC）。 */
+    private function localTime(string $uid, int $ts, string $format): string {
+        $tz = $this->config->getUserValue($uid, 'core', 'timezone', '') ?: 'Asia/Shanghai';
+        try { $zone = new \DateTimeZone($tz); } catch (\Exception) { $zone = new \DateTimeZone('Asia/Shanghai'); }
+        return (new \DateTimeImmutable('@' . $ts))->setTimezone($zone)->format($format);
     }
 
     private function respond(callable $fn): DataResponse {

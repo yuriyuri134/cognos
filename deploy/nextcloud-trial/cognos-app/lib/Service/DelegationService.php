@@ -58,7 +58,7 @@ final class DelegationService {
                 $loc = $this->projects->location($uid, $locationId);
                 $now = time();
                 $returnBy = $now + $returnMinutes * 60;
-                $text = $this->message($ask, $goal, $means, $forbidden, $returnBy, $mayEdit, $loc['revision'], $mayAdopt);
+                $text = $this->message($ask, $goal, $means, $forbidden, $this->localTime($uid, $returnBy), $mayEdit, $loc['revision'], $mayAdopt);
                 $message = $this->creations->addMessage($loc['creation_id'], $uid, 'user', $text);
                 $id = bin2hex(random_bytes(16));
                 $this->projects->insert('cognos_delegations', [
@@ -256,12 +256,12 @@ final class DelegationService {
     }
 
     /** 留在讨论里的那句话：交出去的人填了什么就写什么，没填的不写。 */
-    private function message(string $ask, string $goal, string $means, string $forbidden, int $returnBy, bool $mayEdit, int $revision, bool $mayAdopt = false): string {
+    private function message(string $ask, string $goal, string $means, string $forbidden, string $returnBy, bool $mayEdit, int $revision, bool $mayAdopt = false): string {
         $lines = [$ask];
         if ($goal !== '') { $lines[] = '要做成：' . $goal; }
         if ($means !== '') { $lines[] = '用：' . $means; }
         if ($forbidden !== '') { $lines[] = '不要碰：' . $forbidden; }
-        $lines[] = date('m-d H:i', $returnBy) . ' 前回来。';
+        $lines[] = $returnBy . ' 前回来。';
         $lines[] = $mayEdit
             ? sprintf('可以改这一处的当前内容（交出去时是版本 %d）。', $revision)
             : '只要回答，不改这一处的当前内容。';
@@ -274,6 +274,13 @@ final class DelegationService {
         $r = $qb->select('*')->from('cognos_delegations')
             ->where($qb->expr()->eq('id', $qb->createNamedParameter($id)))->executeQuery()->fetch();
         return $r === false ? null : $r;
+    }
+
+    /** 用户自己的时区（Nextcloud 个人设置），没设就按入口用的 Asia/Shanghai；容器里的 date() 是 UTC。 */
+    private function localTime(string $uid, int $ts): string {
+        $tz = $this->config->getUserValue($uid, 'core', 'timezone', '') ?: 'Asia/Shanghai';
+        try { $zone = new \DateTimeZone($tz); } catch (\Exception) { $zone = new \DateTimeZone('Asia/Shanghai'); }
+        return (new \DateTimeImmutable('@' . $ts))->setTimezone($zone)->format('Y-m-d H:i');
     }
 
     private function update(string $id, array $values): void {

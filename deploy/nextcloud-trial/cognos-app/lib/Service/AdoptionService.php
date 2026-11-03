@@ -138,6 +138,7 @@ final class AdoptionService {
                 $what = $this->describe($uid, $type, $objectId, $version);
                 $review = 0; $hint = 0; $reviewed = []; $direct = [];
                 // 明确依赖：采用了这一版的位置
+                $otherVersions = [];
                 foreach ($this->sameObject($type, $objectId) as $a) {
                     if (!in_array($a['state'], ['active', 'review'], true)) { continue; }
                     if ($a['object_version'] === $version) {
@@ -146,8 +147,7 @@ final class AdoptionService {
                         $review += $this->impact('correction', $id, 'adoption', $a['id'], $a['location_id'], 'review', '这里采用的' . $what . '被纠正了', $now);
                         $reviewed[] = $a['location_id'];
                     } else {
-                        $hint += $this->impact('correction', $id, 'adoption', $a['id'], $a['location_id'], 'hint',
-                            $what . '被纠正了；这里采用的是另一版，没有变', $now);
+                        $otherVersions[] = $a;
                     }
                 }
                 // 明确依赖：交回时报了它作依据的运行
@@ -183,7 +183,12 @@ final class AdoptionService {
                         }
                     }
                 }
+                // 先走第 2、3 层：采用了别的版本的，如果那一版是在采用被纠正那一版之后写的，第 3 层的提示更具体
                 [$review2, $hint3] = $this->further($uid, $id, $direct, $what, $now);
+                foreach ($otherVersions as $a) {
+                    $hint += $this->impact('correction', $id, 'adoption', $a['id'], $a['location_id'], 'hint',
+                        $what . '被纠正了；这里采用的是另一版，没有变', $now);
+                }
                 return ['correction_id' => $id, 'review' => $review, 'hint' => $hint, 'review_depth2' => $review2, 'hint_depth3' => $hint3];
             });
     }
