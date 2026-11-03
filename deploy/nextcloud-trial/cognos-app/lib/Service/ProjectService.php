@@ -12,7 +12,7 @@ final class ProjectService {
 
     public function projects(string $uid): array {
         $qb = $this->db->getQueryBuilder();
-        return $qb->select('id', 'title', 'root_location_id')->from('cognos_projects')
+        return $qb->select('id', 'title', 'root_location_id', 'merged_into')->from('cognos_projects')
             ->where($qb->expr()->eq('user_id', $qb->createNamedParameter($uid)))
             ->orderBy('created_at', 'DESC')->addOrderBy('id', 'ASC')->executeQuery()->fetchAll();
     }
