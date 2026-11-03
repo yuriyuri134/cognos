@@ -12,8 +12,10 @@ use OCP\IConfig;
  * 桥收下就回 202，它在本机接着做，做完经 SpaceApiController::addMessage 把回答发回这段对话。
  * 它在空间里留东西走 MCP（同一套 OCS 接口）。
  *
- * 叫它的有两种：交互对象在对话里叫（HermesAgentService::chatCreation），
- * 和它写下的想法被反对到（PushBackService）。
+ * 叫它的有三种：交互对象在对话里叫（HermesAgentService::chatCreation），
+ * 它写下的想法被反对到（PushBackService），和一件没完的接着走（ContinuationService）。
+ *
+ * 叫之前先记一次运行（RunService），run_id 带给桥；桥发回结果时带着它，Cognos 按 result_id 只收一次。
  */
 final class ClaudeBridgeService {
     /** 桥正忙（同一片空间同时只做一件事）时抛出的异常码 */
@@ -22,6 +24,7 @@ final class ClaudeBridgeService {
     public function __construct(
         private IClientService $http,
         private IConfig $config,
+        private RunService $runs,
     ) {
     }
 
@@ -62,14 +65,23 @@ final class ClaudeBridgeService {
 
     /**
      * @param array<string, mixed> $extra 额外带给桥的字段（hit_id……）
+     * @return string 这次运行的 id
      * @throws \RuntimeException 没接下；桥正忙时异常码是 self::BUSY
      */
-    public function send(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller, array $extra = []): void {
+    public function send(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller, array $extra = []): string {
         $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
         $token = $this->config->getAppValue('cognos', 'claude_bridge_token', '');
         if ($token === '') {
             throw new \RuntimeException('Claude Code 桥没有配置口令（occ config:app:set cognos claude_bridge_token）');
         }
+
+        [$targetType, $targetId, $purpose] = $this->target($spaceType, $spaceId, $extra);
+        $run = $this->runs->create($spaceType, $spaceId, $targetType, $targetId, $purpose, $subject, $caller, [
+            'system' => $system,
+            'history' => $history,
+            'message' => $message,
+            'extra' => $extra,
+        ]);
 
         try {
             $response = $this->http->newClient()->post($url, [
@@ -79,6 +91,7 @@ final class ClaudeBridgeService {
                     'X-Cognos-Bridge-Token' => $token,
                 ],
                 'body' => json_encode(array_merge($extra, [
+                    'run_id' => $run['id'],
                     'space_type' => $spaceType,
                     'space_id' => $spaceId,
                     'subject' => $subject,
@@ -95,20 +108,40 @@ final class ClaudeBridgeService {
                 'nextcloud' => ['allow_local_address' => true],
             ]);
         } catch (\Throwable $error) {
+            $this->runs->failed($run['id'], '连不上桥：' . $error->getMessage());
             throw new \RuntimeException('连不上本机的 Claude Code 桥（' . $url . '）：桥可能没起来，在仓库目录跑 python tools\\cognos-space-mcp\\claude_bridge.py');
         }
 
         $status = $response->getStatusCode();
         if ($status === 202) {
+            $this->runs->accepted($run['id']);
             if ($spaceType === 'creation') {
                 // 页面刷新后靠它知道还有谁在做；回答发回来时（SpaceApiController::addMessage）清掉
                 $this->config->setAppValue('cognos', 'agent_pending_creation_' . $spaceId, (string)time());
                 $this->config->setAppValue('cognos', 'agent_pending_who_creation_' . $spaceId, $subject);
             }
-            return;
+            return $run['id'];
         }
         $body = json_decode((string)$response->getBody(), true);
         $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
+        $this->runs->failed($run['id'], ($status === self::BUSY ? '桥正忙，没接下' : '桥没接下（HTTP ' . $status . '）') . ($reason !== '' ? '：' . $reason : ''));
         throw new \RuntimeException('Claude Code 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
+    }
+
+    /**
+     * 这次运行挂在哪、为了什么。一件没完的接着走挂在那件 open 上，回应反对挂在那条反对上，
+     * 其余挂在这段对话上；都不要求先做成任务。
+     *
+     * @return array{0: string, 1: string, 2: string}
+     */
+    private function target(string $spaceType, string $spaceId, array $extra): array {
+        if (!empty($extra['open_id'])) {
+            return ['open', (string)(int)$extra['open_id'], sprintf('从 #%d 这件没完的接着走', (int)$extra['open_id'])];
+        }
+        if (!empty($extra['hit_id'])) {
+            return ['hit', (string)(int)$extra['hit_id'], sprintf('回应反对 #%d', (int)$extra['hit_id'])];
+        }
+        $replyTo = (int)($extra['reply_to'] ?? 0);
+        return ['conversation', $spaceType . ':' . $spaceId, $replyTo > 0 ? sprintf('回对话里 #%d 那一句', $replyTo) : '在对话里被叫进来'];
     }
 }
