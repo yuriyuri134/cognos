@@ -2,6 +2,18 @@
 declare(strict_types=1);
 return ['routes' => [
     ['name'=>'home#index','url'=>'/','verb'=>'GET'],
+    ['name'=>'project#page','url'=>'/projects','verb'=>'GET'],
+    ['name'=>'project#page','url'=>'/projects/{projectId}','verb'=>'GET','postfix'=>'project','requirements'=>['projectId'=>'[a-f0-9]{32}']],
+    ['name'=>'project#page','url'=>'/projects/locations/{locationId}','verb'=>'GET','postfix'=>'location','requirements'=>['locationId'=>'[a-f0-9]{32}']],
+    ['name'=>'project#list','url'=>'/projects/data','verb'=>'GET'],
+    ['name'=>'project#create','url'=>'/projects/data','verb'=>'POST'],
+    ['name'=>'project#get','url'=>'/projects/{projectId}/data','verb'=>'GET'],
+    ['name'=>'project#addLocation','url'=>'/projects/{projectId}/locations','verb'=>'POST'],
+    ['name'=>'project#location','url'=>'/projects/locations/{locationId}/data','verb'=>'GET'],
+    ['name'=>'project#updateContent','url'=>'/projects/locations/{locationId}/content','verb'=>'PUT'],
+    ['name'=>'project#addUsage','url'=>'/projects/locations/{locationId}/usages','verb'=>'POST'],
+    ['name'=>'project#history','url'=>'/projects/locations/{locationId}/history','verb'=>'GET'],
+    ['name'=>'project#revision','url'=>'/projects/locations/{locationId}/history/{revision}','verb'=>'GET','requirements'=>['revision'=>'[0-9]+']],
     ['name'=>'home#index','url'=>'/home','verb'=>'GET','postfix'=>'home'],
     ['name'=>'boardActivity#index','url'=>'/boards/{boardId}/events','verb'=>'GET'],
     ['name'=>'activity#participants','url'=>'/participants','verb'=>'GET'],

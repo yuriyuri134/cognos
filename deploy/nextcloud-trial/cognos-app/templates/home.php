@@ -56,7 +56,7 @@
                         <p>组织知识，建立共识</p>
                     </a>
 
-                    <a href="/index.php/apps/deck/" class="demo-space-card">
+                    <a href="/index.php/apps/cognos/projects" class="demo-space-card">
                         <div class="space-icon">📋</div>
                         <h3>项目</h3>
                         <p>项目管理与协作，获得智能建议</p>

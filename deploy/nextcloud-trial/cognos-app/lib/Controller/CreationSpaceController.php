@@ -9,6 +9,7 @@ use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\HermesAgentService;
 use OCA\Cognos\Service\PushBackService;
+use OCA\Cognos\Service\RunService;
 use OCA\Cognos\Service\SpaceEntryService;
 use OCA\Cognos\Service\SpaceService;
 use OCP\AppFramework\Controller;
@@ -33,6 +34,7 @@ final class CreationSpaceController extends Controller {
         private ContinuationService $continuation,
         private ClaudeBridgeService $bridge,
         private IConfig $config,
+        private RunService $runs,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -199,12 +201,14 @@ final class CreationSpaceController extends Controller {
             return new DataResponse(['message' => 'Authentication required'], 401);
         }
         try {
+            if ($this->creations->get($id, $user->getUID()) === null) {
+                return new DataResponse(['message' => 'Creation not found'], 404);
+            }
             $messages = $this->creations->getMessages($id, $user->getUID());
-            // 叫来的 agent 还在本机接着做（40 分钟以上就当它没做完、也没发回来）
-            $since = (int)$this->config->getAppValue('cognos', 'agent_pending_creation_' . $id, '0');
-            $pending = $since > 0 && time() - $since < 40 * 60;
-            $who = $pending ? $this->config->getAppValue('cognos', 'agent_pending_who_creation_' . $id, '') : '';
-            return new DataResponse(['messages' => $messages, 'pending' => $pending, 'pending_who' => $who !== '' ? $who : null]);
+            $runs = $this->runs->forSpace('creation', (string)$id);
+            $active = $this->runs->activeForSpace('creation', (string)$id);
+            return new DataResponse(['messages' => $messages, 'pending' => $active !== [],
+                'pending_who' => $active[0]['subject'] ?? null, 'runs' => $runs]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch messages'], 500);
         }

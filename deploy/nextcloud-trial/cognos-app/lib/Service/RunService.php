@@ -109,6 +109,18 @@ final class RunService {
         return array_map(fn(array $row): array => $this->publicRow($row), $rows);
     }
 
+    /** Current work is independent of the recent-history page size. */
+    public function activeForSpace(string $spaceType, string $spaceId): array {
+        $this->expireLeases();
+        $qb = $this->db->getQueryBuilder();
+        $rows = $qb->select('*')->from('cognos_runs')
+            ->where($qb->expr()->eq('space_type', $qb->createNamedParameter($spaceType)))
+            ->andWhere($qb->expr()->eq('space_id', $qb->createNamedParameter($spaceId)))
+            ->andWhere($qb->expr()->in('state', $qb->createNamedParameter(['queued', 'claimed', 'running', 'result_pending'], IQueryBuilder::PARAM_STR_ARRAY)))
+            ->orderBy('created_at', 'DESC')->addOrderBy('id', 'DESC')->executeQuery()->fetchAll();
+        return array_map(fn(array $r): array => $this->publicRow($r), $rows);
+    }
+
     /**
      * 收一个结果。第一次收：在同一个事务里登记 result_id、调 $store 存消息、记依据、把运行标成 delivered。
      * 已经收过这个 result_id：什么都不做，返回第一次存下的消息 id。
