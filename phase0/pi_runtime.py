@@ -1,7 +1,4 @@
-"""Optional, conversation-only Pi RPC probe; Pi owns its session JSONL files.
-
-参考协议：~/.claude/agent-base/understanding-first-protocol.md
-"""
+"""Optional, conversation-only Pi RPC probe; Pi owns its session JSONL files."""
 
 from __future__ import annotations
 
@@ -102,11 +99,7 @@ class PiRuntimeAdapter:
         self.max_reply_chars = max_reply_chars
         self.max_protocol_bytes = max_protocol_bytes
         self.model = model or None
-        self.developer_instructions = developer_instructions or (
-            "理解优先协议：先明确你理解什么、有什么证据、不知道什么；再决定做什么。"
-            "不要在没搞清现况的情况下执行 action。\n\n"
-            "参考：~/.claude/agent-base/understanding-first-protocol.md"
-        )
+        self.developer_instructions = developer_instructions or None
         self._spawn = subprocess_factory or asyncio.create_subprocess_exec
         self._lock = asyncio.Lock()
 
