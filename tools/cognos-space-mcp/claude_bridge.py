@@ -5,7 +5,7 @@ Nextcloud 跑在 Docker 里，Claude Code 在本机。这个小服务在本机�
 Cognos 把入口（和 Hermes 拿到的是同一份，只是主体换成 Claude Code）、之前的对话和这次的原话发过来，
 桥马上回一句「收到」，然后在后台起一次 `claude -p`，把同目录的 server.py 作为 MCP 接给它。
 它做多久都行（默认上限 30 分钟），做完把回答经 OCS 接口发回这段对话。
-它在空间里留下的尝试和读法走的是同一套 OCS 接口，记为〔AI Claude Code〕，做的过程中侧栏就能看到。
+它在空间里留下的尝试和读法走的是同一套 OCS 接口，记为Claude Code 的名字，做的过程中侧栏就能看到。
 
 它能用的：
 - 空间里的 leave_trace、add_reading、search_traces；
@@ -14,9 +14,9 @@ Cognos 把入口（和 Hermes 拿到的是同一份，只是主体换成 Claude 
   目录外的读写 Claude Code 会自己拒掉；
 - Cognos 自己的那片空间（Cognos 发来 repo=true，见 occ cognos:space:import --as-self）：
   工作目录换成 Cognos 仓库的一份副本（git worktree），在一条新分支 cognos-self/... 上。
-  它押着的前提连着这里的代码，被顶了要重新切，就是真的改代码。做完桥把改动提交到这条分支（不合、不推），
+  它写下的想法连着这里的代码，被反对了要改成新的，就是真的改代码。做完桥把改动提交到这条分支（不合、不推），
   回答末尾写上分支名，由交互对象来看、来合；没改代码就把分支和副本收掉。
-  改了代码，桥在提交以后对改过的文件跑检查（语法、JSON，再加 COGNOS_SELF_CHECK），结果作为〔世〕带回 Cognos：
+  改了代码，桥在提交以后对改过的文件跑检查（语法、JSON，再加 COGNOS_SELF_CHECK），结果作为现实结果带回 Cognos：
   回答它的不只是它自己说的话。没过，Cognos 会接着叫它（见 ContinuationService）。
 - 从一件没完的叫起来的（Cognos 发来 open_id）：做完把 open_id、开始时间、分支、检查一起发回，
   Cognos 看它停在哪，决定要不要从口子接着叫下一次；下一次在 Cognos 自己的空间里从上一次的分支接着改（base_branch）。
@@ -543,7 +543,7 @@ def answer_from(stdout: str, stderr: str = "") -> str:
 def post_back(space_type: str, space_id: str, subject: str, content: str, reply_to=None, hit_id=None, extra: dict | None = None) -> None:
     """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。
 
-    reply_to：回的是对话里哪一句；被顶叫回来的是 0（不回任何一句）。
+    reply_to：回的是对话里哪一句；被反对叫回来的是 0（不回任何一句）。
     """
     url = (COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/spaces/"
            + urllib.parse.quote(space_type, safe="") + "/" + urllib.parse.quote(space_id, safe="") + "/messages")
@@ -592,7 +592,7 @@ def work(job: dict) -> None:
                     back["checks"] = checks
             except Exception as error:
                 content += f"\n\n---\n仓库副本 {wt['path']}（分支 {wt['branch']}）没收好：{error}。改动还在那里。"
-        # 先放开这片空间：回答发回去时，排着的下一下顶会接着叫进来
+        # 先放开这片空间：回答发回去时，排着的下一条反对会接着叫进来
         with BUSY_LOCK:
             BUSY.discard(key)
         released = True

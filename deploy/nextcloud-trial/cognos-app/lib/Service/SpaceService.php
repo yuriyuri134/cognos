@@ -13,25 +13,28 @@ use OCP\IDBConnection;
  * 发生只增不改：要改一条的状态，就新写一条 kind=correction，用 ref_id 指过去，
  * 它的 status 就是那一条的新状态。读的时候按最新的更正来算。
  *
- * 押着的、顶、面对也是发生：
- * - premise：谁押着的一条前提（押的那位就是 author），governs 写它管着的代码或做法；
- *   ref_id 指向旧前提时，它是那一条被重新切出来的。
- * - hit：顶到某条前提（ref_id 指过去）。谁都能顶：交互对象的原话、现实碰回来的、别的 agent。
- * - answer：押的那位面对某一下（ref_id 指向 hit），act 是 站住 / 碎了 / 重新切。
- * 顶完要找回押的那位，见 PushBackService。
+ * 写下的想法、反对、回应也是发生：
+ * - premise：谁写下的想法一条前提（写下想法的那位就是 author），governs 写它管着的代码或做法；
+ *   ref_id 指向旧前提时，它是那一条被改来的。
+ * - hit：反对到某条前提（ref_id 指过去）。谁都能反对：交互对象的原话、现实碰回来的、别的 agent。
+ * - answer：写下想法的那位回应某一下（ref_id 指向 hit），act 是 还成立 / 放下 / 改成新的。
+ * 反对之后要找回写下想法的那位，见 PushBackService。
  *
  * 没完的、停在哪、检查也是发生（让思考自己接着走，见 ContinuationService）：
  * - open：挂在这片空间里还没完的一件（交互对象的一句话，或者一个 AI 自己的尝试站起来）。
  *   交互对象确认它完了（correction confirmed）或撤回，它才收。
  * - stop：一次运行走完，停在哪（ref_id 指向 open）。act 是 接着 / 卡住 / 完了，content 是这次往前走了什么，
  *   stopped_at 是口子：接着时是下一个自己够得着的口子，卡住时是只有交互对象、钱或现实能给的那一件。
- *   Cognos 自己看到的也记成 stop，来源〔世〕：原地（口子和以前走过的几乎一样）、没说（走完没说停在哪）、时限（做到一半被停下）。
+ *   Cognos 自己看到的也记成 stop，来源现实结果：原地（口子和以前走过的几乎一样）、没说（走完没说停在哪）、时限（做到一半被停下）。
  * - reality：现实碰回来的检查结果（ref_id 指向 open），act 是 过了 / 没过。
  */
 final class SpaceService {
     public const SOURCES = ['原', '世', 'AI'];
     public const STATUSES = ['said', 'confirmed', 'rejected', 'withdrawn'];
-    public const ANSWER_ACTS = ['站住', '碎了', '重新切'];
+    /** 回应一条反对之后，这个想法怎么样了：还成立、放下了、改成了新的。 */
+    public const ANSWER_ACTS = ['还成立', '放下', '改成新的'];
+    /** 旧数据和旧调用里的说法，读写时换成现在的说法。 */
+    public const LEGACY_ACTS = ['站住' => '还成立', '碎了' => '放下', '重新切' => '改成新的'];
     public const STOP_ACTS = ['接着', '卡住', '完了'];
     /** Cognos 自己看到的停：原地、没说、时限（做到一半被停下，还拉着） */
     public const OBSERVED_STOPS = ['原地', '没说', '时限'];
@@ -78,7 +81,8 @@ final class SpaceService {
             if ($refId === null || ($this->getTrace($spaceType, $spaceId, $refId)['kind'] ?? null) !== 'hit') {
                 throw new \InvalidArgumentException('an answer needs ref_id pointing to a hit in this space');
             }
-            if (!in_array($trace['act'] ?? null, self::ANSWER_ACTS, true)) {
+            $trace['act'] = self::LEGACY_ACTS[$trace['act'] ?? ''] ?? ($trace['act'] ?? null);
+            if (!in_array($trace['act'], self::ANSWER_ACTS, true)) {
                 throw new \InvalidArgumentException('an answer needs act: ' . implode(' / ', self::ANSWER_ACTS));
             }
         }
@@ -180,8 +184,8 @@ final class SpaceService {
     }
 
     /**
-     * 押着的那位面对顶到它的一下。只有押的那位能面对。
-     * 碎了：前提被撤回。重新切：写一条新前提（ref_id 指向旧的），旧的被撤回。都是新写的发生，旧的不改。
+     * 写下想法的那位回应反对到它的一下。只有写下想法的那位能回应。
+     * 放下：前提被撤回。改成新的：写一条新前提（ref_id 指向旧的），旧的被撤回。都是新写的发生，旧的不改。
      *
      * @return array{answer: array, premise: ?array}
      */
@@ -195,17 +199,18 @@ final class SpaceService {
             throw new \InvalidArgumentException('the premise this hit points to is gone');
         }
         if ($premise['author'] !== $author) {
-            throw new \InvalidArgumentException(sprintf('只有押着 #%d 的 %s 能面对这一下', $premise['id'], $premise['author']));
+            throw new \InvalidArgumentException(sprintf('#%d 是 %s 写的，只有 %s 能回应', $premise['id'], $premise['author'], $premise['author']));
         }
         if (!$premise['standing']) {
-            throw new \InvalidArgumentException(sprintf('#%d 已经不押了（%s）', $premise['id'], $premise['effective_status']));
+            throw new \InvalidArgumentException(sprintf('#%d 已经放下了（%s）', $premise['id'], $premise['effective_status']));
         }
+        $act = self::LEGACY_ACTS[$act] ?? $act;
         if (!in_array($act, self::ANSWER_ACTS, true)) {
             throw new \InvalidArgumentException('act must be one of ' . implode(' / ', self::ANSWER_ACTS));
         }
         $newPremise = trim((string)$newPremise);
-        if ($act === '重新切' && $newPremise === '') {
-            throw new \InvalidArgumentException('重新切 needs the new premise');
+        if ($act === '改成新的' && $newPremise === '') {
+            throw new \InvalidArgumentException('改成新的 needs new_premise');
         }
 
         $this->db->beginTransaction();
@@ -221,16 +226,16 @@ final class SpaceService {
                 'said_at' => $source === 'AI' ? null : time(),
             ]);
             $recut = null;
-            if ($act === '碎了') {
+            if ($act === '放下') {
                 $this->addTrace($spaceType, $spaceId, [
                     'kind' => 'correction',
                     'source' => $source,
                     'author' => $author,
-                    'content' => sprintf('被 #%d 顶碎了，见 #%d', $hitId, $answer['id']),
+                    'content' => sprintf('回应 #%d 以后放下了，见 #%d', $hitId, $answer['id']),
                     'ref_id' => $premise['id'],
                     'status' => 'withdrawn',
                 ]);
-            } elseif ($act === '重新切') {
+            } elseif ($act === '改成新的') {
                 $recut = $this->addTrace($spaceType, $spaceId, [
                     'kind' => 'premise',
                     'source' => $source,
@@ -245,7 +250,7 @@ final class SpaceService {
                     'kind' => 'correction',
                     'source' => $source,
                     'author' => $author,
-                    'content' => sprintf('被 #%d 顶了以后重新切成 #%d', $hitId, $recut['id']),
+                    'content' => sprintf('回应 #%d 以后改成了 #%d', $hitId, $recut['id']),
                     'ref_id' => $premise['id'],
                     'status' => 'withdrawn',
                 ]);
@@ -259,8 +264,8 @@ final class SpaceService {
     }
 
     /**
-     * 这片空间里押着的每一条，带上顶到它的每一下和押的那位怎么面对的。
-     * standing：还押着（没被撤回、没被否）；open_hits：顶了还没面对的几下。
+     * 这片空间里写下的想法每一条，带上反对到它的每一下和写下想法的那位怎么回应的。
+     * standing：还写着（没被撤回、没被否）；open_hits：反对了还没回应的几下。
      *
      * @param ?list<array> $traces 已经取过的 listTraces 结果，省一次查询
      * @return list<array>
@@ -483,7 +488,7 @@ final class SpaceService {
             'author' => (string)$row['author'],
             'content' => (string)$row['content'],
             'said_at' => $row['said_at'] === null ? null : (int)$row['said_at'],
-            'act' => $row['act'] === null ? null : (string)$row['act'],
+            'act' => $row['act'] === null ? null : (self::LEGACY_ACTS[(string)$row['act']] ?? (string)$row['act']),
             'confidence' => $row['confidence'] === null ? null : (int)$row['confidence'],
             'status' => (string)$row['status'],
             'about' => $row['about'] === null ? null : (string)$row['about'],

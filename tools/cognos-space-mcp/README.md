@@ -2,7 +2,7 @@
 
 Hermes 在 Cognos 里被叫进一片空间时，用的是四个动作：进来（拿到入口）、留下尝试、留下读法、在痕迹里找。这个 MCP server 把同样的四个动作开给外面的 agent，比如本机的 Claude Code 或 Codex。这样谁走进来，看到的都是同一片空间，留下的也在同一个地方。
 
-外面的 agent 写下的东西，一律记为〔AI〕加 `COGNOS_SUBJECT` 这个名字。它不能代替交互对象写原话。
+外面的 agent 写下的东西，都记在 `COGNOS_SUBJECT` 这个名字下。
 
 只用 Python 标准库，不用装依赖。
 
@@ -31,7 +31,7 @@ Codex 等别的 agent 也一样，各自报自己的 `COGNOS_SUBJECT`。
 | `leave_trace` | 留下一条发生：尝试（停在哪、碰没碰现实）、推出来的事实、更正 |
 | `add_reading` | 留下读法，旧的不删 |
 | `search_traces` | 在全部痕迹里找 |
-| `hold_premise` / `hit_premise` / `answer_hit` | 押上前提、顶别人押着的、面对顶到自己的 |
+| `hold_premise` / `hit_premise` / `answer_hit` | 写下依据的想法、对别人的想法提出反对、回应别人的反对 |
 | `hang_open` | 挂上一件还没完的：它会拉着下一次 |
 | `stop_here` | 记下停在哪件没完的哪里：接着（下一个口子）/ 卡住（卡在哪）/ 完了 |
 
@@ -62,7 +62,7 @@ docker exec -u www-data cognos-nextcloud-trial-app-1 php occ config:app:set cogn
 - 这片空间自己的工作目录 `~/Documents/cognos-spaces/creation-<id>`（`COGNOS_SPACES_DIR` 可改）。读写文件只限这个目录，目录外的会被 Claude Code 拒掉；
 - 跑命令：起桥前设 `COGNOS_BRIDGE_COMMANDS=1` 才开。命令不受目录限制，Windows 上没有沙箱，只是从工作目录起步。8780 经 `start-public.ps1` 开到公网时（有 `deploy/nextcloud-trial/.public-access-state.json`），桥自动不开命令。
 
-它留下的东西记为〔AI Claude Code〕，用的是你的 Claude 额度：桥起 claude 前会去掉 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`，免得 PowerShell 配置文件里的中转站 key 顶掉订阅登录（10/27 的 401 余额不足就是这样来的）。真要走中转站，起桥前设 `COGNOS_BRIDGE_KEEP_API_ENV=1`。同一片空间同时只做一件事，还在做时再叫会提示「还在做上一件事」。
+它留下的东西记在 Claude Code 名下，用的是你的 Claude 额度：桥起 claude 前会去掉 `ANTHROPIC_API_KEY`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`，免得 PowerShell 配置文件里的中转站 key 顶掉订阅登录（10/27 的 401 余额不足就是这样来的）。真要走中转站，起桥前设 `COGNOS_BRIDGE_KEEP_API_ENV=1`。同一片空间同时只做一件事，还在做时再叫会提示「还在做上一件事」。
 
 起桥（已经在跑就什么都不做；默认开命令，`-NoCommands` 关掉）：
 
@@ -77,13 +77,13 @@ powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-bridge.ps1
 
 ## 自己接着走：没完的、停在哪、检查
 
-以前，叫醒它的只有你的下一句话（或者一下顶），它做完一次就停。现在空间里可以挂着「没完的」：
+以前，叫醒它的只有你的下一句话（或者一条反对），它做完一次就停。现在空间里可以挂着「没完的」：
 
 - 对话里你说的一句，按「挂着」，它就挂在侧栏最上面「还没完的」里，马上开始走；agent 也可以用 `hang_open` 把自己的一个尝试挂起来。
 - 每次走完，它用 `stop_here` 说停在哪。说「接着」，Cognos 马上从那个口子叫下一次：不带整段对话，只带这件没完的、上一次往前走了什么、口子、走过的口子。说「卡住」或「完了」，这件停下，换另一件还拉着的。
-- 你的话和押着的前提被顶，排在它前面。
-- Cognos 自己也看着：口子和以前走过的几乎一样，记一条〔世〕「原地」，这件停下；走完没说停在哪，记「没说」，停下；做到时限被停下，记「时限」，接着。
-- 在 Cognos 自己的空间里，改了代码，桥在提交以后对改过的文件跑检查（Python、JS、PHP 语法，JSON；`COGNOS_SELF_CHECK` 可以再加一条命令），结果作为〔世〕带回。没过，不管它自己说停在哪，都接着叫。下一次从上一次的分支接着改，不再从 master 重新切。本机没有 php 时用 `COGNOS_PHP_CONTAINER`（默认 `cognos-nextcloud-trial-app-1`）里的 php。
+- 你的话和对想法的反对，排在它前面。
+- Cognos 自己也看着：口子和以前走过的几乎一样，记一条「原地」，这件停下；走完没说停在哪，记「没说」，停下；做到时限被停下，记「时限」，接着。
+- 在 Cognos 自己的空间里，改了代码，桥在提交以后对改过的文件跑检查（Python、JS、PHP 语法，JSON；`COGNOS_SELF_CHECK` 可以再加一条命令），结果作为现实结果带回。没过，不管它自己说停在哪，都接着叫。下一次从上一次的分支接着改，不再从 master 重新切。本机没有 php 时用 `COGNOS_PHP_CONTAINER`（默认 `cognos-nextcloud-trial-app-1`）里的 php。
 - 没有心跳和定时：只在一次走完、还有东西拉着时才叫。每片空间每天最多接着走 12 次（`occ config:app:set cognos continue_daily --value=<次数>`），到了就挂着，明天或你按「接着走」再叫。
 - 侧栏里每件没完的有「接着走」（停在原地、卡住、完了的也再叫一次）和「这件完了」（收起来）。
 

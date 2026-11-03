@@ -2,9 +2,9 @@
 """Cognos 空间的 MCP server：让外面的 agent（Claude Code、Codex……）走进 Cognos 里的一片空间。
 
 和 Hermes 在 Cognos 里用的是同一套动作：进来（拿到入口）、留下尝试、留下读法、在痕迹里找，
-押上前提（hold_premise）、顶别人押着的（hit_premise）、面对顶到自己的（answer_hit），
+写下依据的想法（hold_premise）、对别人的想法提出反对（hit_premise）、回应别人的反对（answer_hit），
 挂上没完的（hang_open）、走之前说停在哪（stop_here）。
-它写下的东西一律记为〔AI〕和 COGNOS_SUBJECT 这个名字，不能代替交互对象写原话。
+它写下的东西都记在 COGNOS_SUBJECT 这个名字下。
 
 只用标准库，stdio 上一行一个 JSON-RPC 消息。环境变量：
   COGNOS_URL           默认 http://127.0.0.1:8780
@@ -41,15 +41,15 @@ TOOLS = [
     {
         "name": "enter_space",
         "description": (
-            "走进一片空间，拿到它的入口：你在哪、Cognos 为了什么、这里的意图（原话）、以前谁试过什么、停在哪、"
-            "事实、各人的读法、哪里还空着。动手之前先进来。message 填这次叫你来的原话。"
+            "走进一片空间，拿到它的入口：你在哪、Cognos 为了什么、这里的意图、以前谁试过什么、停在哪、"
+            "事实、各人的读法、哪里还空着。动手之前先进来。message 填这次叫你来时说的话。"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
-                "message": {"type": "string", "description": "这次叫你来的原话（可不填）"},
+                "message": {"type": "string", "description": "这次叫你来时说的话（可不填）"},
             },
             "required": ["space_id"],
         },
@@ -71,7 +71,6 @@ TOOLS = [
                 "stopped_at": {"type": "string", "description": "尝试停在哪里、为什么停"},
                 "touched_reality": {"type": "boolean", "description": "碰过现实为 true，只在模型上推为 false"},
                 "act": {"type": "string", "description": "这条在做什么：陈述、推测、提问、举例……"},
-                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
                 "ref_id": {"type": "integer", "description": "kind=correction 时被更正那一条的 #id"},
                 "status": {"type": "string", "description": "kind=correction 时那一条的新状态：confirmed / rejected / withdrawn"},
             },
@@ -80,14 +79,13 @@ TOOLS = [
     },
     {
         "name": "add_reading",
-        "description": "留下你对这片空间的读法。它和原话分开放、标是你的；你之前的读法不会被删，只会被标为已替换。",
+        "description": "留下你对这片空间的理解。它和别人说的话分开放；你之前的读法不会被删，只会被标为已替换。",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
                 "content": {"type": "string"},
-                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
                 "refs": {"type": "array", "items": {"type": "integer"}, "description": "读的是哪几条 #id"},
             },
             "required": ["space_id", "content"],
@@ -113,8 +111,8 @@ TOOLS += [
     {
         "name": "hold_premise",
         "description": (
-            "押上一条你自己的前提：你凭它在想、在做的那一条，连上它管着的代码或做法（governs）。"
-            "押着的东西能被顶回来；被顶到时你会被叫回来面对它。"
+            "写下你现在依据的一个想法，可以连上它涉及的代码或做法（governs）。"
+            "别人可以对它提出反对，有反对时你会被叫回来。"
         ),
         "inputSchema": {
             "type": "object",
@@ -123,7 +121,6 @@ TOOLS += [
                 "space_type": SPACE_TYPE,
                 "content": {"type": "string", "description": "前提本身，一句话说清"},
                 "governs": {"type": "string", "description": "它管着什么：哪段代码（路径、类、方法）、哪个做法、哪个判断"},
-                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
             },
             "required": ["space_id", "content"],
         },
@@ -131,17 +128,16 @@ TOOLS += [
     {
         "name": "hit_premise",
         "description": (
-            "顶这片空间里别人押着的一条前提（入口「这里别人押着的」里的 #id），写清是什么把它顶回来的："
-            "事实、矛盾、反例、现实的结果。押的那位会被叫回来面对。"
+            "对这片空间里别人写下的想法提出反对（入口「想法和反对」里的 #id），写清理由："
+            "事实、矛盾、反例或现实结果。写那个想法的人会被叫回来。"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
-                "ref_id": {"type": "integer", "description": "被顶的那条前提的 #id"},
-                "content": {"type": "string", "description": "顶回来的是什么"},
-                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
+                "ref_id": {"type": "integer", "description": "那个想法的 #id"},
+                "content": {"type": "string", "description": "反对的理由"},
             },
             "required": ["space_id", "ref_id", "content"],
         },
@@ -149,8 +145,8 @@ TOOLS += [
     {
         "name": "answer_hit",
         "description": (
-            "面对顶到你押着的前提的一下：站住（写清凭什么还站得住）、碎了（写清碎在哪）、"
-            "重新切（写出新的前提）。"
+            "回应别人对你写下的想法提出的反对。act 写这个想法现在怎么样："
+            "还成立、放下、改成新的（要写 new_premise）。"
         ),
         "inputSchema": {
             "type": "object",
@@ -158,11 +154,10 @@ TOOLS += [
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
                 "hit_id": {"type": "integer", "description": "那一下的 #id"},
-                "act": {"type": "string", "enum": ["站住", "碎了", "重新切"]},
-                "content": {"type": "string", "description": "你怎么面对的，这一下之后什么变了"},
-                "new_premise": {"type": "string", "description": "act=重新切 时，新的前提"},
-                "governs": {"type": "string", "description": "act=重新切 时新前提管着什么；不填就沿用旧的"},
-                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
+                "act": {"type": "string", "enum": ["还成立", "放下", "改成新的"]},
+                "content": {"type": "string", "description": "你的回应"},
+                "new_premise": {"type": "string", "description": "act=改成新的 时，新的想法"},
+                "governs": {"type": "string", "description": "act=改成新的 时新想法涉及什么；不填就沿用旧的"},
             },
             "required": ["space_id", "hit_id", "act", "content"],
         },
@@ -182,7 +177,6 @@ TOOLS += [
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
                 "content": {"type": "string", "description": "还没完的是什么，一句话说清"},
-                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
             },
             "required": ["space_id", "content"],
         },
@@ -203,7 +197,6 @@ TOOLS += [
                 "act": {"type": "string", "enum": ["接着", "卡住", "完了"]},
                 "moved": {"type": "string", "description": "这一次往前走了什么"},
                 "edge": {"type": "string", "description": "接着：下一个口子，具体到一进来就能动手；卡住：卡在哪一件"},
-                "confidence": {"type": "integer", "description": "可选：把握估计，0-100"},
             },
             "required": ["space_id", "open_id", "act", "moved"],
         },
@@ -263,7 +256,7 @@ def run_tool(name: str, args: dict) -> str:
         body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
         body["subject"] = SUBJECT
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
-        return f"已留下 #{trace['id']}（〔AI {SUBJECT}〕{trace['kind']}）。"
+        return f"已留下 #{trace['id']}（{trace['kind']}）。"
     if name == "add_reading":
         body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
         body["subject"] = SUBJECT
@@ -273,29 +266,29 @@ def run_tool(name: str, args: dict) -> str:
         body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
         body.update({"kind": "premise", "subject": SUBJECT})
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
-        return f"已押上 #{trace['id']}（〔AI {SUBJECT}〕）。被顶到时你会被叫回来面对它。"
+        return f"已写下 #{trace['id']}。有人反对时你会被叫回来。"
     if name == "hit_premise":
         body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
         body.update({"kind": "hit", "subject": SUBJECT})
         data = call_api("POST", space_path(args) + "/traces", body=body)
         pushback = data.get("pushback") or {}
-        return f"已顶 #{body.get('ref_id')}，记为 #{data['trace']['id']}。{pushback.get('message', '')}"
+        return f"已对 #{body.get('ref_id')} 提出反对，记为 #{data['trace']['id']}。{pushback.get('message', '')}"
     if name == "answer_hit":
         body = {k: v for k, v in args.items() if k not in ("space_id", "space_type", "hit_id")}
         body["subject"] = SUBJECT
         data = call_api("POST", space_path(args) + f"/hits/{int(args['hit_id'])}/answer", body=body)
-        text = f"已面对 #{int(args['hit_id'])}：{data['answer']['act']}（#{data['answer']['id']}）。"
+        text = f"已回应 #{int(args['hit_id'])}：{data['answer']['act']}（#{data['answer']['id']}）。"
         if data.get("premise"):
-            text += f"新的前提是 #{data['premise']['id']}。"
+            text += f"新的想法是 #{data['premise']['id']}。"
         return text
     if name == "hang_open":
-        body = {"kind": "open", "subject": SUBJECT, "content": args.get("content", ""), "confidence": args.get("confidence")}
+        body = {"kind": "open", "subject": SUBJECT, "content": args.get("content", "")}
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         return f"已挂上 #{trace['id']}。它会拉着下一次：手上这件做完，Cognos 会从它接着叫。"
     if name == "stop_here":
         body = {
             "kind": "stop", "subject": SUBJECT, "ref_id": int(args["open_id"]), "act": args.get("act"),
-            "content": args.get("moved", ""), "stopped_at": args.get("edge"), "confidence": args.get("confidence"),
+            "content": args.get("moved", ""), "stopped_at": args.get("edge"),
         }
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}

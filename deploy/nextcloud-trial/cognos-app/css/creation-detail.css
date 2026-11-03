@@ -978,7 +978,7 @@
   border-left-color: var(--color-success, #46ba61);
 }
 
-/* 押着的：谁押着、被什么顶了、怎么面对的 */
+/* 写下的想法：谁写着、被什么反对了、怎么回应的 */
 .space-premise {
   border-left: 3px solid var(--color-border-dark, var(--color-border));
 }
@@ -1025,7 +1025,7 @@
   margin-top: 6px;
 }
 
-.space-answer-form:not(:has(select option[value="重新切"]:checked)) .space-recut-only {
+.space-answer-form:not(:has(select option[value="改成新的"]:checked)) .space-recut-only {
   display: none;
 }
 

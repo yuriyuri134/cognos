@@ -159,7 +159,7 @@ final class CreationSpaceController extends Controller {
                 if ($error->getCode() !== ClaudeBridgeService::BUSY) {
                     return new DataResponse(['messages' => $saved, 'message' => $error->getMessage()], 502);
                 }
-                // 桥正忙（比如押的那位正被叫回来面对一下顶）：这句排着，它做完发回回答时接着叫
+                // 桥正忙（比如写下想法的那位正被叫回来回应一条反对）：这句排着，它做完发回回答时接着叫
                 $this->pushBack->enqueueMessage('creation', (string)$id, $replyTo);
                 return new DataResponse([
                     'messages' => $saved,
@@ -238,7 +238,7 @@ final class CreationSpaceController extends Controller {
 
     /**
      * 交互对象在侧栏里留下一条：自己的原话（意图、事实），现实碰回来的，或者对某一条的确认、否定。
-     * 只能写〔原〕和〔世〕；〔AI〕只能由 agent 自己写。
+     * 只能写小林和现实结果；AI只能由 agent 自己写。
      */
     #[NoAdminRequired]
     public function addSpaceTrace(int $id): DataResponse {
@@ -255,7 +255,7 @@ final class CreationSpaceController extends Controller {
             return new DataResponse(['message' => 'source must be 原 or 世'], 422);
         }
         if (($body['kind'] ?? '') === 'answer') {
-            return new DataResponse(['message' => '面对一下顶，用 /space/hits/{hitId}/answer'], 422);
+            return new DataResponse(['message' => '回应一条反对，用 /space/hits/{hitId}/answer'], 422);
         }
         try {
             $trace = $this->spaces->addTrace('creation', (string)$id, [
@@ -272,7 +272,7 @@ final class CreationSpaceController extends Controller {
                 'touched_reality' => array_key_exists('touched_reality', $body) ? (bool)$body['touched_reality'] : null,
                 'governs' => $body['governs'] ?? null,
             ]);
-            // 顶到一条押着的前提：去找押的那位
+            // 反对到一条写下的想法：去找写下想法的那位
             $pushback = $trace['kind'] === 'hit' ? $this->pushBack->afterHit('creation', (string)$id, $user->getUID(), $trace) : null;
             return new DataResponse(['trace' => $trace, 'pushback' => $pushback], 201);
         } catch (\InvalidArgumentException $error) {
@@ -283,7 +283,7 @@ final class CreationSpaceController extends Controller {
     }
 
     /**
-     * 交互对象面对顶到自己押着的前提的一下：站住、碎了、或重新切。
+     * 交互对象回应反对到自己写下的想法的一下：还成立、放下或改成新的。
      */
     #[NoAdminRequired]
     public function answerHit(int $id, int $hitId): DataResponse {
