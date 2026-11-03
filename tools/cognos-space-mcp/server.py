@@ -372,7 +372,10 @@ def run_tool(name: str, args: dict) -> str:
         run_id = urllib.parse.quote(str(args["run_id"]), safe="")
         drift = call_api("GET", "", None, None, f"{BASE}/ocs/v2.php/apps/cognos/api/v1.0/runs/{run_id}/drift")
         lines = [f"- 新决定（你起步时还没有）：「{d['content']}」" for d in drift["decisions_missing"]]
-        lines += [f"- 你依据的「{b['title']}」当前内容版本 {b['version']}，现在已经是版本 {b['current']}（{b['editor']} 改的）" for b in drift["basis_changed"]]
+        for b in drift["basis_changed"]:
+            lines.append(f"- 你依据的「{b['title']}」当前内容版本 {b['version']}，现在已经是版本 {b['current']}（{b['editor']} 改的）")
+            lines += [f"    删了：{x}" for x in b.get("removed", [])[:12]]
+            lines += [f"    加了：{x}" for x in b.get("added", [])[:12]]
         if name == "check_changes":
             return "起步以后这里变了：\n" + "\n".join(lines) if lines else "起步以后没有新决定，你依据的内容也没被改。"
         if lines and not args.get("acknowledged"):

@@ -436,8 +436,15 @@ final class SpaceApiController extends OCSController {
                 continue;
             }
             if ($loc['revision'] > (int)$dep['version']) {
+                // 改了哪些行：只在一边有的行（不标行内改动）
+                $old = explode("
+", (string)$this->projects->revision($uid, $loc['id'], (int)$dep['version'])['content']);
+                $new = explode("
+", (string)$loc['content']);
                 $out[] = ['location_id' => $loc['id'], 'title' => $loc['title'], 'version' => (int)$dep['version'],
-                    'current' => $loc['revision'], 'editor' => $loc['editor']];
+                    'current' => $loc['revision'], 'editor' => $loc['editor'],
+                    'removed' => array_values(array_filter(array_diff($old, $new), 'strlen')),
+                    'added' => array_values(array_filter(array_diff($new, $old), 'strlen'))];
             }
         }
         return $out;

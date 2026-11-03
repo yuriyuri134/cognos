@@ -142,6 +142,7 @@ def main() -> None:
     assert back, "participant 2's result came back"
     assert any(m["id"] == d2 for m in back["decisions_missing"]), "decision 2 was not in its input: marked"
     assert any(b["location_id"] == x and b["version"] == 2 and b["current"] == 3 for b in back["basis_changed"]), back
+    report["drift_shown"] = [{k: b[k] for k in ("title", "version", "current", "added", "removed") if k in b} for b in back["basis_changed"]]
     assert back["drift_seen_at"], "it saw the differences before handing back"
     reach = {d["id"]: {r["subject"]: r for r in d["progress"]} for d in o["decisions"]}
     assert reach[d2]["Claude Code"]["included_at"], "decision 2 was in participant 1's input (it started after)"
