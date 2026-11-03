@@ -149,8 +149,11 @@ Cognos OCS 创建要求 requestId（16–64 个字母/数字/下划线/连字符
 ### `tools/cognos-space-mcp/start-bridge.ps1` 一读就不见了
 
 - 现象：在 PowerShell 里读这个文件（`Get-Content`、`& ...\start-bridge.ps1`）时提示「拒绝访问」或「找不到文件」，接着它就从工作目录里消失了，`git status` 显示 `D`。11/01、11/03 各一次。
-- 原因：不确定。看起来像杀毒软件把它隔离了（脚本里有 `-ExecutionPolicy Bypass` 和注册计划任务）。
-- 处理：要看内容就用 `git show HEAD:tools/cognos-space-mcp/start-bridge.ps1`；要找回就 `git restore tools/cognos-space-mcp/start-bridge.ps1`，或者去 Windows 安全中心的隔离区看。起桥可以不用这个文件，照它的步骤手动起（见下一条）。
+- 原因：火绒把它隔离了（脚本里有 `-ExecutionPolicy Bypass` 和注册计划任务）。这台电脑上 Windows Defender 和火绒都开着，Defender 的检测记录是空的（`Get-MpThreatDetection` 查不到），所以是火绒。
+- 处理：11/03 小林在火绒「信任区」里加了 `C:\Users\lnp\Documents\Playground\cognos\tools\cognos-space-mcp` 这一个文件夹。加完以后 `git restore` 找回，用 `Get-Content` 读一次、等几秒，文件还在，`git status` 干净。
+  - 只加这一层，不要把整个仓库或 Playground 加进去，保护范围放得太宽。
+  - 换了电脑、重装火绒或者信任区被清掉，它会再被隔离：去火绒菜单 →「隔离区」恢复（或者 `git restore tools/cognos-space-mcp/start-bridge.ps1`），再把上面这个文件夹加回信任区。加信任区是改安全设置，由小林自己点，不让 Claude Code 替他改。
+  - 只要看内容，用 `git show HEAD:tools/cognos-space-mcp/start-bridge.ps1` 就不会碰到它。起桥也可以不用这个文件，照它的步骤手动起（见下一条）。
 - 不要：把这个删除连同别的改动一起提交上去。
 
 ### 起桥、找桥、停桥
