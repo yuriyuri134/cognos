@@ -8,7 +8,8 @@
 
 1. [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md)：唯一的全局说明。讲项目为了什么、产品结构、代码与运行、当前进展。
 2. [`docs/README.md`](docs/README.md)：全部资料的地图，每份是什么、在哪，哪些故意不在仓库里。
-3. [`docs/现状-2026-10-28.md`](docs/现状-2026-10-28.md)：现在走到哪、卡在哪（快照）。
+3. [`docs/项目管理/`](docs/项目管理/README.md)：项目部分的设计（11/03）和交给 Claude Code 的实施说明。
+4. [`docs/现状-2026-10-28.md`](docs/现状-2026-10-28.md)：现在走到哪、卡在哪（快照）。
 
 agent 的工作规则在 [`CLAUDE.md`](CLAUDE.md)、[`AGENTS.md`](AGENTS.md)，都先指回 PROJECT-OVERVIEW。
 
