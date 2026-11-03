@@ -158,23 +158,19 @@ final class SpaceEntryService {
         $space = $entry['space'];
         $lines = [];
 
-        // 在生效的决定排在最前面：只放对这一处适用的，原话照录
-        if (!empty($space['project_context'])) {
+        // 在生效的决定排在最前面：只放对这一处适用的，原话照录；没有就不写这一段
+        if (($space['decisions'] ?? []) !== []) {
             $lines[] = '## 在生效的决定';
-            if (($space['decisions'] ?? []) === []) {
-                $lines[] = '这一处目前没有登记在生效的决定。';
-            }
-            foreach ($space['decisions'] ?? [] as $d) {
+            foreach ($space['decisions'] as $d) {
                 $when = $this->date((int)($d['said_at'] ?? $d['created_at']));
                 $scope = $d['scope_titles'] === [] ? '整个项目' : implode('、', $d['scope_titles']);
                 $lines[] = sprintf('- %s 说（%s，适用：%s）：「%s」', $d['author_name'], $when, $scope, $d['content']);
             }
             $lines[] = '';
+        }
+        if (($space['working'] ?? []) !== []) {
             $lines[] = '## 项目里谁在动什么';
-            if (($space['working'] ?? []) === []) {
-                $lines[] = '现在没有别的运行在进行。';
-            }
-            foreach ($space['working'] ?? [] as $w) {
+            foreach ($space['working'] as $w) {
                 $state = $w['state'] === 'unknown' ? '不知道做没做完（失联）' : '正在做';
                 $lines[] = sprintf('- %s 在「%s」：%s，%s（%s 起）', $w['subject'], $w['location']['title'] ?? '?', $w['purpose'], $state, $this->date($w['created_at']));
             }
