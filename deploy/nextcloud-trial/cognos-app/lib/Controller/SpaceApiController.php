@@ -9,6 +9,7 @@ use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\HermesAgentService;
 use OCA\Cognos\Service\PushBackService;
+use OCA\Cognos\Service\RunService;
 use OCA\Cognos\Service\SpaceEntryService;
 use OCA\Cognos\Service\SpaceService;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -36,6 +37,7 @@ final class SpaceApiController extends OCSController {
         private ContinuationService $continuation,
         private HermesAgentService $hermes,
         private IConfig $config,
+        private RunService $runs,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -182,6 +184,10 @@ final class SpaceApiController extends OCSController {
      * 被叫进来、在本机接着做的 agent（claude_bridge.py）做完以后，把回答发回这段对话。
      * 它是从一件没完的叫起来的（open_id），先记下检查和它停在哪（ContinuationService::afterRun）。
      * 然后接着叫下一位：排着的反对和交互对象的话先走，都没有，就从还拉着的那件没完的接着走。
+     *
+     * 每个回答都要带这次运行的 run_id 和桥生成的 result_id（见 RunService）：同一个结果发两次只收一次，
+     * 第二次拿回第一次存下的那条消息，不再记检查、不再叫下一件；署名不是这次运行登记的参与者，不收。
+     * depends_on 是做事的那位自己列的「这次真正依据的是哪几条」，可以不带。
      */
     #[NoAdminRequired]
     public function addMessage(string $spaceType, string $spaceId): DataResponse {
@@ -194,12 +200,38 @@ final class SpaceApiController extends OCSController {
         if ($content === '') {
             return new DataResponse(['message' => 'content is required'], 422);
         }
+        $runId = trim((string)($body['run_id'] ?? ''));
+        $resultId = trim((string)($body['result_id'] ?? ''));
+        if ($runId === '' || $resultId === '') {
+            return new DataResponse(['message' => 'run_id and result_id are required'], 422);
+        }
+        $run = $this->runs->get($runId);
+        if ($run === null || $run['space_type'] !== $spaceType || $run['space_id'] !== $spaceId) {
+            return new DataResponse(['message' => 'Run not found in this space'], 404);
+        }
+        $dependsOn = $body['depends_on'] ?? [];
+        if (!is_array($dependsOn)) {
+            return new DataResponse(['message' => 'depends_on must be a list'], 422);
+        }
         // 回的是对话里哪一句；被反对叫回来的回答是 0（不回任何一句）
         $replyTo = isset($body['reply_to']) && $body['reply_to'] !== null ? (int)$body['reply_to'] : null;
-        $message = $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo);
+        try {
+            $received = $this->runs->receiveResult($run, $resultId, trim((string)($body['subject'] ?? '')), array_values($dependsOn),
+                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo)['id']);
+        } catch (\DomainException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 403);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 409);
+        }
+        $message = $this->message((int)$spaceId, $uid, $received['message_id']);
+        if ($received['duplicate']) {
+            // 已经收过：不再存、不再记检查、不再叫下一件
+            return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => true], 200);
+        }
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
         $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
-        $openId = isset($body['open_id']) && $body['open_id'] !== null ? (int)$body['open_id'] : null;
+        // 从哪件没完的叫起来的，以登记的运行为准
+        $openId = $run['target_type'] === 'open' ? (int)$run['target_id'] : null;
         if ($openId !== null) {
             $checks = is_array($body['checks'] ?? null)
                 ? ['ok' => (bool)($body['checks']['ok'] ?? false), 'text' => trim((string)($body['checks']['text'] ?? ''))]
@@ -212,7 +244,62 @@ final class SpaceApiController extends OCSController {
             }
         }
         $this->callNext($spaceType, $spaceId, $uid, $openId);
-        return new DataResponse(['message' => $message], 201);
+        return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false], 201);
+    }
+
+    /** 这片空间最近的运行：谁在做什么、做到哪个状态。 */
+    #[NoAdminRequired]
+    public function runs(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $this->entries->resolve($spaceType, $spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        return new DataResponse(['runs' => $this->runs->forSpace($spaceType, $spaceId)]);
+    }
+
+    #[NoAdminRequired]
+    public function run(string $runId): DataResponse {
+        $run = $this->ownRun($runId);
+        if ($run === null) {
+            return new DataResponse(['message' => 'Run not found'], 404);
+        }
+        return new DataResponse(['run' => $run, 'depends_on' => $this->runs->dependencies($runId)]);
+    }
+
+    /**
+     * 桥重启时发现这一件做到一半没了（进程退出、电脑重启）：标成 unknown，不当作没做，也不自己重跑。
+     * 只改还在做的；已经收到结果的不动。
+     */
+    #[NoAdminRequired]
+    public function runUnknown(string $runId): DataResponse {
+        $run = $this->ownRun($runId);
+        if ($run === null) {
+            return new DataResponse(['message' => 'Run not found'], 404);
+        }
+        $reason = trim((string)($this->body()['reason'] ?? ''));
+        $changed = $this->runs->markUnknown($runId, $reason !== '' ? mb_substr($reason, 0, 1000) : '桥重启时这一件做到一半没了：不知道做没做完。');
+        return new DataResponse(['run' => $this->runs->get($runId), 'changed' => $changed]);
+    }
+
+    private function ownRun(string $runId): ?array {
+        $uid = $this->uid();
+        if ($uid === null) {
+            return null;
+        }
+        $run = $this->runs->get($runId);
+        if ($run === null || $this->entries->resolve($run['space_type'], $run['space_id'], $uid) === null) {
+            return null;
+        }
+        return $run;
+    }
+
+    private function message(int $creationId, string $uid, ?int $messageId): ?array {
+        foreach ($this->creations->getMessages($creationId, $uid) as $message) {
+            if ((int)$message['id'] === $messageId) {
+                return $message;
+            }
+        }
+        return null;
     }
 
     /** 这一位做完了：排着的下一件接着叫（一条反对，或者交互对象在它忙时说的一句）；都没有，就从还拉着的没完的接着走。 */

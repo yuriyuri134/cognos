@@ -43,6 +43,15 @@ Cognos 把入口（和 Hermes 拿到的是同一份，只是主体换成 Claude 
                        改了 cognos-app 就重启 app 容器，改了桥就重启桥。合之前打本机标签 cognos-body/...，可以退回；不推。
   COGNOS_RUN_LOG_DIR   每次运行的完整输入输出存到哪，默认 deploy/nextcloud-trial/evidence/claude-bridge/runs（不进 git）
   COGNOS_RUN_LABEL     给这段时间的运行打个标签（比如 A、B），写进每次的 meta.json，对照时分组用
+  COGNOS_BRIDGE_OUTBOX 结果待发送目录，默认 deploy/nextcloud-trial/evidence/claude-bridge/outbox（不进 git）
+  COGNOS_BRIDGE_RETRY  发不回去的结果隔多少秒再发一次，默认 30
+
+结果一定回得来：Cognos 叫桥之前先记一次运行，把 run_id 带过来。桥收下时在 outbox/inflight/<run_id>.json 记一笔；
+做完先把要发回的结果存进 outbox/pending/<result_id>.json（result_id 由桥生成，带 run_id），再删掉 inflight 那笔，
+然后才发回。发成功才删 pending 里那个文件；发不回去就留着，隔一会儿再发，桥重启时也先把它们重发一遍。
+Cognos 按 result_id 只收一次，所以重发不会多出一条回答，也不会多叫一次下一件。
+桥重启时 inflight 里还有的，是上一次做到一半桥就没了的：报告给 Cognos 标成 unknown（不知道做没做完），不自己重跑。
+Cognos 回 4xx 拒收的结果（比如那次运行不在了）挪进 outbox/rejected/，不再发，留着给人看。
 
 每次运行存一个目录：system.txt（入口 + 桥加的话，就是 --system-prompt-file 的全文）、prompt.txt（stdin 的全文）、
 stream.jsonl（stream-json 原样，含每次用工具）、stderr.txt、meta.json（空间、主体、标签、身体的提交、用时、退出码）。
@@ -64,6 +73,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -105,6 +115,10 @@ PHP_CONTAINER = os.environ.get("COGNOS_PHP_CONTAINER", "cognos-nextcloud-trial-a
 SELF_MERGE = os.environ.get("COGNOS_SELF_MERGE", "") == "1"
 RUN_LOG_DIR = Path(os.environ.get("COGNOS_RUN_LOG_DIR") or REPO / "deploy" / "nextcloud-trial" / "evidence" / "claude-bridge" / "runs")
 RUN_LABEL = os.environ.get("COGNOS_RUN_LABEL", "").strip()
+OUTBOX_DIR = Path(os.environ.get("COGNOS_BRIDGE_OUTBOX") or REPO / "deploy" / "nextcloud-trial" / "evidence" / "claude-bridge" / "outbox")
+RETRY_SECONDS = int(os.environ.get("COGNOS_BRIDGE_RETRY", "30"))
+# 同一时间只让一个线程重发，免得同一个结果从两处同时发出去（Cognos 会去重，但没必要）
+OUTBOX_LOCK = threading.Lock()
 APP_DIR = "deploy/nextcloud-trial/cognos-app/"
 BRIDGE_DIR = "tools/cognos-space-mcp/"
 HTTPD: ThreadingHTTPServer | None = None
@@ -450,6 +464,7 @@ def record_run(job: dict, subject: str, system_text: str, prompt: str, started: 
             "reply_to": job.get("reply_to"),
             "hit_id": job.get("hit_id"),
             "open_id": job.get("open_id"),
+            "run_id": job.get("run_id"),
             "repo": bool(job.get("repo")),
             "body_commit": body_commit(),
             "model": MODEL or None,
@@ -540,16 +555,11 @@ def answer_from(stdout: str, stderr: str = "") -> str:
     return answer
 
 
-def post_back(space_type: str, space_id: str, subject: str, content: str, reply_to=None, hit_id=None, extra: dict | None = None) -> None:
-    """把回答发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。
-
-    reply_to：回的是对话里哪一句；被反对叫回来的是 0（不回任何一句）。
-    """
-    url = (COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/spaces/"
-           + urllib.parse.quote(space_type, safe="") + "/" + urllib.parse.quote(space_id, safe="") + "/messages")
+def cognos_post(path: str, body: dict) -> None:
+    """POST 到 Cognos 的 OCS 接口（/ocs/v2.php/apps/cognos/api/v1.0/<path>）。失败抛 URLError / HTTPError。"""
+    url = COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/" + path
     token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
-    request = urllib.request.Request(url, method="POST", data=json.dumps(
-        {"content": content, "subject": subject, "reply_to": reply_to, "hit_id": hit_id, **(extra or {})}, ensure_ascii=False).encode("utf-8"), headers={
+    request = urllib.request.Request(url, method="POST", data=json.dumps(body, ensure_ascii=False).encode("utf-8"), headers={
         "Authorization": "Basic " + token,
         "OCS-APIRequest": "true",
         "Accept": "application/json",
@@ -557,6 +567,144 @@ def post_back(space_type: str, space_id: str, subject: str, content: str, reply_
     })
     with urllib.request.urlopen(request, timeout=60) as response:
         response.read()
+
+
+def post_back(result: dict) -> None:
+    """把一个结果发回这段对话（OCS：/api/v1.0/spaces/<类型>/<id>/messages）。
+
+    result 里有 run_id、result_id（Cognos 按它只收一次）、subject、content；
+    reply_to：回的是对话里哪一句；被反对叫回来的是 0（不回任何一句）。
+    """
+    path = ("spaces/" + urllib.parse.quote(str(result["space_type"]), safe="") + "/"
+            + urllib.parse.quote(str(result["space_id"]), safe="") + "/messages")
+    cognos_post(path, {k: v for k, v in result.items() if k not in ("space_type", "space_id")})
+
+
+def outbox(sub: str) -> Path:
+    path = OUTBOX_DIR / sub
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def write_json(path: Path, data: dict) -> None:
+    """先写临时文件再换名：写到一半桥没了，也不会留下半个结果。"""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def mark_inflight(job: dict) -> None:
+    """桥收下了这一件：记一笔。做完、结果存进 pending 以后才删；桥重启时还在的，就是做到一半没了的。"""
+    write_json(outbox("inflight") / f"{job['run_id']}.json", {
+        "run_id": job["run_id"], "space_type": job["space_type"], "space_id": job["space_id"],
+        "subject": job["subject"], "accepted_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "pid": os.getpid(),
+    })
+
+
+def pid_alive(pid: int) -> bool:
+    """那个桥进程还在不在（长进身体换桥时，旧桥还在把手上的做完）。Windows 上 os.kill 会直接结束进程，不能拿来探。"""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stale_inflight() -> set[str]:
+    """inflight 里记着、但记它的桥进程已经没了的：上一次做到一半桥就没了。"""
+    stale = set()
+    for path in outbox("inflight").glob("*.json"):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if int(record.get("pid") or 0) != os.getpid() and not pid_alive(int(record.get("pid") or 0)):
+            stale.add(path.stem)
+    return stale
+
+
+def clear_inflight(run_id: str) -> None:
+    (outbox("inflight") / f"{run_id}.json").unlink(missing_ok=True)
+
+
+def save_result(result: dict) -> Path:
+    path = outbox("pending") / f"{result['result_id']}.json"
+    write_json(path, result)
+    return path
+
+
+def deliver(path: Path) -> bool:
+    """发一个存着的结果。发成功删掉文件；Cognos 拒收（4xx，除了超时和限流）挪进 rejected；其余留着下次再发。"""
+    with OUTBOX_LOCK:
+        if not path.is_file():
+            return True  # 别处已经发掉了
+        result = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            post_back(result)
+        except urllib.error.HTTPError as error:
+            if 400 <= error.code < 500 and error.code not in (408, 429):
+                detail = error.read().decode("utf-8", "replace")[:500]
+                sys.stderr.write(f"[claude-bridge] Cognos 拒收结果 {path.name}（HTTP {error.code}）：{detail}\n")
+                os.replace(path, outbox("rejected") / path.name)
+                return True
+            sys.stderr.write(f"[claude-bridge] 结果 {path.name} 发不回 Cognos（HTTP {error.code}），留着再发\n")
+            return False
+        except (urllib.error.URLError, OSError) as error:
+            sys.stderr.write(f"[claude-bridge] 结果 {path.name} 发不回 Cognos：{error}，留着再发\n")
+            return False
+        path.unlink(missing_ok=True)
+        return True
+
+
+def resend_pending() -> int:
+    """把 pending 里还没发出去的按先后发一遍，返回还剩几个。"""
+    left = 0
+    for path in sorted(outbox("pending").glob("*.json"), key=lambda p: p.stat().st_mtime):
+        if not deliver(path):
+            left += 1
+    return left
+
+
+def report_unknown(run_ids: set[str]) -> None:
+    """上一次桥没了时做到一半的：告诉 Cognos 标成 unknown。报告成了（或 Cognos 那边没有这次运行）就删掉那笔。"""
+    for run_id in sorted(run_ids):
+        path = outbox("inflight") / f"{run_id}.json"
+        try:
+            cognos_post(f"runs/{run_id}/unknown", {"reason": "桥重启时发现这一件做到一半桥就没了：不知道做没做完，没有重跑。"})
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                sys.stderr.write(f"[claude-bridge] 报告运行 {run_id} 做到一半没了，Cognos 回 HTTP {error.code}，过会儿再报\n")
+                continue
+        except (urllib.error.URLError, OSError) as error:
+            sys.stderr.write(f"[claude-bridge] 报告运行 {run_id} 做到一半没了，没报上：{error}，过会儿再报\n")
+            continue
+        path.unlink(missing_ok=True)
+        run_ids.discard(run_id)
+
+
+def outbox_loop(stale: set[str]) -> None:
+    """桥起来后：先报告上一次做到一半没了的、重发没发出去的结果；之后隔一会儿再发一遍还剩的。"""
+    while True:
+        try:
+            if stale:
+                report_unknown(stale)
+            resend_pending()
+        except Exception as error:  # 这条线不能死
+            sys.stderr.write(f"[claude-bridge] 重发结果时出错：{error}\n")
+        time.sleep(RETRY_SECONDS)
 
 
 def work(job: dict) -> None:
@@ -592,16 +740,33 @@ def work(job: dict) -> None:
                     back["checks"] = checks
             except Exception as error:
                 content += f"\n\n---\n仓库副本 {wt['path']}（分支 {wt['branch']}）没收好：{error}。改动还在那里。"
+        result = {
+            "result_id": uuid.uuid4().hex,
+            "run_id": job["run_id"],
+            "space_type": space_type,
+            "space_id": space_id,
+            "subject": subject,
+            "content": content,
+            "reply_to": job.get("reply_to"),
+            "hit_id": job.get("hit_id"),
+            **back,
+        }
+        # 先存下来再发：发不回去（Cognos 停着、网断了、桥这时没了）结果还在 pending 里，之后会重发
+        pending = save_result(result)
+        clear_inflight(job["run_id"])
         # 先放开这片空间：回答发回去时，排着的下一条反对会接着叫进来
         with BUSY_LOCK:
             BUSY.discard(key)
         released = True
         if new_bridge:
-            # 先换桥再发回：发回时 Cognos 会接着叫下一次，要叫到新的那个
-            content += "\n- " + restart_bridge()
-        post_back(space_type, space_id, subject, content, job.get("reply_to"), job.get("hit_id"), back)
-    except (urllib.error.URLError, OSError) as error:
-        sys.stderr.write(f"[claude-bridge] 回答发不回 Cognos：{error}\n")
+            # 先换桥再发回：发回时 Cognos 会接着叫下一次，要叫到新的那个。新桥起来也会重发 pending 里的，Cognos 只收一次
+            result["content"] = content + "\n- " + restart_bridge()
+            with OUTBOX_LOCK:
+                if pending.is_file():
+                    write_json(pending, result)
+        deliver(pending)
+    except Exception as error:
+        sys.stderr.write(f"[claude-bridge] 这一件的结果没存下：{error}\n")
     finally:
         # 已经放开过的不再放：发回时同一片空间可能已经叫进了新的一件，删的会是它的标记
         if not released:
@@ -623,7 +788,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/health":
             self.send_json(200, {"ok": True, "claude": bool(shutil.which("claude.cmd") or shutil.which("claude")),
-                                 "commands": commands_allowed(), "busy": sorted(BUSY)})
+                                 "commands": commands_allowed(), "busy": sorted(BUSY),
+                                 "pending": len(list(outbox("pending").glob("*.json")))})
         else:
             self.send_json(404, {"error": "not found"})
 
@@ -651,6 +817,10 @@ class Handler(BaseHTTPRequestHandler):
                 "run_started": body.get("run_started"),
                 "base_branch": body.get("base_branch"),
             }
+            # Cognos 叫之前先记了这次运行；没有 run_id，做完的结果它不会收
+            job["run_id"] = str(body["run_id"])
+            if not job["run_id"].isalnum() or len(job["run_id"]) != 32:
+                raise ValueError("run_id 不对")
         except (KeyError, ValueError) as error:
             self.send_json(400, {"error": f"请求不完整：{error}"})
             return
@@ -660,6 +830,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(409, {"error": f"{job['subject']} 还在这片空间里做上一件事，做完会发回对话"})
                 return
             BUSY.add(key)
+        try:
+            mark_inflight(job)
+        except OSError as error:
+            with BUSY_LOCK:
+                BUSY.discard(key)
+            self.send_json(500, {"error": f"桥记不下这一件（{error}），没有接"})
+            return
         threading.Thread(target=work, args=(job,), daemon=True).start()
         self.send_json(202, {"accepted": True, "subject": job["subject"]})
 
@@ -677,8 +854,12 @@ def main() -> None:
         raise SystemExit("没有应用密码：设 COGNOS_APP_PASSWORD，或写到 deploy/nextcloud-trial/.secrets/claude-code-app-password")
     global HTTPD
     HTTPD = ThreadingHTTPServer((HOST, PORT), Handler)
+    # 开始接新的之前先看：上一次做到一半没了的、没发出去的结果
+    stale = stale_inflight()
+    threading.Thread(target=outbox_loop, args=(stale,), daemon=True).start()
     print(f"Claude Code 桥在 http://{HOST}:{PORT}（/chat，/health）；工作目录 {SPACES_DIR}；"
-          f"命令{'开' if commands_allowed() else '关'}；长进身体{'开' if SELF_MERGE else '关'}", flush=True)
+          f"命令{'开' if commands_allowed() else '关'}；长进身体{'开' if SELF_MERGE else '关'}；"
+          f"待发送 {len(list(outbox('pending').glob('*.json')))} 个，做到一半没了的 {len(stale)} 个", flush=True)
     HTTPD.serve_forever()
     # 换成新桥了：等手上那件把回答发回去再退出
     if EXIT.is_set():

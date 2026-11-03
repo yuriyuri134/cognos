@@ -62,4 +62,8 @@ return ['routes' => [
     ['name' => 'spaceApi#addReading', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/readings', 'verb' => 'POST'],
     ['name' => 'spaceApi#answerHit', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/hits/{hitId}/answer', 'verb' => 'POST', 'requirements' => ['hitId' => '[0-9]+']],
     ['name' => 'spaceApi#addMessage', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/messages', 'verb' => 'POST'],
+    // 运行：这片空间最近的几次、一次的状态、桥重启时报告做到一半没了的（见 RunService）
+    ['name' => 'spaceApi#runs', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/runs', 'verb' => 'GET'],
+    ['name' => 'spaceApi#run', 'url' => '/api/v1.0/runs/{runId}', 'verb' => 'GET', 'requirements' => ['runId' => '[a-f0-9]{32}']],
+    ['name' => 'spaceApi#runUnknown', 'url' => '/api/v1.0/runs/{runId}/unknown', 'verb' => 'POST', 'requirements' => ['runId' => '[a-f0-9]{32}']],
 ]];
