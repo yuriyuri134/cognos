@@ -124,15 +124,10 @@ final class HermesAgentService {
                 'type' => 'function',
                 'function' => [
                     'name' => 'list_projects',
-                    'description' => 'List all projects/boards in Nextcloud Deck. Returns project ID, title, and status.',
+                    'description' => '列出 Cognos 里的项目（不是 Deck 看板）：id、名字、有几处位置、是否已合并到别的项目。',
                     'parameters' => [
                         'type' => 'object',
-                        'properties' => [
-                            'archived' => [
-                                'type' => 'boolean',
-                                'description' => 'Include archived projects',
-                            ],
-                        ],
+                        'properties' => [],
                         'required' => [],
                     ],
                 ],
@@ -482,42 +477,18 @@ final class HermesAgentService {
         if ($user === null) {
             return ['success' => false, 'error' => 'Authentication required', 'data' => null];
         }
-
-        $includeArchived = $args['archived'] ?? false;
-
+        // 项目在 Cognos 自己的表里（cognos_projects），Deck 看板不再是项目
         try {
             $qb = $this->db->getQueryBuilder();
-            $qb->select('id', 'title', 'archived', 'last_modified')
-                ->from('deck_boards')
-                ->where($qb->expr()->eq('owner', $qb->createNamedParameter($user->getUID())))
-                ->andWhere($qb->expr()->eq('deleted_at', $qb->createNamedParameter(0)));
-
-            if (!$includeArchived) {
-                $qb->andWhere($qb->expr()->eq('archived', $qb->createNamedParameter(false, IQueryBuilder::PARAM_BOOL)));
-            }
-
-            $qb->orderBy('last_modified', 'DESC');
-
-            $results = $qb->executeQuery()->fetchAllAssociative();
-
-            $projects = array_map(function($row) {
-                return [
-                    'id' => (int)$row['id'],
-                    'title' => (string)$row['title'],
-                    'archived' => (bool)$row['archived'],
-                    'last_modified' => (int)$row['last_modified'],
-                ];
-            }, $results);
-
-            return [
-                'success' => true,
-                'data' => $projects,
-                'error' => null,
-                'metadata' => [
-                    'count' => count($projects),
-                    'include_archived' => $includeArchived,
-                ],
-            ];
+            $rows = $qb->select('p.id', 'p.title', 'p.merged_into', 'p.created_at')->selectAlias($qb->func()->count('l.id'), 'locations')
+                ->from('cognos_projects', 'p')
+                ->leftJoin('p', 'cognos_locations', 'l', $qb->expr()->eq('l.project_id', 'p.id'))
+                ->where($qb->expr()->eq('p.user_id', $qb->createNamedParameter($user->getUID())))
+                ->groupBy('p.id', 'p.title', 'p.merged_into', 'p.created_at')
+                ->orderBy('p.created_at', 'DESC')->executeQuery()->fetchAll();
+            $projects = array_map(static fn(array $r): array => ['id' => (string)$r['id'], 'title' => (string)$r['title'],
+                'locations' => (int)$r['locations'], 'merged_into' => $r['merged_into']], $rows);
+            return ['success' => true, 'data' => $projects, 'error' => null, 'metadata' => ['count' => count($projects)]];
         } catch (\Throwable $e) {
             $this->logger->error('list_projects failed', ['error' => $e->getMessage()]);
             return ['success' => false, 'error' => $e->getMessage(), 'data' => null];

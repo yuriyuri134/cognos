@@ -198,6 +198,22 @@ final class RunService {
         return ['duplicate' => false, 'message_id' => $messageId, 'run' => $this->get($run['id']) ?? $run];
     }
 
+    /** 外面的 agent 自己登记「我在动这一处」：直接开始做，带租约（同桥接下时一样）。 */
+    public function startedByAgent(string $runId): void {
+        $this->accepted($runId);
+    }
+
+    /** 结果交回时记下：它报过的依据在这期间被改成了哪一版；交回前它看过这些差异的时间。 */
+    public function setDrift(string $runId, array $basisChanged, ?int $seenAt): void {
+        $qb = $this->db->getQueryBuilder();
+        $qb->update('cognos_run_results')
+            ->set('basis_changed', $qb->createNamedParameter($basisChanged === [] ? null : json_encode(array_values($basisChanged), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
+                $basisChanged === [] ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR))
+            ->set('drift_seen_at', $qb->createNamedParameter($seenAt, $seenAt === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_INT))
+            ->where($qb->expr()->eq('run_id', $qb->createNamedParameter($runId)))
+            ->executeStatement();
+    }
+
     /** 结果交回时记下：运行起步以后才有、输入里没有的适用决定。 */
     public function setDecisionsMissing(string $runId, array $missing): void {
         $qb = $this->db->getQueryBuilder();

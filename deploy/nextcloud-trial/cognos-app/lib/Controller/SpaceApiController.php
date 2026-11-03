@@ -75,12 +75,14 @@ final class SpaceApiController extends OCSController {
         }
         $subject = $this->subject($subject);
         $call = trim($message) !== '' ? ['caller' => $uid, 'message' => trim($message)] : null;
-        $entry = $this->entries->entry($space, $subject, $call, [
+        $entry = $this->entries->entry($space, $subject, $call, array_merge([
             'search_traces：在这片空间留下的发生里找。',
             'leave_trace：把你这次做的尝试，或你推出来的东西留下，记在你报的名字下。',
             'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
             '你的其他能力（读文件、跑命令、上网）照你自己那边的权限，这片空间不知道。',
-        ]);
+        ], empty($space['project_context']) ? [] : [
+            '要在这里做事：start_work 登记你在动这一处，note_basis 记下依据（可不记），做完 hand_back 交回；交回前会先给你看起步以后这里变了什么。',
+        ]));
         $text = $this->entries->renderText($entry);
         if ($call !== null) {
             // 外面进来的没有对话记录，把这次说的话直接放进入口
@@ -241,6 +243,12 @@ final class SpaceApiController extends OCSController {
         if ($missing !== []) {
             $this->runs->setDecisionsMissing($run['id'], $missing);
         }
+        // 它报过的依据在这期间被改了：照收，记下来；它交回前看过差异（acknowledged_drift）也记下
+        $changed = $this->basisChanged($uid, $run['id']);
+        $seen = !empty($body['acknowledged_drift']) && ($missing !== [] || $changed !== []) ? time() : null;
+        if ($changed !== [] || $seen !== null) {
+            $this->runs->setDrift($run['id'], $changed, $seen);
+        }
         if ($run['target_type'] === 'delegation') {
             $this->delegations->returned($run['target_id'], (int)$received['message_id']);
         }
@@ -258,7 +266,8 @@ final class SpaceApiController extends OCSController {
             }
         }
         $this->callNext($spaceType, $spaceId, $uid, $openId);
-        return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false, 'decisions_missing' => $missing], 201);
+        return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false, 'decisions_missing' => $missing,
+            'basis_changed' => $changed], 201);
     }
 
     /**
@@ -369,6 +378,76 @@ final class SpaceApiController extends OCSController {
             return new DataResponse(['message' => $error->getMessage()], 422);
         }
         return new DataResponse(['message' => ($new ? '记下了：这次依据' : '已经记过：') . $what . '。', 'run_id' => $run['id']], $new ? 201 : 200);
+    }
+
+    /**
+     * 外面的 agent（不经桥）登记「我在动这一处」：建一次运行，输入快照是此刻给它的入口，记下入口里给了哪几条决定。
+     * 之后用 basis 报依据，做完用 messages 交回（带这次的 run_id 和自己生成的 result_id）。见 03-系统/接入一条路.md。
+     */
+    #[NoAdminRequired]
+    public function startRun(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $spaceType !== 'creation' || !ctype_digit($spaceId)) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $space = $this->entries->resolve($spaceType, $spaceId, $uid);
+        if ($space === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $body = $this->body();
+        $subject = $this->subject((string)($body['subject'] ?? ''));
+        if ($subject === $uid) {
+            return new DataResponse(['message' => 'agent 要用自己的名字登记'], 422);
+        }
+        $purpose = trim((string)($body['purpose'] ?? ''));
+        $purpose = $purpose === '' ? '自己进来做事' : mb_substr($purpose, 0, 500);
+        $entry = $this->entries->entry($space, $subject, null, []);
+        $decisionIds = SpaceEntryService::decisionIds($entry);
+        $run = $this->runs->create($spaceType, $spaceId, 'conversation', $spaceType . ':' . $spaceId, $purpose, $subject, $uid,
+            ['system' => $this->entries->renderText($entry), 'decision_ids' => $decisionIds, 'started_by' => 'agent']);
+        $this->decisions->recordIncluded($run['id'], $decisionIds);
+        $this->runs->startedByAgent($run['id']);
+        $this->spaces->markSeen($spaceType, $spaceId, $subject);
+        return new DataResponse(['run' => $this->runs->get($run['id']), 'decision_ids' => $decisionIds], 201);
+    }
+
+    /** 交回之前看：起步以后才有、输入里没有的适用决定；报过的依据在这期间被改成了哪一版。 */
+    #[NoAdminRequired]
+    public function drift(string $runId): DataResponse {
+        $run = $this->ownRun($runId);
+        if ($run === null) {
+            return new DataResponse(['message' => 'Run not found'], 404);
+        }
+        $uid = (string)$this->uid();
+        return new DataResponse(['decisions_missing' => $this->decisions->missingForRun($uid, $run),
+            'basis_changed' => $this->basisChanged($uid, $runId)]);
+    }
+
+    /** 这次运行报过「依据了某处当前内容第几版」，而那一处现在已经是更新的版本。 */
+    private function basisChanged(string $uid, string $runId): array {
+        $out = [];
+        foreach ($this->runs->dependencies($runId) as $dep) {
+            if ($dep['type'] !== 'location_content' || $dep['version'] === null) {
+                continue;
+            }
+            try {
+                $loc = $this->projects->location($uid, $dep['id']);
+            } catch (\RuntimeException) {
+                continue;
+            }
+            if ($loc['revision'] > (int)$dep['version']) {
+                // 改了哪些行：只在一边有的行（不标行内改动）
+                $old = explode("
+", (string)$this->projects->revision($uid, $loc['id'], (int)$dep['version'])['content']);
+                $new = explode("
+", (string)$loc['content']);
+                $out[] = ['location_id' => $loc['id'], 'title' => $loc['title'], 'version' => (int)$dep['version'],
+                    'current' => $loc['revision'], 'editor' => $loc['editor'],
+                    'removed' => array_values(array_filter(array_diff($old, $new), 'strlen')),
+                    'added' => array_values(array_filter(array_diff($new, $old), 'strlen'))];
+            }
+        }
+        return $out;
     }
 
     /** 这片空间最近的运行：谁在做什么、做到哪个状态。 */

@@ -96,6 +96,9 @@ return ['routes' => [
     ['name' => 'spaceApi#addMessage', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/messages', 'verb' => 'POST'],
     // 运行：这片空间最近的几次、一次的状态、桥重启时报告做到一半没了的（见 RunService）
     ['name' => 'spaceApi#runs', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/runs', 'verb' => 'GET'],
+    // 外面的 agent 自己登记在动这一处、交回前看变了什么（03-系统/接入一条路.md）
+    ['name' => 'spaceApi#startRun', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/runs', 'verb' => 'POST'],
+    ['name' => 'spaceApi#drift', 'url' => '/api/v1.0/runs/{runId}/drift', 'verb' => 'GET', 'requirements' => ['runId' => '[a-f0-9]{32}']],
     ['name' => 'spaceApi#run', 'url' => '/api/v1.0/runs/{runId}', 'verb' => 'GET', 'requirements' => ['runId' => '[a-f0-9]{32}']],
     ['name' => 'spaceApi#runUnknown', 'url' => '/api/v1.0/runs/{runId}/unknown', 'verb' => 'POST', 'requirements' => ['runId' => '[a-f0-9]{32}']],
     // agent 代录在生效的决定（只能指向用户说的那一句）

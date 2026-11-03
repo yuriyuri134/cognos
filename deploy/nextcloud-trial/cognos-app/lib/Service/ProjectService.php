@@ -221,7 +221,8 @@ final class ProjectService {
         $runs = []; $recent = [];
         if ($byChat !== []) {
             $qb = $this->db->getQueryBuilder();
-            $rows = $qb->select('r.id', 'r.space_id', 'r.subject', 'r.purpose', 'r.state', 'r.created_at', 'r.updated_at', 'x.decisions_missing')
+            $rows = $qb->select('r.id', 'r.space_id', 'r.subject', 'r.purpose', 'r.state', 'r.created_at', 'r.updated_at', 'x.decisions_missing',
+                'x.basis_changed', 'x.drift_seen_at')
                 ->from('cognos_runs', 'r')
                 ->leftJoin('r', 'cognos_run_results', 'x', $qb->expr()->eq('x.run_id', 'r.id'))
                 ->where($qb->expr()->eq('r.space_type', $qb->createNamedParameter('creation')))
@@ -232,7 +233,9 @@ final class ProjectService {
                 $item = ['run_id' => (string)$r['id'], 'subject' => (string)$r['subject'], 'purpose' => (string)$r['purpose'],
                     'state' => (string)$r['state'], 'location' => $byChat[(string)$r['space_id']] ?? null,
                     'created_at' => (int)$r['created_at'], 'updated_at' => (int)$r['updated_at'],
-                    'decisions_missing' => $r['decisions_missing'] === null ? [] : (json_decode((string)$r['decisions_missing'], true) ?: [])];
+                    'decisions_missing' => $r['decisions_missing'] === null ? [] : (json_decode((string)$r['decisions_missing'], true) ?: []),
+                    'basis_changed' => $r['basis_changed'] === null ? [] : (json_decode((string)$r['basis_changed'], true) ?: []),
+                    'drift_seen_at' => $r['drift_seen_at'] === null ? null : (int)$r['drift_seen_at']];
                 if (in_array($item['state'], ['queued', 'claimed', 'running', 'result_pending', 'unknown'], true)) {
                     $runs[] = $item;
                 } elseif (count($recent) < 5 && $item['state'] === 'delivered') {

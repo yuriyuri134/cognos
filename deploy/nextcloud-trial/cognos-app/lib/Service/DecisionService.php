@@ -229,6 +229,20 @@ final class DecisionService {
                 }
                 unset($slot);
             }
+            // 起步时没有、交回前它看过（drift_seen_at）
+            $qb = $this->db->getQueryBuilder();
+            $rows = $qb->select('run_id', 'decisions_missing', 'drift_seen_at')->from('cognos_run_results')
+                ->where($qb->expr()->in('run_id', $qb->createNamedParameter($chunk, IQueryBuilder::PARAM_STR_ARRAY)))
+                ->andWhere($qb->expr()->isNotNull('drift_seen_at'))
+                ->executeQuery()->fetchAll();
+            foreach ($rows as $r) {
+                foreach (json_decode((string)$r['decisions_missing'], true) ?: [] as $m) {
+                    if (!isset($out[$m['id']])) { continue; }
+                    $slot = &$out[$m['id']][$index[$runById[$r['run_id']]['subject']]];
+                    $slot['seen_before_return_at'] = max((int)$r['drift_seen_at'], (int)($slot['seen_before_return_at'] ?? 0));
+                    unset($slot);
+                }
+            }
             $qb = $this->db->getQueryBuilder();
             $rows = $qb->select('run_id', 'object_id')->from('cognos_run_dependencies')
                 ->where($qb->expr()->in('run_id', $qb->createNamedParameter($chunk, IQueryBuilder::PARAM_STR_ARRAY)))

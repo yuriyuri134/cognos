@@ -23,6 +23,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 BASE = os.environ.get("COGNOS_URL", "http://127.0.0.1:8780").rstrip("/")
 USER = os.environ.get("COGNOS_USER", "cognos-admin")
@@ -203,6 +204,42 @@ TOOLS += [
         },
     },
     {
+        "name": "start_work",
+        "description": "在一片空间（项目里的一个位置）登记你在动它：开始一次运行。返回 run_id，交回时要用。入口里给你的在生效的决定会记成这次的输入。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "purpose": {"type": "string", "description": "这次在动什么（一句话）"},
+            },
+            "required": ["space_id"],
+        },
+    },
+    {
+        "name": "check_changes",
+        "description": "看看起步以后这里变了什么：有没有你输入里没有的新决定，你报过依据的内容有没有被改。",
+        "inputSchema": {"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]},
+    },
+    {
+        "name": "hand_back",
+        "description": (
+            "做完了，把结果交回这片空间。起步以后有了你没看到的新决定、或你依据的内容被改了，第一次调用会先把差异给你看，"
+            "不交；看完（可以改你的结果）再调一次，带 acknowledged=true。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "run_id": {"type": "string", "description": "start_work 给的 run_id"},
+                "content": {"type": "string", "description": "交回的结果"},
+                "acknowledged": {"type": "boolean", "description": "已经看过差异"},
+            },
+            "required": ["space_id", "run_id", "content"],
+        },
+    },
+    {
         "name": "note_basis",
         "description": (
             "记下这次真正依据的一样东西：一条在生效的决定（decision_quote 照抄原话里的一段），"
@@ -243,10 +280,10 @@ if ONLY:
     TOOLS = [t for t in TOOLS if t["name"] in ONLY]
 
 
-def call_api(method: str, path: str, params: dict | None = None, body: dict | None = None):
+def call_api(method: str, path: str, params: dict | None = None, body: dict | None = None, url: str | None = None):
     if not PASSWORD:
         raise RuntimeError("没有设 COGNOS_APP_PASSWORD：在 Nextcloud「设置 → 安全」里建一个应用密码")
-    url = API + path
+    url = url or API + path
     if params:
         url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
     data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
@@ -328,6 +365,25 @@ def run_tool(name: str, args: dict) -> str:
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}
         return f"已记下停在哪 #{trace['id']}（{trace['act']}）。{then.get(trace['act'], '')}。"
+    if name == "start_work":
+        data = call_api("POST", space_path(args) + "/runs", body={"subject": SUBJECT, "purpose": args.get("purpose", "")})
+        return f"已登记，run_id 是 {data['run']['id']}。做完用 hand_back 交回时带上它。"
+    if name in ("check_changes", "hand_back"):
+        run_id = urllib.parse.quote(str(args["run_id"]), safe="")
+        drift = call_api("GET", "", None, None, f"{BASE}/ocs/v2.php/apps/cognos/api/v1.0/runs/{run_id}/drift")
+        lines = [f"- 新决定（你起步时还没有）：「{d['content']}」" for d in drift["decisions_missing"]]
+        for b in drift["basis_changed"]:
+            lines.append(f"- 你依据的「{b['title']}」当前内容版本 {b['version']}，现在已经是版本 {b['current']}（{b['editor']} 改的）")
+            lines += [f"    删了：{x}" for x in b.get("removed", [])[:12]]
+            lines += [f"    加了：{x}" for x in b.get("added", [])[:12]]
+        if name == "check_changes":
+            return "起步以后这里变了：\n" + "\n".join(lines) if lines else "起步以后没有新决定，你依据的内容也没被改。"
+        if lines and not args.get("acknowledged"):
+            return "还没交。起步以后这里变了：\n" + "\n".join(lines) + "\n看完（需要的话改你的结果）再调一次 hand_back，带 acknowledged=true。"
+        body = {"subject": SUBJECT, "run_id": args["run_id"], "result_id": uuid.uuid4().hex, "content": args["content"],
+                "acknowledged_drift": bool(args.get("acknowledged"))}
+        call_api("POST", space_path(args) + "/messages", body=body)
+        return "已交回。" + ("交回时记下了你看过的差异。" if lines else "")
     if name == "note_basis":
         body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
         body["subject"] = SUBJECT

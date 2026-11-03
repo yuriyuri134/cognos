@@ -126,6 +126,7 @@
     for (const p of d.progress || []) {
       const parts = [];
       if (p.included_at) parts.push('进了输入（' + date(p.included_at) + '）');
+      if (p.seen_before_return_at && !p.included_at) parts.push('起步时还没有，交回前看到了（' + date(p.seen_before_return_at) + '）');
       if (p.depended_at) parts.push('回应里依据了它（' + date(p.depended_at) + '）');
       reach.append(node('li', p.subject + '：' + (parts.length ? parts.join('；') : '尚无证据')));
     }
@@ -165,10 +166,14 @@
       box.append(node('p', r.subject + ' 在' + where + '：' + r.purpose + ' · ' + (states[r.state] || r.state) + ' · ' + date(r.created_at),
         'pw-run' + (r.state === 'unknown' ? ' pw-error' : '')));
     }
-    for (const r of activity.recent.filter(r => r.decisions_missing.length)) {
+    for (const r of activity.recent.filter(r => r.decisions_missing.length || (r.basis_changed || []).length)) {
       const where = r.location ? '「' + r.location.title + '」' : '某处';
+      const seen = r.drift_seen_at ? '交回前它看到了这些差异。' : '';
       for (const d of r.decisions_missing) {
-        box.append(node('p', r.subject + ' 在' + where + '交回的结果（' + date(r.updated_at) + '）：起步时还没有这条决定「' + d.content + '」。结果照收，没有自动用到共享内容。', 'pw-run pw-warn'));
+        box.append(node('p', r.subject + ' 在' + where + '交回的结果（' + date(r.updated_at) + '）：起步时还没有这条决定「' + d.content + '」。' + seen + '结果照收，没有自动用到共享内容。', 'pw-run pw-warn'));
+      }
+      for (const b of r.basis_changed || []) {
+        box.append(node('p', r.subject + ' 在' + where + '交回的结果（' + date(r.updated_at) + '）：它依据的「' + b.title + '」当前内容版本 ' + b.version + '，交回时已经是版本 ' + b.current + '（' + b.editor + ' 改的）。' + seen + '结果照收。', 'pw-run pw-warn'));
       }
     }
     if (activity.edits.length) {
