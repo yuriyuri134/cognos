@@ -534,7 +534,11 @@ final class HermesAgentService {
     /**
      * @param ?int $replyTo 这次回的是对话里哪一句（交互对象那句的 id），带给桥，回答发回来时记上
      */
-    public function chatCreation(int $creationId, string $message, array $context = [], ?int $replyTo = null): ?string {
+    /**
+     * @param array $extra 额外带给桥、记在运行上的字段（交出去时是 delegation_id）
+     * @param list<string> $canDo 这次额外能做 / 不能做的，接在入口的能做什么后面
+     */
+    public function chatCreation(int $creationId, string $message, array $context = [], ?int $replyTo = null, array $extra = [], array $canDo = []): ?string {
         $user = $this->users->getUser();
         if ($user === null) {
             throw new \RuntimeException('Authentication required');
@@ -572,9 +576,10 @@ final class HermesAgentService {
                 $space,
                 $subject,
                 ['caller' => $caller, 'message' => $message],
-                $this->bridge->canDo('creation', (string)$creationId),
+                array_merge($this->bridge->canDo('creation', (string)$creationId), $canDo),
             );
-            $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry)]);
+            $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller,
+                array_merge($extra, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry)]));
             $this->spaces->markSeen('creation', (string)$creationId, $subject);
             return null;
         }

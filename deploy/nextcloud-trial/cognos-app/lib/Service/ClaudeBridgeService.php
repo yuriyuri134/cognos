@@ -135,12 +135,16 @@ final class ClaudeBridgeService {
     }
 
     /**
-     * 这次运行挂在哪、为了什么。一件没完的接着走挂在那件 open 上，回应反对挂在那条反对上，
-     * 其余挂在这段对话上；都不要求先做成任务。
+     * 这次运行挂在哪、为了什么。从位置上交出去的挂在那条委托上，一件没完的接着走挂在那件 open 上，
+     * 回应反对挂在那条反对上，其余挂在这段对话上；都不要求先做成任务。
      *
      * @return array{0: string, 1: string, 2: string}
      */
     private function target(string $spaceType, string $spaceId, array $extra): array {
+        if (!empty($extra['delegation_id'])) {
+            return ['delegation', (string)$extra['delegation_id'], '交出去：' . mb_substr(strtok((string)$extra['delegation_ask'], "
+") ?: '', 0, 200)];
+        }
         if (!empty($extra['open_id'])) {
             return ['open', (string)(int)$extra['open_id'], sprintf('从 #%d 这件没完的接着走', (int)$extra['open_id'])];
         }
