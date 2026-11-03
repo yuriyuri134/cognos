@@ -16,7 +16,7 @@ use OCP\Migration\SimpleMigrationStep;
  * - cognos_runs：一次实际发生的工作过程。挂在哪（target_type + target_id：一件没完的 open、一条反对、一段会话……，
  *   不强制是工作项）和为了什么分开记；给出去的输入原样存一份；租约过了还没回来就算 unknown，不当作没做。
  * - cognos_run_results：收到的结果，result_id 是桥生成的，同一个结果发两次只收一次。
- * - cognos_run_dependencies：交回时做事的那位自己列的「这次真正依据的是哪几条」，没列就没有。
+ * - cognos_run_dependencies：交回时做事的那位自己列的「这次真正依据的是哪几条」，没列表示未上报，不能据此断定没有依赖。
  *
  * 之前的运行没有记录，不补造。
  */

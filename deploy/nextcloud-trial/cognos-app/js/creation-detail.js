@@ -11,10 +11,10 @@
     // 叫来的 agent 还在本机接着做：{ since: 发出那条的时间, timer }，或者一条没叫来的原因 { error }
     pending: null,
     notice: null,
+    lastRun: null,
   };
 
   const PENDING_POLL_MS = 5000;
-  const PENDING_MAX_MS = 40 * 60 * 1000;
 
   const elements = {};
 
@@ -179,6 +179,7 @@
 
       const messagesData = await messagesResponse.json();
       state.messages = messagesData.messages || [];
+      state.lastRun = messagesData.runs?.[0] || null;
 
       renderCreation();
       renderMessages();
@@ -257,6 +258,9 @@
   }
 
   function createStatusBubble() {
+    if (!state.pending && state.lastRun?.state === 'unknown') {
+      return '<div class="cognos-message cognos-message-status"><div class="cognos-message-content">这次运行状态未知，尚不能确认是否完成。已留下的内容保留；不会因为失联自动重做。</div></div>';
+    }
     if (state.notice) {
       return `
         <div class="cognos-message cognos-message-agent cognos-message-status cognos-message-error">
@@ -289,11 +293,6 @@
   async function pollPending() {
     if (!state.pending) return;
     const since = state.pending.since;
-    if (Date.now() - since * 1000 > PENDING_MAX_MS) {
-      stopPending();
-      renderMessages();
-      return;
-    }
     try {
       const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages`, {
         headers: { 'requesttoken': OC.requestToken },
@@ -301,6 +300,7 @@
       if (!response.ok) return;
       const data = await response.json();
       const messages = data.messages || [];
+      state.lastRun = data.runs?.[0] || null;
       const answered = messages.some(m => m.role !== 'user' && m.created_at >= since);
       window.CognosSpacePanel?.reload();
       if (answered || !data.pending) {
