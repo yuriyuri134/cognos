@@ -73,6 +73,8 @@
     state.lastOverview = hash;
     renderDecisions(data.decisions);
     renderWho(data.activity);
+    renderDelegations(data.delegations || []);
+    await followRevision(data.revision);
     if (document.activeElement !== $('pw-handoff-text')) $('pw-handoff-text').value = data.handoff_text || '';
   }
   function decisionItem(d) {
@@ -148,6 +150,55 @@
       }
       box.append(list);
     }
+  }
+  // 交出去的事：走到哪了、结果在哪、写成了哪一版或留着待比较的版本
+  function renderDelegations(list) {
+    const box = $('pw-delegations'); box.replaceChildren();
+    const runStates = {queued: '等待接下', claimed: '已接下', running: '正在做', result_pending: '结果待交回', delivered: '已交回',
+      failed: '没能开始', unknown: '不知道做没做完（失联），不会自动重做'};
+    for (const d of list) {
+      const li = node('li', undefined, 'pw-decision pw-delegation');
+      li.dataset.delegationId = d.id;
+      li.append(node('blockquote', d.ask));
+      const meta = ['交出去 ' + date(d.created_at), '约定 ' + date(d.return_by) + ' 前回来',
+        d.may_edit ? '可以改当前内容（起步时版本 ' + d.base_revision + '）' : '只要回答'];
+      for (const [label, value] of [['要做成', d.goal], ['用', d.means], ['不要碰', d.forbidden]]) if (value) meta.push(label + '：' + value);
+      li.append(node('p', meta.join(' · '), 'pw-hint'));
+      let status;
+      if (d.state === 'not_taken') status = '没交出去：' + (d.note || '桥没接下') + '。可以再交一次。';
+      else if (d.state === 'returned') status = (d.subject || 'AI') + ' 交回了结果。';
+      else status = (d.subject || 'Claude Code') + '：' + (runStates[d.run_state] || '正在交出去');
+      if (d.overdue) status += ' 已过了约定的时间，还没回来。';
+      li.append(node('p', status, 'pw-run pw-delegation-status' + (d.state === 'not_taken' || d.overdue || d.run_state === 'unknown' ? ' pw-warn' : '')));
+      if (d.result_message_id) {
+        const p = node('p'); p.append(link('看交回的回答', '#message-' + d.result_message_id)); li.append(p);
+      }
+      if (d.applied_revision) li.append(node('p', (d.subject || 'AI') + ' 写成了当前内容的版本 ' + d.applied_revision + '（署它的名字，旧版在修改经过里）。', 'pw-run pw-applied'));
+      if (d.held_content !== null) {
+        li.append(node('p', '没有覆盖：' + d.held_reason + '。它的版本留着，等你比较。', 'pw-run pw-warn pw-held'));
+        const more = node('details'); more.append(node('summary', '看它的版本（基于版本 ' + d.held_base_revision + '）'));
+        more.append(node('pre', d.held_content));
+        const use = node('button', '放进编辑区比较'); use.type = 'button';
+        use.addEventListener('click', () => {
+          $('pw-content').value = d.held_content; dirty();
+          notice('它的版本已放进编辑区，当前保存的仍是版本 ' + state.location.revision + '。比较、修改后再保存；不保存就不会改动。');
+          $('pw-content').focus();
+        });
+        more.append(use); li.append(more);
+      }
+      box.append(li);
+    }
+  }
+  // 别人（交出去的 AI）写了新版本：没有未保存的修改就跟上，有就只提醒
+  async function followRevision(revision) {
+    if (!revision || !state.location || revision <= state.location.revision) return;
+    if (state.dirty) { notice('这里有了新版本 ' + revision + '；你的修改还没保存，保存时会先让你比较。'); return; }
+    const latest = await api('/projects/locations/' + state.location.id + '/data');
+    state.location = latest.location; state.sources = latest.source_message_ids;
+    $('pw-content').value = latest.location.content; $('pw-revision').textContent = '版本 ' + latest.location.revision;
+    showSources();
+    notice('当前内容更新到版本 ' + latest.location.revision + '（' + latest.location.editor + ' 写的），旧版在修改经过里。');
+    if ($('pw-history').open) await history();
   }
   function openDecisionForm(content, sourceMessageId, supersedes) {
     $('pw-decision-add').open = true;
@@ -300,6 +351,18 @@
     });
   });
   $('pw-decision-reset').addEventListener('click', resetDecisionForm);
+  $('pw-delegate-form').addEventListener('submit', e => {
+    e.preventDefault(); busy(e.currentTarget, async () => {
+      if ($('pw-delegate-edit').checked && state.dirty) { notice('当前内容有没保存的修改，先保存，再交出去。', true); return; }
+      const r = await mutate('/projects/locations/' + state.location.id + '/delegations', 'POST', {
+        ask: $('pw-delegate-ask').value, goal: $('pw-delegate-goal').value, means: $('pw-delegate-means').value,
+        forbidden: $('pw-delegate-forbidden').value, return_minutes: Number($('pw-delegate-return').value),
+        may_edit: $('pw-delegate-edit').checked});
+      $('pw-delegate-ask').value = ''; $('pw-delegate-goal').value = ''; $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
+      state.lastOverview = ''; await Promise.all([loadOverview(), loadMessages()]);
+      notice(r.state === 'not_taken' ? '记下了，但没交出去：' + r.note : '交出去了。可以走开，结果会回到这里。', r.state === 'not_taken');
+    });
+  });
   $('pw-handoff-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText($('pw-handoff-text').value); notice('已复制。'); }
     catch { $('pw-handoff-text').select(); notice('请按 Ctrl+C 复制选中的文字。'); }

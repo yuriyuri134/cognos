@@ -8,6 +8,7 @@ use OCA\Cognos\Service\ClaudeBridgeService;
 use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\DecisionService;
+use OCA\Cognos\Service\DelegationService;
 use OCA\Cognos\Service\HermesAgentService;
 use OCA\Cognos\Service\ProjectService;
 use OCA\Cognos\Service\PushBackService;
@@ -42,6 +43,7 @@ final class SpaceApiController extends OCSController {
         private RunService $runs,
         private DecisionService $decisions,
         private ProjectService $projects,
+        private DelegationService $delegations,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -239,6 +241,9 @@ final class SpaceApiController extends OCSController {
         if ($missing !== []) {
             $this->runs->setDecisionsMissing($run['id'], $missing);
         }
+        if ($run['target_type'] === 'delegation') {
+            $this->delegations->returned($run['target_id'], (int)$received['message_id']);
+        }
         // 从哪件没完的叫起来的，以登记的运行为准
         $openId = $run['target_type'] === 'open' ? (int)$run['target_id'] : null;
         if ($openId !== null) {
@@ -292,6 +297,29 @@ final class SpaceApiController extends OCSController {
             return new DataResponse(['message' => $error->getMessage()], in_array($error->getCode(), [404, 409], true) ? $error->getCode() : 500);
         }
         return new DataResponse($result, 201);
+    }
+
+    /**
+     * agent 在交给它的事里交回这一处的当前内容（全文）。只有允许改内容、正由它在做的委托才收；
+     * 交出去以后这一处被人改过、或有了它输入里没有的新决定，不覆盖，留作待比较的版本（照样 200，applied=false）。
+     */
+    #[NoAdminRequired]
+    public function writeContent(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $spaceType !== 'creation' || !ctype_digit($spaceId) || $this->creations->get((int)$spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $body = $this->body();
+        if (!isset($body['content']) || !is_string($body['content'])) {
+            return new DataResponse(['message' => 'content is required'], 422);
+        }
+        try {
+            return new DataResponse($this->delegations->writeContent($uid, (int)$spaceId, $this->subject((string)($body['subject'] ?? '')), $body['content']));
+        } catch (\DomainException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 403);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        }
     }
 
     /** 这片空间最近的运行：谁在做什么、做到哪个状态。 */

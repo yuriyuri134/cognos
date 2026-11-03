@@ -88,14 +88,17 @@ final class ProjectService {
             'content' => '', 'editor' => $uid, 'source_message_ids' => '[]', 'created_at' => $now]);
     }
 
-    public function updateContent(string $uid, string $id, int $expected, string $content, array $sources, string $requestId): array {
+    /** $editor：写这一版的是谁，默认是用户本人；交出去的事里 AI 写的版本记 AI 的名字和那次委托。 */
+    public function updateContent(string $uid, string $id, int $expected, string $content, array $sources, string $requestId,
+        string $editor = '', ?string $delegationId = null): array {
+        $editor = $editor === '' ? $uid : mb_substr($editor, 0, 64);
         if ($expected < 1 || mb_strlen($content) > 100000) { throw new \InvalidArgumentException('版本无效或内容超过 10 万字'); }
         if (count($sources) > 50) { throw new \InvalidArgumentException('一次最多关联 50 条原消息'); }
         foreach ($sources as $v) {
             if (!is_int($v) || $v < 1) { throw new \InvalidArgumentException('来源消息编号无效'); }
         }
         $sources = array_values(array_unique($sources)); sort($sources);
-        return $this->commit($uid, $requestId, ['update_content', $id, $expected, $content, $sources], function () use ($uid, $id, $expected, $content, $sources) {
+        return $this->commit($uid, $requestId, ['update_content', $id, $expected, $content, $sources, $editor, $delegationId], function () use ($uid, $id, $expected, $content, $sources, $editor, $delegationId) {
             $loc = $this->location($uid, $id);
             if ($loc['revision'] !== $expected) { throw new \RuntimeException('这里已有新版本，你的文本仍保留。请比较后再保存。', 409); }
             $allowed = [$loc['creation_id']];
@@ -114,14 +117,15 @@ final class ProjectService {
             $qb = $this->db->getQueryBuilder();
             $n = $qb->update('cognos_locations')->set('content', $qb->createNamedParameter($content))
                 ->set('revision', $qb->createNamedParameter($next, IQueryBuilder::PARAM_INT))
-                ->set('editor', $qb->createNamedParameter($uid))
+                ->set('editor', $qb->createNamedParameter($editor))
                 ->set('updated_at', $qb->createNamedParameter($now, IQueryBuilder::PARAM_INT))
                 ->where($qb->expr()->eq('id', $qb->createNamedParameter($id)))
                 ->andWhere($qb->expr()->eq('revision', $qb->createNamedParameter($expected, IQueryBuilder::PARAM_INT)))
                 ->executeStatement();
             if ($n !== 1) { throw new \RuntimeException('保存时出现新版本，请比较后再保存。', 409); }
             $this->insert('cognos_location_revisions', ['location_id' => $id, 'revision' => $next,
-                'content' => $content, 'editor' => $uid, 'source_message_ids' => $this->json($sources), 'created_at' => $now]);
+                'content' => $content, 'editor' => $editor, 'source_message_ids' => $this->json($sources), 'created_at' => $now,
+                'delegation_id' => $delegationId]);
             return ['location_id' => $id, 'revision' => $next];
         });
     }
@@ -129,7 +133,7 @@ final class ProjectService {
     public function history(string $uid, string $id, int $before = 0): array {
         $this->location($uid, $id);
         $qb = $this->db->getQueryBuilder();
-        $qb->select('revision', 'editor', 'created_at', 'source_message_ids')->from('cognos_location_revisions')
+        $qb->select('revision', 'editor', 'created_at', 'source_message_ids', 'delegation_id')->from('cognos_location_revisions')
             ->where($qb->expr()->eq('location_id', $qb->createNamedParameter($id)));
         if ($before > 0) { $qb->andWhere($qb->expr()->lt('revision', $qb->createNamedParameter($before, IQueryBuilder::PARAM_INT))); }
         $rows = $qb->orderBy('revision', 'DESC')->setMaxResults(30)->executeQuery()->fetchAll();

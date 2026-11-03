@@ -3,7 +3,8 @@
 
 和 Hermes 在 Cognos 里用的是同一套动作：进来（拿到入口）、留下尝试、留下读法、在痕迹里找，
 写下依据的想法（hold_premise）、对别人的想法提出反对（hit_premise）、回应别人的反对（answer_hit），
-挂上没完的（hang_open）、走之前说停在哪（stop_here）。
+挂上没完的（hang_open）、走之前说停在哪（stop_here），
+在交给它的事里交回一处的当前内容（write_content）。
 它写下的东西都记在 COGNOS_SUBJECT 这个名字下。
 
 只用标准库，stdio 上一行一个 JSON-RPC 消息。环境变量：
@@ -201,6 +202,22 @@ TOOLS += [
             "required": ["space_id", "open_id", "act", "moved"],
         },
     },
+    {
+        "name": "write_content",
+        "description": (
+            "在交给你的事里，交回这一处（项目里的一个位置）改好的当前内容全文。只有这次委托允许改内容时才收；"
+            "会作为你署名的新版本保存。交出去以后有人改过这一处，不会覆盖，你的版本留着等人比较。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "content": {"type": "string", "description": "改好的当前内容全文（不是改动说明）"},
+            },
+            "required": ["space_id", "content"],
+        },
+    },
 ]
 
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
@@ -293,6 +310,9 @@ def run_tool(name: str, args: dict) -> str:
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}
         return f"已记下停在哪 #{trace['id']}（{trace['act']}）。{then.get(trace['act'], '')}。"
+    if name == "write_content":
+        data = call_api("POST", space_path(args) + "/content", body={"subject": SUBJECT, "content": args.get("content", "")})
+        return data["message"]
     if name == "search_traces":
         traces = call_api("GET", space_path(args) + "/traces", {"q": args.get("query", ""), "limit": args.get("limit", 20)})["traces"]
         if not traces:

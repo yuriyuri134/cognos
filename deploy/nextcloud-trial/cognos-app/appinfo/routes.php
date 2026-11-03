@@ -17,6 +17,7 @@ return ['routes' => [
     // 在生效的决定、谁在动什么（见 DecisionService、ProjectService::activity）
     ['name'=>'project#overview','url'=>'/projects/{projectId}/overview','verb'=>'GET','requirements'=>['projectId'=>'[a-f0-9]{32}']],
     ['name'=>'project#recordDecision','url'=>'/projects/{projectId}/decisions','verb'=>'POST','requirements'=>['projectId'=>'[a-f0-9]{32}']],
+    ['name'=>'project#delegate','url'=>'/projects/locations/{locationId}/delegations','verb'=>'POST'],
     ['name'=>'project#revokeDecision','url'=>'/projects/decisions/{decisionId}/revoke','verb'=>'POST','requirements'=>['decisionId'=>'[a-f0-9]{32}']],
     ['name'=>'home#index','url'=>'/home','verb'=>'GET','postfix'=>'home'],
     ['name'=>'boardActivity#index','url'=>'/boards/{boardId}/events','verb'=>'GET'],
@@ -84,4 +85,6 @@ return ['routes' => [
     ['name' => 'spaceApi#runUnknown', 'url' => '/api/v1.0/runs/{runId}/unknown', 'verb' => 'POST', 'requirements' => ['runId' => '[a-f0-9]{32}']],
     // agent 代录在生效的决定（只能指向用户说的那一句）
     ['name' => 'spaceApi#recordDecision', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/decisions', 'verb' => 'POST'],
+    // agent 在交给它的事里交回当前内容（只在委托允许改内容时收）
+    ['name' => 'spaceApi#writeContent', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/content', 'verb' => 'POST'],
 ]];

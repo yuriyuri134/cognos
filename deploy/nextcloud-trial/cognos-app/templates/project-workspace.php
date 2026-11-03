@@ -64,6 +64,35 @@
                 <h2 id="pw-who-title">谁在动什么</h2>
                 <div id="pw-who" aria-live="polite"></div>
             </section>
+            <section class="pw-delegate" aria-labelledby="pw-delegate-title">
+                <h2 id="pw-delegate-title">交出去</h2>
+                <p class="pw-hint">把这一处的一件事交给本机的 Claude Code，你可以走开。结果回到这里的讨论；允许改当前内容时，它写的版本署它的名字，交出去以后你改过这里，就不覆盖。</p>
+                <form id="pw-delegate-form">
+                    <label for="pw-delegate-ask">要做的事（一句话就行）</label>
+                    <textarea id="pw-delegate-ask" rows="2" maxlength="2000" required placeholder="例如：把当前稿里两种入口方案各写三条优缺点放回当前稿"></textarea>
+                    <details>
+                        <summary>更多（都可以不填）</summary>
+                        <label for="pw-delegate-goal">要做成什么</label>
+                        <input id="pw-delegate-goal" maxlength="2000">
+                        <label for="pw-delegate-means">用什么</label>
+                        <input id="pw-delegate-means" maxlength="2000" placeholder="例如：只看当前稿和关联的材料">
+                        <label for="pw-delegate-forbidden">不能碰什么</label>
+                        <input id="pw-delegate-forbidden" maxlength="2000">
+                        <label for="pw-delegate-return">什么时候回来</label>
+                        <select id="pw-delegate-return">
+                            <option value="10">10 分钟内</option>
+                            <option value="30" selected>30 分钟内</option>
+                            <option value="60">1 小时内</option>
+                            <option value="120">2 小时内</option>
+                            <option value="240">4 小时内</option>
+                            <option value="1440">一天内</option>
+                        </select>
+                    </details>
+                    <label class="pw-check"><input type="checkbox" id="pw-delegate-edit"> 可以改这一处的当前内容</label>
+                    <button type="submit">交出去</button>
+                </form>
+                <ul id="pw-delegations" class="pw-decision-list" aria-live="polite"></ul>
+            </section>
             <section class="pw-content">
                 <div class="pw-section-title"><h2>当前内容</h2><span id="pw-revision"></span></div>
                 <p class="pw-hint">可以从一句话开始，也可以留空，在下面展开讨论。</p>

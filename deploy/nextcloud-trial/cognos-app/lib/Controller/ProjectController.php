@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace OCA\Cognos\Controller;
 
 use OCA\Cognos\Service\DecisionService;
+use OCA\Cognos\Service\DelegationService;
 use OCA\Cognos\Service\ProjectService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -16,7 +17,7 @@ use Psr\Log\LoggerInterface;
 
 final class ProjectController extends Controller {
     public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects,
-        private DecisionService $decisions, private LoggerInterface $logger) {
+        private DecisionService $decisions, private DelegationService $delegations, private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
 
@@ -36,6 +37,8 @@ final class ProjectController extends Controller {
             $out = ['decisions' => $decisions, 'activity' => $activity];
             if ($location_id !== '') {
                 $out['handoff_text'] = $this->handoffText($uid, $location_id);
+                $out['delegations'] = $this->delegations->forLocation($uid, $location_id);
+                $out['revision'] = $this->projects->location($uid, $location_id)['revision'];
             }
             return $out;
         });
@@ -47,6 +50,14 @@ final class ProjectController extends Controller {
         return $this->respond(fn(string $uid) => $this->decisions->record($uid, $projectId, $content,
             $scope === 'here' && $location_id !== '' ? [$location_id] : [], $source_message_id ?: null,
             $source_note, null, $uid, $supersedes !== '' ? $supersedes : null, $request_id));
+    }
+
+    /** 从这个位置交出去一件事，交给本机 Claude Code；结果回到这个位置。 */
+    #[NoAdminRequired]
+    public function delegate(string $locationId, string $ask, string $request_id, string $goal = '', string $means = '',
+        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false): DataResponse {
+        return $this->respond(fn(string $uid) => $this->delegations->delegate($uid, $locationId, $ask, $goal, $means, $forbidden,
+            $return_minutes, $may_edit, $request_id));
     }
 
     #[NoAdminRequired]
@@ -90,7 +101,7 @@ final class ProjectController extends Controller {
         try { return new DataResponse($fn($user->getUID())); }
         catch (\InvalidArgumentException $e) { return new DataResponse(['message' => $e->getMessage()], 422); }
         catch (\RuntimeException $e) {
-            if (in_array($e->getCode(), [404, 409], true)) { return new DataResponse(['message' => $e->getMessage()], $e->getCode()); }
+            if (in_array($e->getCode(), [404, 409, 422], true)) { return new DataResponse(['message' => $e->getMessage()], $e->getCode()); }
             $this->logger->error('Project operation failed', ['exception' => $e, 'app' => 'cognos']);
             return new DataResponse(['message' => '操作未完成，请稍后重试'], 500);
         } catch (\Throwable $e) {
