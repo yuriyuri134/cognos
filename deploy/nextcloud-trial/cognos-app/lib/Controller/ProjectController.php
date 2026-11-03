@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace OCA\Cognos\Controller;
 
+use OCA\Cognos\Service\DecisionService;
 use OCA\Cognos\Service\ProjectService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -14,8 +15,65 @@ use OCP\Util;
 use Psr\Log\LoggerInterface;
 
 final class ProjectController extends Controller {
-    public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects, private LoggerInterface $logger) {
+    public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects,
+        private DecisionService $decisions, private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
+    }
+
+    /**
+     * 项目页上方：在生效的决定（每条走到每个参与者哪一步，只说有证据的）、谁在动什么。
+     * 带 location_id 时，再给一段可复制的入口文字（对这一处适用的决定 + 这一处现状），给叫不醒的端用。
+     */
+    #[NoAdminRequired]
+    public function overview(string $projectId, string $location_id = ''): DataResponse {
+        return $this->respond(function (string $uid) use ($projectId, $location_id): array {
+            $decisions = $this->decisions->forProject($uid, $projectId);
+            $activity = $this->projects->activity($uid, $projectId);
+            $progress = $this->decisions->progress(array_column($decisions, 'id'), $activity['creation_ids']);
+            foreach ($decisions as &$d) { $d['progress'] = $progress[$d['id']] ?? []; }
+            unset($d);
+            unset($activity['creation_ids']);
+            $out = ['decisions' => $decisions, 'activity' => $activity];
+            if ($location_id !== '') {
+                $out['handoff_text'] = $this->handoffText($uid, $location_id);
+            }
+            return $out;
+        });
+    }
+
+    #[NoAdminRequired]
+    public function recordDecision(string $projectId, string $content, string $request_id, string $scope = 'project',
+        string $location_id = '', ?int $source_message_id = null, string $source_note = '', string $supersedes = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->decisions->record($uid, $projectId, $content,
+            $scope === 'here' && $location_id !== '' ? [$location_id] : [], $source_message_id ?: null,
+            $source_note, null, $uid, $supersedes !== '' ? $supersedes : null, $request_id));
+    }
+
+    #[NoAdminRequired]
+    public function revokeDecision(string $decisionId, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->decisions->revoke($uid, $decisionId, $request_id));
+    }
+
+    /** 给叫不醒的端（网页会话）复制过去的一段话：适用的决定原话 + 这一处现在是什么样。 */
+    private function handoffText(string $uid, string $locationId): string {
+        $detail = $this->projects->detail($uid, $locationId);
+        $loc = $detail['location'];
+        $lines = ['这是 Cognos 项目「' . $detail['project']['title'] . '」里「' . $loc['title'] . '」这一处的现状（' . date('Y-m-d H:i') . ' 取出）。', '', '在生效的决定：'];
+        $applicable = $this->decisions->applicable($uid, $locationId);
+        if ($applicable === []) { $lines[] = '（这一处目前没有登记在生效的决定）'; }
+        foreach ($applicable as $d) {
+            $lines[] = sprintf('- %s 说（%s）：「%s」', $d['author_name'], date('Y-m-d', $d['said_at'] ?? $d['created_at']), $d['content']);
+        }
+        $lines[] = '';
+        $lines[] = '当前内容（版本 ' . $loc['revision'] . '）：';
+        $content = (string)$loc['content'];
+        $lines[] = $content === '' ? '（还是空的）' : mb_substr($content, 0, 6000) . (mb_strlen($content) > 6000 ? "\n（以下截断）" : '');
+        if ($detail['usages'] !== []) {
+            $lines[] = '';
+            $lines[] = '在这里使用的材料：';
+            foreach ($detail['usages'] as $u) { $lines[] = '- ' . $u['title'] . ($u['purpose'] !== '' ? '：' . $u['purpose'] : ''); }
+        }
+        return implode("\n", $lines);
     }
 
     #[NoAdminRequired]

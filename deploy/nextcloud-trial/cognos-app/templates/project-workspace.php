@@ -28,6 +28,42 @@
             </form>
         </aside>
         <div class="pw-main">
+            <section class="pw-decisions" aria-labelledby="pw-decisions-title">
+                <div class="pw-section-title"><h2 id="pw-decisions-title">在生效的决定</h2></div>
+                <p class="pw-hint">你本人说过、现在对这个项目里所有参与者都有效的话。每次有人进来或开始做事，入口最前面就是对那一处适用的这几条。</p>
+                <ul id="pw-decisions" class="pw-decision-list"></ul>
+                <details id="pw-decision-add">
+                    <summary>登记一条决定</summary>
+                    <form id="pw-decision-form">
+                        <label for="pw-decision-content">你的原话</label>
+                        <textarea id="pw-decision-content" rows="3" maxlength="4000" required placeholder="照你说的原样写，不要改写成规则"></textarea>
+                        <label for="pw-decision-note">在哪说的（可留空）</label>
+                        <input id="pw-decision-note" maxlength="1000" placeholder="例如：11/03 在项目对话里">
+                        <fieldset class="pw-scope">
+                            <legend>适用范围</legend>
+                            <label><input type="radio" name="pw-decision-scope" value="project" checked> 整个项目</label>
+                            <label><input type="radio" name="pw-decision-scope" value="here"> 只是这一处和它下面</label>
+                        </fieldset>
+                        <p id="pw-decision-mode" class="pw-hint"></p>
+                        <div class="pw-inline"><button type="submit">登记</button><button type="button" id="pw-decision-reset">清空</button></div>
+                    </form>
+                </details>
+                <details id="pw-decisions-ended-box">
+                    <summary>已撤回、被替代的</summary>
+                    <ul id="pw-decisions-ended" class="pw-decision-list"></ul>
+                </details>
+                <details id="pw-handoff">
+                    <summary>给叫不醒的端（网页会话）</summary>
+                    <p class="pw-hint">Cognos 叫不醒网页上的会话，也看不到它读没读过。要它知道，就把下面这段复制过去；页面上它仍显示「尚无证据」。</p>
+                    <label class="pw-sr" for="pw-handoff-text">可复制的入口文字</label>
+                    <textarea id="pw-handoff-text" rows="8" readonly></textarea>
+                    <button type="button" id="pw-handoff-copy">复制</button>
+                </details>
+            </section>
+            <section class="pw-who" aria-labelledby="pw-who-title">
+                <h2 id="pw-who-title">谁在动什么</h2>
+                <div id="pw-who" aria-live="polite"></div>
+            </section>
             <section class="pw-content">
                 <div class="pw-section-title"><h2>当前内容</h2><span id="pw-revision"></span></div>
                 <p class="pw-hint">可以从一句话开始，也可以留空，在下面展开讨论。</p>

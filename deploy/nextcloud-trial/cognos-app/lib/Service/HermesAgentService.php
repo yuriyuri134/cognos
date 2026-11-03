@@ -574,7 +574,7 @@ final class HermesAgentService {
                 ['caller' => $caller, 'message' => $message],
                 $this->bridge->canDo('creation', (string)$creationId),
             );
-            $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller, ['reply_to' => $replyTo]);
+            $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry)]);
             $this->spaces->markSeen('creation', (string)$creationId, $subject);
             return null;
         }

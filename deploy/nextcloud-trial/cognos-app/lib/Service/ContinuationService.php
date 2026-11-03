@@ -89,6 +89,7 @@ final class ContinuationService {
                 'open_id' => $openId,
                 'run_started' => time(),
                 'base_branch' => $this->config->getAppValue('cognos', $this->branchKey($spaceType, $spaceId, $openId), '') ?: null,
+                'decision_ids' => SpaceEntryService::decisionIds($entry),
             ]);
         } catch (\RuntimeException $error) {
             $this->giveBackBudget($spaceType, $spaceId);

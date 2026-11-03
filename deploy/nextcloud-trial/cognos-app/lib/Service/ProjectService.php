@@ -182,6 +182,66 @@ final class ProjectService {
         });
     }
 
+    /** The location whose dedicated discussion is this conversation, or null (a plain creation space or a shared source). */
+    public function locationForCreation(string $uid, int $creationId): ?array {
+        $qb = $this->db->getQueryBuilder();
+        $row = $qb->select('l.id')->from('cognos_locations', 'l')
+            ->innerJoin('l', 'cognos_projects', 'p', $qb->expr()->eq('l.project_id', 'p.id'))
+            ->where($qb->expr()->eq('l.creation_id', $qb->createNamedParameter($creationId, IQueryBuilder::PARAM_INT)))
+            ->andWhere($qb->expr()->eq('p.user_id', $qb->createNamedParameter($uid)))->executeQuery()->fetch();
+        return $row ? $this->location($uid, $row['id']) : null;
+    }
+
+    /**
+     * 谁在动什么：项目各位置上还在做、或不知道做没做完的运行（按参与者），最近交回的几次
+     * （带「起步时还没有这条决定」），以及最近改了哪一处当前内容。
+     */
+    public function activity(string $uid, string $projectId): array {
+        $project = $this->project($uid, $projectId);
+        $qb = $this->db->getQueryBuilder();
+        $locations = $qb->select('id', 'title', 'creation_id')->from('cognos_locations')
+            ->where($qb->expr()->eq('project_id', $qb->createNamedParameter($projectId)))->executeQuery()->fetchAll();
+        $byChat = [];
+        foreach ($locations as $l) { $byChat[(string)$l['creation_id']] = ['id' => $l['id'], 'title' => $l['title']]; }
+        $runs = []; $recent = [];
+        if ($byChat !== []) {
+            $qb = $this->db->getQueryBuilder();
+            $rows = $qb->select('r.id', 'r.space_id', 'r.subject', 'r.purpose', 'r.state', 'r.created_at', 'r.updated_at', 'x.decisions_missing')
+                ->from('cognos_runs', 'r')
+                ->leftJoin('r', 'cognos_run_results', 'x', $qb->expr()->eq('x.run_id', 'r.id'))
+                ->where($qb->expr()->eq('r.space_type', $qb->createNamedParameter('creation')))
+                ->andWhere($qb->expr()->in('r.space_id', $qb->createNamedParameter(array_map('strval', array_keys($byChat)), IQueryBuilder::PARAM_STR_ARRAY)))
+                ->orderBy('r.created_at', 'DESC')->addOrderBy('r.id', 'DESC')->setMaxResults(200)
+                ->executeQuery()->fetchAll();
+            foreach ($rows as $r) {
+                $item = ['run_id' => (string)$r['id'], 'subject' => (string)$r['subject'], 'purpose' => (string)$r['purpose'],
+                    'state' => (string)$r['state'], 'location' => $byChat[(string)$r['space_id']] ?? null,
+                    'created_at' => (int)$r['created_at'], 'updated_at' => (int)$r['updated_at'],
+                    'decisions_missing' => $r['decisions_missing'] === null ? [] : (json_decode((string)$r['decisions_missing'], true) ?: [])];
+                if (in_array($item['state'], ['queued', 'claimed', 'running', 'result_pending', 'unknown'], true)) {
+                    $runs[] = $item;
+                } elseif (count($recent) < 5 && $item['state'] === 'delivered') {
+                    $recent[] = $item;
+                }
+            }
+        }
+        $edits = [];
+        if ($locations !== []) {
+            $qb = $this->db->getQueryBuilder();
+            $rows = $qb->select('location_id', 'revision', 'editor', 'created_at')->from('cognos_location_revisions')
+                ->where($qb->expr()->in('location_id', $qb->createNamedParameter(array_column($locations, 'id'), IQueryBuilder::PARAM_STR_ARRAY)))
+                ->andWhere($qb->expr()->gt('revision', $qb->createNamedParameter(1, IQueryBuilder::PARAM_INT)))
+                ->orderBy('created_at', 'DESC')->addOrderBy('revision', 'DESC')->setMaxResults(5)
+                ->executeQuery()->fetchAll();
+            $titles = array_column($project['locations'], 'title', 'id');
+            foreach ($rows as $r) {
+                $edits[] = ['location' => ['id' => $r['location_id'], 'title' => $titles[$r['location_id']] ?? ''],
+                    'revision' => (int)$r['revision'], 'editor' => (string)$r['editor'], 'created_at' => (int)$r['created_at']];
+            }
+        }
+        return ['runs' => $runs, 'recent' => $recent, 'edits' => $edits, 'creation_ids' => array_map('strval', array_keys($byChat))];
+    }
+
     /** Snapshot content for a verified owner's dedicated conversation; references stay references. */
     public function contextForCreation(string $uid, int $creationId): ?array {
         $qb = $this->db->getQueryBuilder();
@@ -222,8 +282,8 @@ final class ProjectService {
         return $title;
     }
 
-    /** Reserve a durable receipt and perform the domain change in the same transaction. */
-    private function commit(string $uid, string $requestId, array $payload, callable $work): array {
+    /** Reserve a durable receipt and perform the domain change in the same transaction (also used by DecisionService). */
+    public function commit(string $uid, string $requestId, array $payload, callable $work): array {
         if (!preg_match('/^[a-zA-Z0-9_-]{16,64}$/', $requestId)) { throw new \InvalidArgumentException('请求编号无效'); }
         $hash = hash('sha256', $this->json($payload));
         $prior = $this->receipt($uid, $requestId);
@@ -261,7 +321,7 @@ final class ProjectService {
         if (!hash_equals($r['request_hash'], $hash)) { throw new \RuntimeException('同一请求编号不能用于不同内容', 409); }
         return json_decode($r['response'], true, 512, JSON_THROW_ON_ERROR);
     }
-    private function insert(string $table, array $values): void {
+    public function insert(string $table, array $values): void {
         $qb = $this->db->getQueryBuilder(); $params = [];
         foreach ($values as $key => $value) {
             $params[$key] = $qb->createNamedParameter($value, $value === null ? IQueryBuilder::PARAM_NULL : (is_int($value) ? IQueryBuilder::PARAM_INT : IQueryBuilder::PARAM_STR));

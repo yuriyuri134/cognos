@@ -4,7 +4,8 @@
   const app = $('project-workspace');
   if (!app) return;
   const base = OC.generateUrl('/apps/cognos');
-  const state = { location: null, project: null, sources: [], dirty: false, messages: [], lastMessages: '', conflict: null, sending: false, loadingMessages: false };
+  const state = { location: null, project: null, sources: [], dirty: false, messages: [], lastMessages: '', conflict: null, sending: false, loadingMessages: false,
+    decisionSource: null, decisionSupersedes: null, lastOverview: '' };
   const requests = new Map();
   function node(tag, text, className) {
     const n = document.createElement(tag);
@@ -60,7 +61,104 @@
     $('pw-revision').textContent = '版本 ' + state.location.revision;
     $('pw-original-chat').href = base + '/creations/' + state.location.creation_id;
     renderTree(); renderUsages(data.usages); showSources();
-    await Promise.all([loadMessages(), loadSourceChoices()]);
+    await Promise.all([loadMessages(), loadSourceChoices(), loadOverview()]);
+  }
+  function day(t) { return t ? new Date(t * 1000).toLocaleDateString() : ''; }
+  // 在生效的决定、谁在动什么：只显示有证据的，没有证据就照实说「尚无证据」
+  async function loadOverview() {
+    if (!state.project) return;
+    const data = await api('/projects/' + state.project.id + '/overview?location_id=' + encodeURIComponent(state.location.id));
+    const hash = JSON.stringify(data);
+    if (hash === state.lastOverview) return;
+    state.lastOverview = hash;
+    renderDecisions(data.decisions);
+    renderWho(data.activity);
+    if (document.activeElement !== $('pw-handoff-text')) $('pw-handoff-text').value = data.handoff_text || '';
+  }
+  function decisionItem(d) {
+    const li = node('li', undefined, 'pw-decision pw-decision-' + d.status);
+    li.dataset.decisionId = d.id;
+    li.append(node('blockquote', d.content));
+    const scope = d.scope_titles.length ? '适用：' + d.scope_titles.join('、') + '（及其下面）' : '适用：整个项目';
+    const meta = [d.author_name + ' · ' + day(d.said_at || d.created_at), scope];
+    if (d.recorded_by_ai) meta.push('由 ' + d.recorded_by + ' 代录');
+    if (d.source_message_id) meta.push('原话出自对话里的 #' + d.source_message_id);
+    if (d.source_note) meta.push(d.source_note);
+    li.append(node('p', meta.join(' · '), 'pw-hint'));
+    if (d.status !== 'active') {
+      li.append(node('p', (d.status === 'revoked' ? '已撤回 ' : '已被替代 ') + day(d.ended_at), 'pw-hint'));
+      return li;
+    }
+    const reach = node('ul', undefined, 'pw-reach');
+    for (const p of d.progress || []) {
+      const parts = [];
+      if (p.included_at) parts.push('进了输入（' + date(p.included_at) + '）');
+      if (p.depended_at) parts.push('回应里依据了它（' + date(p.depended_at) + '）');
+      reach.append(node('li', p.subject + '：' + (parts.length ? parts.join('；') : '尚无证据')));
+    }
+    reach.append(node('li', '网页会话等叫不醒的端：尚无证据', 'pw-hint'));
+    li.append(reach);
+    const actions = node('div', undefined, 'pw-inline');
+    const revoke = node('button', '撤回'); revoke.type = 'button';
+    revoke.addEventListener('click', () => busy(actions, async () => {
+      if (!confirm('撤回这条决定？旧记录会留着，之后进来的参与者不再看到它。')) return;
+      await mutate('/projects/decisions/' + d.id + '/revoke', 'POST', {});
+      state.lastOverview = ''; await loadOverview();
+      notice('已撤回。旧记录在「已撤回、被替代的」里。');
+    }));
+    const replace = node('button', '改写（替代）'); replace.type = 'button';
+    replace.addEventListener('click', () => {
+      openDecisionForm(d.content, null, d.id);
+      $('pw-decision-mode').textContent = '登记后，原来那条标为被替代，旧记录留着。';
+    });
+    actions.append(revoke, replace);
+    li.append(actions);
+    return li;
+  }
+  function renderDecisions(decisions) {
+    const active = decisions.filter(d => d.status === 'active');
+    const ended = decisions.filter(d => d.status !== 'active');
+    $('pw-decisions').replaceChildren(...active.map(decisionItem));
+    if (!active.length) $('pw-decisions').append(node('li', '还没有登记在生效的决定。', 'pw-hint'));
+    $('pw-decisions-ended').replaceChildren(...ended.map(decisionItem));
+    $('pw-decisions-ended-box').hidden = !ended.length;
+  }
+  function renderWho(activity) {
+    const box = $('pw-who'); box.replaceChildren();
+    const states = {queued: '等待接下', claimed: '已接下', running: '正在做', result_pending: '结果待交回', unknown: '状态未知：不知道做没做完，不会自动重做'};
+    if (!activity.runs.length) box.append(node('p', '现在没有参与者在这个项目里做事。', 'pw-hint'));
+    for (const r of activity.runs) {
+      const where = r.location ? '「' + r.location.title + '」' : '某处';
+      box.append(node('p', r.subject + ' 在' + where + '：' + r.purpose + ' · ' + (states[r.state] || r.state) + ' · ' + date(r.created_at),
+        'pw-run' + (r.state === 'unknown' ? ' pw-error' : '')));
+    }
+    for (const r of activity.recent.filter(r => r.decisions_missing.length)) {
+      const where = r.location ? '「' + r.location.title + '」' : '某处';
+      for (const d of r.decisions_missing) {
+        box.append(node('p', r.subject + ' 在' + where + '交回的结果（' + date(r.updated_at) + '）：起步时还没有这条决定「' + d.content + '」。结果照收，没有自动用到共享内容。', 'pw-run pw-warn'));
+      }
+    }
+    if (activity.edits.length) {
+      box.append(node('h3', '最近改过的当前内容'));
+      const list = node('ul');
+      for (const e of activity.edits) {
+        const li = node('li'); li.append(link(e.location.title || '某处', locationUrl(e.location.id)));
+        li.append(document.createTextNode(' · 版本 ' + e.revision + ' · ' + e.editor + ' · ' + date(e.created_at)));
+        list.append(li);
+      }
+      box.append(list);
+    }
+  }
+  function openDecisionForm(content, sourceMessageId, supersedes) {
+    $('pw-decision-add').open = true;
+    $('pw-decision-content').value = content;
+    state.decisionSource = sourceMessageId; state.decisionSupersedes = supersedes;
+    $('pw-decision-mode').textContent = sourceMessageId ? '原话出自对话里你说的 #' + sourceMessageId + '；可以删掉多余的部分，但不要改写。' : '';
+    $('pw-decision-content').focus();
+  }
+  function resetDecisionForm() {
+    $('pw-decision-content').value = ''; $('pw-decision-note').value = '';
+    state.decisionSource = null; state.decisionSupersedes = null; $('pw-decision-mode').textContent = '';
   }
   function renderTree() {
     const nav = $('pw-locations'); nav.replaceChildren();
@@ -120,7 +218,14 @@
             notice('已放入编辑区，比较、修改后保存。原消息保留。');
             $('pw-content').focus();
           });
-          item.append(add); list.append(item);
+          item.append(add);
+          if (m.role === 'user') {
+            const decide = node('button', '登记为决定');
+            decide.type = 'button';
+            decide.addEventListener('click', () => openDecisionForm(m.content, m.id, null));
+            item.append(decide);
+          }
+          list.append(item);
         }
         if (!data.messages.length) list.append(node('p', '这里的当前内容和关联材料会带入下一次讨论。', 'pw-hint'));
         if (nearBottom) list.scrollTop = list.scrollHeight;
@@ -181,6 +286,24 @@
     $('pw-conflict').hidden = true; state.conflict = null; dirty();
     notice('上面的文本保持原样，请完成比较与修改后保存。');
   });
+  $('pw-decision-form').addEventListener('submit', e => {
+    e.preventDefault(); busy(e.currentTarget, async () => {
+      const scope = document.querySelector('input[name="pw-decision-scope"]:checked').value;
+      const data = {content: $('pw-decision-content').value, scope, location_id: state.location.id,
+        source_note: $('pw-decision-note').value};
+      if (state.decisionSource) data.source_message_id = state.decisionSource;
+      if (state.decisionSupersedes) data.supersedes = state.decisionSupersedes;
+      await mutate('/projects/' + state.project.id + '/decisions', 'POST', data);
+      resetDecisionForm(); $('pw-decision-add').open = false;
+      state.lastOverview = ''; await loadOverview();
+      notice('决定已登记。之后进来的参与者，入口最前面会看到它。');
+    });
+  });
+  $('pw-decision-reset').addEventListener('click', resetDecisionForm);
+  $('pw-handoff-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('pw-handoff-text').value); notice('已复制。'); }
+    catch { $('pw-handoff-text').select(); notice('请按 Ctrl+C 复制选中的文字。'); }
+  });
   $('pw-usage-form').addEventListener('submit', e => {
     e.preventDefault(); busy(e.currentTarget, async () => {
       await mutate('/projects/locations/' + state.location.id + '/usages', 'POST',
@@ -237,7 +360,10 @@
     if (state.dirty || $('pw-message').value) { e.preventDefault(); e.returnValue = ''; }
   });
   setInterval(() => {
-    if (!document.hidden && state.location && !state.sending) loadMessages().catch(e => notice('暂时无法刷新讨论：' + e.message, true));
+    if (!document.hidden && state.location && !state.sending) {
+      loadMessages().catch(e => notice('暂时无法刷新讨论：' + e.message, true));
+      loadOverview().catch(e => notice('暂时无法刷新决定和进展：' + e.message, true));
+    }
   }, 5000);
   init().catch(e => notice(e.message, true));
 })();
