@@ -203,6 +203,24 @@ TOOLS += [
         },
     },
     {
+        "name": "note_basis",
+        "description": (
+            "记下这次真正依据的一样东西：一条在生效的决定（decision_quote 照抄原话里的一段），"
+            "或这一处当前内容的某一版（revision）。可以不记。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "decision_quote": {"type": "string", "description": "那条决定原话里的一段，照抄"},
+                "revision": {"type": "integer", "description": "这一处当前内容的版本号"},
+                "note": {"type": "string", "description": "怎么依据的（可不填）"},
+            },
+            "required": ["space_id"],
+        },
+    },
+    {
         "name": "write_content",
         "description": (
             "在交给你的事里，交回这一处（项目里的一个位置）改好的当前内容全文。只有这次委托允许改内容时才收；"
@@ -310,6 +328,10 @@ def run_tool(name: str, args: dict) -> str:
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}
         return f"已记下停在哪 #{trace['id']}（{trace['act']}）。{then.get(trace['act'], '')}。"
+    if name == "note_basis":
+        body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
+        body["subject"] = SUBJECT
+        return call_api("POST", space_path(args) + "/basis", body=body)["message"]
     if name == "write_content":
         data = call_api("POST", space_path(args) + "/content", body={"subject": SUBJECT, "content": args.get("content", "")})
         return data["message"]

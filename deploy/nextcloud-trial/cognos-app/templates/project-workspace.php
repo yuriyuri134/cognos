@@ -20,6 +20,7 @@
     <section id="pw-work-view" hidden>
         <aside class="pw-structure">
             <h2>项目中的位置</h2>
+            <a id="pw-overview-link" class="pw-overview-link">项目总览</a>
             <nav id="pw-locations" aria-label="项目结构"></nav>
             <form id="pw-location-form">
                 <label for="pw-location-name">从这里展开</label>
@@ -42,7 +43,7 @@
                         <fieldset class="pw-scope">
                             <legend>适用范围</legend>
                             <label><input type="radio" name="pw-decision-scope" value="project" checked> 整个项目</label>
-                            <label><input type="radio" name="pw-decision-scope" value="here"> 只是这一处和它下面</label>
+                            <label data-location-only><input type="radio" name="pw-decision-scope" value="here"> 只是这一处和它下面</label>
                         </fieldset>
                         <p id="pw-decision-mode" class="pw-hint"></p>
                         <div class="pw-inline"><button type="submit">登记</button><button type="button" id="pw-decision-reset">清空</button></div>
@@ -52,7 +53,7 @@
                     <summary>已撤回、被替代的</summary>
                     <ul id="pw-decisions-ended" class="pw-decision-list"></ul>
                 </details>
-                <details id="pw-handoff">
+                <details id="pw-handoff" data-location-only>
                     <summary>给叫不醒的端（网页会话）</summary>
                     <p class="pw-hint">Cognos 叫不醒网页上的会话，也看不到它读没读过。要它知道，就把下面这段复制过去；页面上它仍显示「尚无证据」。</p>
                     <label class="pw-sr" for="pw-handoff-text">可复制的入口文字</label>
@@ -64,7 +65,14 @@
                 <h2 id="pw-who-title">谁在动什么</h2>
                 <div id="pw-who" aria-live="polite"></div>
             </section>
-            <section class="pw-delegate" aria-labelledby="pw-delegate-title">
+            <section id="pw-overview" aria-labelledby="pw-states-title" hidden>
+                <h2 id="pw-states-title">各位置现在怎样</h2>
+                <ul id="pw-location-states" class="pw-decision-list"></ul>
+                <h2>最近交回的</h2>
+                <p class="pw-hint">每次交回时做事的那位上报了依据什么；没上报就照写「未上报依据」，不等于它没有依据。</p>
+                <ul id="pw-recent" class="pw-reach"></ul>
+            </section>
+            <section class="pw-delegate" data-location-only aria-labelledby="pw-delegate-title">
                 <h2 id="pw-delegate-title">交出去</h2>
                 <p class="pw-hint">把这一处的一件事交给本机的 Claude Code，你可以走开。结果回到这里的讨论；允许改当前内容时，它写的版本署它的名字，交出去以后你改过这里，就不覆盖。</p>
                 <form id="pw-delegate-form">
@@ -93,7 +101,7 @@
                 </form>
                 <ul id="pw-delegations" class="pw-decision-list" aria-live="polite"></ul>
             </section>
-            <section class="pw-content">
+            <section class="pw-content" data-location-only>
                 <div class="pw-section-title"><h2>当前内容</h2><span id="pw-revision"></span></div>
                 <p class="pw-hint">可以从一句话开始，也可以留空，在下面展开讨论。</p>
                 <form id="pw-content-form">
@@ -103,13 +111,13 @@
                 </form>
                 <div id="pw-conflict" hidden>
                     <p>保存期间已有新版本。你的文本还在上面，先比较，再继续。</p>
-                    <pre id="pw-conflict-content"></pre>
+                    <div id="pw-conflict-content"></div>
                     <button type="button" id="pw-rebase">我已比较，以新版为基础保存上面的文本</button>
                 </div>
                 <p id="pw-content-sources" class="pw-hint"></p>
                 <details id="pw-history"><summary>查看修改经过</summary><div id="pw-history-list"></div><pre id="pw-history-content"></pre></details>
             </section>
-            <section class="pw-materials">
+            <section class="pw-materials" data-location-only>
                 <h2>在这里使用的材料</h2>
                 <ul id="pw-usages"></ul>
                 <details><summary>关联已有会话</summary>
@@ -121,7 +129,7 @@
                     </form>
                 </details>
             </section>
-            <section class="pw-discussion">
+            <section class="pw-discussion" data-location-only>
                 <div class="pw-section-title"><h2>在这里讨论</h2><a id="pw-original-chat">展开原会话</a></div>
                 <div id="pw-runs" aria-live="polite"></div>
                 <div id="pw-messages" role="log" aria-label="当前位置的讨论"></div>

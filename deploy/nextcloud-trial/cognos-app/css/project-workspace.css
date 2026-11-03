@@ -51,6 +51,17 @@
 .pw-check { display: flex !important; align-items: center; gap: 6px; margin: 10px 0; }
 .pw-check input { width: auto !important; }
 .pw-delegation pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font-size: 13px; }
+.pw-overview-link { display: block; padding: 6px 12px; margin-bottom: 4px; }
+.pw-overview-link[aria-current="page"] { font-weight: 600; background: var(--color-primary-element-light, #e5eef8); border-radius: 6px; }
+.pw-state p { margin: 4px 0 0; }
+.pw-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.pw-compare > div { min-width: 0; border: 1px solid var(--pw-border); border-radius: 6px; padding: 8px; }
+.pw-compare h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.pw-compare ol { list-style: none; margin: 0; padding: 0; font-size: 13px; line-height: 1.7; max-height: 360px; overflow: auto; }
+.pw-compare li { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 4px; min-height: 1.7em; }
+.pw-compare .pw-del { background: rgba(200, 60, 60, .18); }
+.pw-compare .pw-ins { background: rgba(40, 150, 80, .18); }
+@media (max-width: 760px) { .pw-compare { grid-template-columns: 1fr; } }
 .pw-sr { position: absolute !important; width: 1px !important; height: 1px; padding: 0 !important; margin: -1px !important; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 760px) {
   #project-workspace { padding: 16px 14px 60px; }

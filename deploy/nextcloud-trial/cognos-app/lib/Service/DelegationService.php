@@ -103,6 +103,27 @@ final class DelegationService {
         }, $rows);
     }
 
+    /**
+     * 项目里各位置的委托：还没回来的几件、留着待比较的版本几个。
+     *
+     * @return array<string, array{open: int, held: int}>
+     */
+    public function countsForProject(string $projectId): array {
+        $qb = $this->db->getQueryBuilder();
+        $rows = $qb->select('location_id', 'state', 'held_content')->from('cognos_delegations')
+            ->where($qb->expr()->eq('project_id', $qb->createNamedParameter($projectId)))
+            ->executeQuery()->fetchAll();
+        $out = [];
+        foreach ($rows as $r) {
+            $slot = &$out[(string)$r['location_id']];
+            $slot ??= ['open' => 0, 'held' => 0];
+            if (in_array((string)$r['state'], ['sending', 'starting', 'sent'], true)) { $slot['open']++; }
+            if ($r['held_content'] !== null) { $slot['held']++; }
+            unset($slot);
+        }
+        return $out;
+    }
+
     /** 结果交回时：这条委托回来了，回答是哪条消息。 */
     public function returned(string $delegationId, int $messageId): void {
         $qb = $this->db->getQueryBuilder();

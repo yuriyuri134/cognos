@@ -5,7 +5,7 @@
   if (!app) return;
   const base = OC.generateUrl('/apps/cognos');
   const state = { location: null, project: null, sources: [], dirty: false, messages: [], lastMessages: '', conflict: null, sending: false, loadingMessages: false,
-    decisionSource: null, decisionSupersedes: null, lastOverview: '' };
+    decisionSource: null, decisionSupersedes: null, lastOverview: '', mode: 'location' };
   const requests = new Map();
   function node(tag, text, className) {
     const n = document.createElement(tag);
@@ -52,10 +52,22 @@
       return;
     }
     let id = app.dataset.locationId;
-    if (!id) id = (await api('/projects/' + app.dataset.projectId + '/data')).project.root_location_id;
+    // 只有项目、没有位置：项目总览（在生效的决定、谁在动什么、各位置现在怎样），不拿根位置页顶替
+    if (!id) { state.mode = 'project'; id = (await api('/projects/' + app.dataset.projectId + '/data')).project.root_location_id; }
     const data = await api('/projects/locations/' + id + '/data');
     state.location = data.location; state.project = data.project; state.sources = data.source_message_ids;
     $('pw-list-view').hidden = true; $('pw-work-view').hidden = false;
+    $('pw-overview-link').href = base + '/projects/' + state.project.id;
+    if (state.mode === 'project') {
+      for (const n of document.querySelectorAll('[data-location-only]')) n.hidden = true;
+      $('pw-overview').hidden = false;
+      $('pw-overview-link').setAttribute('aria-current', 'page');
+      $('pw-location-name').previousElementSibling.textContent = '在项目下展开';
+      $('pw-title').textContent = state.project.title; document.title = state.project.title + ' · Cognos';
+      renderTree();
+      await loadOverview();
+      return;
+    }
     $('pw-title').textContent = state.location.title; document.title = state.location.title + ' · Cognos';
     $('pw-content').value = state.location.content;
     $('pw-revision').textContent = '版本 ' + state.location.revision;
@@ -67,12 +79,13 @@
   // 在生效的决定、谁在动什么：只显示有证据的，没有证据就照实说「尚无证据」
   async function loadOverview() {
     if (!state.project) return;
-    const data = await api('/projects/' + state.project.id + '/overview?location_id=' + encodeURIComponent(state.location.id));
+    const data = await api('/projects/' + state.project.id + '/overview' + (state.mode === 'location' ? '?location_id=' + encodeURIComponent(state.location.id) : ''));
     const hash = JSON.stringify(data);
     if (hash === state.lastOverview) return;
     state.lastOverview = hash;
     renderDecisions(data.decisions);
     renderWho(data.activity);
+    if (state.mode === 'project') { renderStates(data.locations, data.activity.runs); renderRecent(data.activity.recent, data.decisions); return; }
     renderDelegations(data.delegations || []);
     await followRevision(data.revision);
     if (document.activeElement !== $('pw-handoff-text')) $('pw-handoff-text').value = data.handoff_text || '';
@@ -176,8 +189,9 @@
       if (d.applied_revision) li.append(node('p', (d.subject || 'AI') + ' 写成了当前内容的版本 ' + d.applied_revision + '（署它的名字，旧版在修改经过里）。', 'pw-run pw-applied'));
       if (d.held_content !== null) {
         li.append(node('p', '没有覆盖：' + d.held_reason + '。它的版本留着，等你比较。', 'pw-run pw-warn pw-held'));
-        const more = node('details'); more.append(node('summary', '看它的版本（基于版本 ' + d.held_base_revision + '）'));
-        more.append(node('pre', d.held_content));
+        const more = node('details'); more.append(node('summary', '和当前稿并排看（它基于版本 ' + d.held_base_revision + '）'));
+        more.append(compareView('当前稿（版本 ' + state.location.revision + '）', state.location.content,
+          (d.subject || 'AI') + ' 的版本（基于版本 ' + d.held_base_revision + '）', d.held_content));
         const use = node('button', '放进编辑区比较'); use.type = 'button';
         use.addEventListener('click', () => {
           $('pw-content').value = d.held_content; dirty();
@@ -200,6 +214,65 @@
     notice('当前内容更新到版本 ' + latest.location.revision + '（' + latest.location.editor + ' 写的），旧版在修改经过里。');
     if ($('pw-history').open) await history();
   }
+  // 两版并排：逐行比，只在一边有的行标出来（左边删掉的、右边新加的）
+  function compareView(leftTitle, left, rightTitle, right) {
+    const a = left.split('\n'), b = right.split('\n');
+    const n = a.length, m = b.length, keepA = new Array(n).fill(false), keepB = new Array(m).fill(false);
+    if (n * m <= 4000000) {
+      const dp = Array.from({length: n + 1}, () => new Uint32Array(m + 1));
+      for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      for (let i = 0, j = 0; i < n && j < m;) {
+        if (a[i] === b[j]) { keepA[i++] = true; keepB[j++] = true; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) i++; else j++;
+      }
+    }
+    const box = node('div', undefined, 'pw-compare');
+    for (const [title, lines, keep, cls] of [[leftTitle, a, keepA, 'pw-del'], [rightTitle, b, keepB, 'pw-ins']]) {
+      const col = node('div'); col.append(node('h4', title));
+      const list = node('ol');
+      lines.forEach((line, i) => list.append(node('li', line, keep[i] ? undefined : cls)));
+      col.append(list); box.append(col);
+    }
+    return box;
+  }
+  // 项目总览：各位置现在怎样
+  function renderStates(locations, runs) {
+    const box = $('pw-location-states'); box.replaceChildren();
+    // 按结构排：上级在前，下级跟在后面
+    const depth = new Map(), ordered = [];
+    (function walk(parent, d) {
+      for (const l of locations.filter(x => (x.parent_id || null) === parent)) { depth.set(l.id, d); ordered.push(l); walk(l.id, d + 1); }
+    })(null, 0);
+    const working = new Map();
+    for (const r of runs) if (r.location) working.set(r.location.id, (working.get(r.location.id) || 0) + 1);
+    for (const l of ordered) {
+      const li = node('li', undefined, 'pw-decision pw-state');
+      li.style.marginInlineStart = (depth.get(l.id) * 14) + 'px';
+      const head = node('p'); head.append(link(l.title, locationUrl(l.id))); li.append(head);
+      const facts = [l.length ? '当前内容版本 ' + l.revision + '（' + l.length + ' 字）' : '当前内容还是空的',
+        l.revision > 1 ? '最后由 ' + l.editor + ' 改于 ' + date(l.updated_at) : ''].filter(Boolean);
+      li.append(node('p', facts.join(' · '), 'pw-hint'));
+      const now = [];
+      if (working.get(l.id)) now.push(working.get(l.id) + ' 件正在做');
+      if (l.open) now.push(l.open + ' 件交出去还没回来');
+      if (l.held) now.push(l.held + ' 个留着待比较的版本');
+      if (now.length) li.append(node('p', now.join(' · '), 'pw-run' + (l.held ? ' pw-warn' : '')));
+      box.append(li);
+    }
+  }
+  function renderRecent(recent, decisions) {
+    const box = $('pw-recent'); box.replaceChildren();
+    const quote = Object.fromEntries(decisions.map(d => [d.id, d.content]));
+    const titles = Object.fromEntries(state.project.locations.map(l => [l.id, l.title]));
+    for (const r of recent) {
+      const where = r.location ? '「' + r.location.title + '」' : '某处';
+      const basis = (r.basis || []).map(b => b.type === 'decision' ? '决定「' + (quote[b.id] || b.id) + '」'
+        : b.type === 'location_content' ? '「' + (titles[b.id] || '某处') + '」当前内容版本 ' + b.version : b.type + ' ' + b.id);
+      box.append(node('li', r.subject + ' 在' + where + '（' + date(r.updated_at) + '）：' + (basis.length ? '依据了 ' + basis.join('、') : '未上报依据')));
+    }
+    if (!recent.length) box.append(node('li', '还没有交回的结果。', 'pw-hint'));
+  }
   function openDecisionForm(content, sourceMessageId, supersedes) {
     $('pw-decision-add').open = true;
     $('pw-decision-content').value = content;
@@ -217,7 +290,7 @@
       for (const loc of state.project.locations.filter(l => l.parent_id === parent)) {
         const a = link(loc.title, locationUrl(loc.id));
         a.style.paddingInlineStart = (12 + depth * 14) + 'px';
-        if (loc.id === state.location.id) a.setAttribute('aria-current', 'page');
+        if (state.mode === 'location' && loc.id === state.location.id) a.setAttribute('aria-current', 'page');
         nav.append(a); branch(loc.id, depth + 1);
       }
     }
@@ -323,7 +396,8 @@
         if (error.status === 409) {
           const latest = await api('/projects/locations/' + state.location.id + '/data');
           state.conflict = latest.location;
-          $('pw-conflict-content').textContent = '当前已保存的版本 ' + latest.location.revision + '\n\n' + latest.location.content;
+          $('pw-conflict-content').replaceChildren(compareView('已保存的版本 ' + latest.location.revision + '（' + latest.location.editor + '）',
+            latest.location.content, '你上面的文本', content));
           $('pw-conflict').hidden = false;
         }
         throw error;
@@ -424,7 +498,7 @@
   });
   setInterval(() => {
     if (!document.hidden && state.location && !state.sending) {
-      loadMessages().catch(e => notice('暂时无法刷新讨论：' + e.message, true));
+      if (state.mode === 'location') loadMessages().catch(e => notice('暂时无法刷新讨论：' + e.message, true));
       loadOverview().catch(e => notice('暂时无法刷新决定和进展：' + e.message, true));
     }
   }, 5000);

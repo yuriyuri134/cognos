@@ -34,7 +34,10 @@ final class ProjectController extends Controller {
             foreach ($decisions as &$d) { $d['progress'] = $progress[$d['id']] ?? []; }
             unset($d);
             unset($activity['creation_ids']);
-            $out = ['decisions' => $decisions, 'activity' => $activity];
+            $counts = $this->delegations->countsForProject($projectId);
+            $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]),
+                $this->projects->locationStates($uid, $projectId));
+            $out = ['decisions' => $decisions, 'activity' => $activity, 'locations' => $locations];
             if ($location_id !== '') {
                 $out['handoff_text'] = $this->handoffText($uid, $location_id);
                 $out['delegations'] = $this->delegations->forLocation($uid, $location_id);

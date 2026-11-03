@@ -322,6 +322,55 @@ final class SpaceApiController extends OCSController {
         }
     }
 
+    /**
+     * 运行进行中，agent 报一条这次真正依据的东西：一条在生效的决定（decision_quote，照抄原话里的一段），
+     * 或这一处当前内容的某一版（revision）。可以不报；没报就是「未上报依据」，不推定没有依赖。
+     * 记在这片空间里正由它在做的那次运行上（cognos_run_dependencies，和交回时带的 depends_on 同一处）。
+     */
+    #[NoAdminRequired]
+    public function addBasis(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $spaceType !== 'creation' || !ctype_digit($spaceId) || $this->creations->get((int)$spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $body = $this->body();
+        $subject = $this->subject((string)($body['subject'] ?? ''));
+        $run = null;
+        foreach ($this->runs->activeForSpace($spaceType, $spaceId) as $candidate) {
+            if ($candidate['subject'] === $subject && in_array($candidate['state'], ['queued', 'claimed', 'running'], true)) {
+                $run = $candidate;
+                break;
+            }
+        }
+        if ($run === null) {
+            return new DataResponse(['message' => '这里没有正由你在做的运行；依据要在做的时候报'], 409);
+        }
+        $location = $this->projects->locationForCreation($uid, (int)$spaceId);
+        if ($location === null) {
+            return new DataResponse(['message' => '这片空间不是项目里的位置，没有决定和当前内容可依据'], 422);
+        }
+        $note = isset($body['note']) ? mb_substr(trim((string)$body['note']), 0, 1000) : null;
+        try {
+            if (isset($body['decision_quote']) && trim((string)$body['decision_quote']) !== '') {
+                $decision = $this->decisions->byQuote($uid, $location['id'], (string)$body['decision_quote']);
+                $new = $this->runs->addDependency($run['id'], 'decision', $decision['id'], null, $note);
+                $what = '决定「' . $decision['content'] . '」';
+            } elseif (isset($body['revision'])) {
+                $revision = (int)$body['revision'];
+                if ($revision < 1 || $revision > $location['revision']) {
+                    return new DataResponse(['message' => sprintf('这一处的当前内容只有版本 1 到 %d', $location['revision'])], 422);
+                }
+                $new = $this->runs->addDependency($run['id'], 'location_content', $location['id'], (string)$revision, $note);
+                $what = sprintf('这一处当前内容的版本 %d', $revision);
+            } else {
+                return new DataResponse(['message' => '给 decision_quote（决定原话里的一段）或 revision（当前内容的版本号）'], 422);
+            }
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        }
+        return new DataResponse(['message' => ($new ? '记下了：这次依据' : '已经记过：') . $what . '。', 'run_id' => $run['id']], $new ? 201 : 200);
+    }
+
     /** 这片空间最近的运行：谁在做什么、做到哪个状态。 */
     #[NoAdminRequired]
     public function runs(string $spaceType, string $spaceId): DataResponse {
