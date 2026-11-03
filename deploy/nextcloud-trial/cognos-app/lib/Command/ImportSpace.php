@@ -21,10 +21,10 @@ use Symfony\Component\Console\Output\OutputInterface;
  *   "stopped_at": "...", "touched_reality": true, "ref": "t0", "status": "withdrawn", "governs": "..."}],
  *   "readings": [{"reader": "...", "content": "...", "confidence": 60, "refs": ["t1"]}]}
  * ref / refs 用种子里的 key 指向前面的条目；更正就是 kind=correction 加 ref 加 status。
- * 押着的前提是 kind=premise（governs 写它管着什么），顶是 kind=hit 加 ref，面对是 kind=answer 加 ref 加 act。
+ * 写下的想法是 kind=premise（governs 写它管着什么），反对是 kind=hit 加 ref，回应是 kind=answer 加 ref 加 act。
  *
  * --as-self：这片空间就是 Cognos 自己（种子见 seeds/cognos-self.json）。在这里被叫回来的那位，
- * 工作目录是 Cognos 仓库的副本，重新切前提就是改代码（见 tools/cognos-space-mcp/claude_bridge.py）。
+ * 工作目录是 Cognos 仓库的副本，改成新的前提就是改代码（见 tools/cognos-space-mcp/claude_bridge.py）。
  */
 final class ImportSpace extends Command {
     public function __construct(

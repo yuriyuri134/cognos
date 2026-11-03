@@ -11,7 +11,7 @@ use OCP\Migration\IOutput;
 use OCP\Migration\SimpleMigrationStep;
 
 /**
- * 押着的（kind=premise）要连着它管着的东西：哪段代码、哪个做法。顶到它，改的就是那里。
+ * 写下的想法（kind=premise）要连着它管着的东西：哪段代码、哪个做法。反对到它，改的就是那里。
  * 见项目文件 框架审视/会不会全错-2026-10-27.md 第十一节。
  */
 class Version001800Date20261027120000 extends SimpleMigrationStep {

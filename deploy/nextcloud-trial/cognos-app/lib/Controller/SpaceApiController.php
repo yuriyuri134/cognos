@@ -20,9 +20,9 @@ use OCP\IUserSession;
 
 /**
  * 外面的 agent（本机的 Claude Code、Codex……）走进一片空间用的接口，和 Hermes 在里面用的是同一套动作：
- * 进来（拿到入口）、留下尝试、留下读法、在痕迹里找，押上前提、顶别人押着的、面对顶到自己的。
+ * 进来（拿到入口）、留下尝试、留下读法、在痕迹里找，写下想法、反对别人写下的想法、回应反对到自己的。
  *
- * agent 用交互对象的账号（应用密码）来调，但它写下的东西一律记为〔AI〕和它报的名字（subject），
+ * agent 用交互对象的账号（应用密码）来调，但它写下的东西一律记为AI和它报的名字（subject），
  * 不能代替交互对象写原话。
  */
 final class SpaceApiController extends OCSController {
@@ -69,14 +69,14 @@ final class SpaceApiController extends OCSController {
         $call = trim($message) !== '' ? ['caller' => $uid, 'message' => trim($message)] : null;
         $entry = $this->entries->entry($space, $subject, $call, [
             'search_traces：在这片空间留下的发生里找。',
-            'leave_trace：把你这次做的尝试，或你推出来的东西留下。来源固定记为〔AI〕和你报的名字。',
+            'leave_trace：把你这次做的尝试，或你推出来的东西留下，记在你报的名字下。',
             'add_reading：留下你对这里的读法。你之前的读法不会被删，只会被标为已替换。',
             '你的其他能力（读文件、跑命令、上网）照你自己那边的权限，这片空间不知道。',
         ]);
         $text = $this->entries->renderText($entry);
         if ($call !== null) {
-            // 外面进来的没有对话记录，把这次的原话直接放进入口
-            $text .= "\n\n## 这次叫你来的原话\n" . $call['message'];
+            // 外面进来的没有对话记录，把这次说的话直接放进入口
+            $text .= "\n\n## 这次叫你来时说的话\n" . $call['message'];
         }
         $this->spaces->markSeen($spaceType, $spaceId, $subject);
         return new DataResponse(['subject' => $subject, 'text' => $text, 'entry' => $entry]);
@@ -99,7 +99,7 @@ final class SpaceApiController extends OCSController {
         }
         $body = $this->body();
         if (($body['kind'] ?? '') === 'answer') {
-            return new DataResponse(['message' => '面对一下顶，用 answer_hit（/hits/{hitId}/answer）'], 422);
+            return new DataResponse(['message' => '回应一条反对，用 answer_hit（/hits/{hitId}/answer）'], 422);
         }
         if (($body['kind'] ?? '') === 'reality') {
             return new DataResponse(['message' => '检查结果只能由桥在跑完检查后带回来，agent 不能自己写'], 422);
@@ -119,7 +119,7 @@ final class SpaceApiController extends OCSController {
                 'status' => (string)($body['status'] ?? 'said'),
                 'governs' => $body['governs'] ?? null,
             ]);
-            // 顶到一条押着的前提：去找押的那位
+            // 反对到一条写下的想法：去找写下想法的那位
             $pushback = $trace['kind'] === 'hit' ? $this->pushBack->afterHit($spaceType, $spaceId, $uid, $trace) : null;
             return new DataResponse(['trace' => $trace, 'pushback' => $pushback], 201);
         } catch (\InvalidArgumentException $error) {
@@ -150,7 +150,7 @@ final class SpaceApiController extends OCSController {
     }
 
     /**
-     * 押着前提的那位面对顶到它的一下：站住、碎了、或重新切。只有押的那位（subject）能面对。
+     * 写下想法的那位回应反对到它的一下：还成立、放下或改成新的。只有写下想法的那位（subject）能回应。
      */
     #[NoAdminRequired]
     public function answerHit(string $spaceType, string $spaceId, int $hitId): DataResponse {
@@ -181,7 +181,7 @@ final class SpaceApiController extends OCSController {
     /**
      * 被叫进来、在本机接着做的 agent（claude_bridge.py）做完以后，把回答发回这段对话。
      * 它是从一件没完的叫起来的（open_id），先记下检查和它停在哪（ContinuationService::afterRun）。
-     * 然后接着叫下一位：排着的顶和交互对象的话先走，都没有，就从还拉着的那件没完的接着走。
+     * 然后接着叫下一位：排着的反对和交互对象的话先走，都没有，就从还拉着的那件没完的接着走。
      */
     #[NoAdminRequired]
     public function addMessage(string $spaceType, string $spaceId): DataResponse {
@@ -194,7 +194,7 @@ final class SpaceApiController extends OCSController {
         if ($content === '') {
             return new DataResponse(['message' => 'content is required'], 422);
         }
-        // 回的是对话里哪一句；被顶叫回来的回答是 0（不回任何一句）
+        // 回的是对话里哪一句；被反对叫回来的回答是 0（不回任何一句）
         $replyTo = isset($body['reply_to']) && $body['reply_to'] !== null ? (int)$body['reply_to'] : null;
         $message = $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo);
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
@@ -215,7 +215,7 @@ final class SpaceApiController extends OCSController {
         return new DataResponse(['message' => $message], 201);
     }
 
-    /** 这一位做完了：排着的下一件接着叫（一下顶，或者交互对象在它忙时说的一句）；都没有，就从还拉着的没完的接着走。 */
+    /** 这一位做完了：排着的下一件接着叫（一条反对，或者交互对象在它忙时说的一句）；都没有，就从还拉着的没完的接着走。 */
     private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan): void {
         $next = $this->pushBack->drain($spaceType, $spaceId, $uid);
         if ($next === null) {

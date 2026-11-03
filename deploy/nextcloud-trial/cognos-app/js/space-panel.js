@@ -1,7 +1,7 @@
 // 侧栏「这里」：一片空间的入口。和 Hermes 被叫进来时拿到的是同一份内容。
 // 设计见项目文件 空间入口/第一片空间-实现说明.md 第五节。
-// 位置就是立场：最上面是这里押着的（谁押着、管着什么、被什么顶了、怎么面对的），
-// 顶一下会把押的那位叫回来（见 PushBackService）。框架审视/会不会全错-2026-10-27.md 第十一节。
+// 最上面是这里写下的想法（谁写的、涉及什么、收到什么反对、怎么回应的），
+// 提出反对会把写下想法的那位叫回来（见 PushBackService）。
 // 再往上是「还没完的」：挂着的会自己拉着下一次（见 ContinuationService）。框架审视/为什么会停-2026-10-27.md。
 (function() {
   'use strict';
@@ -14,7 +14,7 @@
     material: '材料',
   };
   const STATUS_LABELS = { said: '说过', confirmed: '确认', rejected: '被否', withdrawn: '撤回' };
-  const ANSWER_ACTS = ['站住', '碎了', '重新切'];
+  const ANSWER_ACTS = ['还成立', '放下', '改成新的'];
   // 没完的停在哪：拉着下一次的、停下等东西的、收了的
   const OPEN_STATES = {
     '还没走': '还没走，会自己开始',
@@ -34,7 +34,7 @@
     root: null,
     body: null,
     collapsed: false,
-    // 顶了一下以后，押的那位叫没叫回来
+    // 提出了反对以后，写下想法的那位叫没叫回来
     notice: null,
   };
 
@@ -103,7 +103,7 @@
 
     parts.push(section('还没完的', opensHtml(e, newIds), 'space-section-opens'));
 
-    parts.push(section('押着的', stanceHtml(e, newIds), 'space-section-stance'));
+    parts.push(section('想法和反对', stanceHtml(e, newIds), 'space-section-stance'));
 
     parts.push(section('意图', list([...e.intents, ...e.intents_closed], t => traceItem(t, newIds)), '', '这里还没有写下意图。'));
 
@@ -131,7 +131,6 @@
         ${e.purpose.length ? `<ul class="space-purpose">${e.purpose.map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>` : ''}
       </div>
       ${parts.join('')}
-      <p class="space-legend">〔原〕交互对象的原话　〔世〕现实碰回来的　〔AI〕某个 AI 推的</p>
     `;
   }
 
@@ -146,10 +145,9 @@
   }
 
   function sourceTag(t) {
-    if (t.source === '原') return '<span class="space-tag space-tag-yuan">原</span>';
-    if (t.source === '世') return '<span class="space-tag space-tag-shi">世</span>';
-    const conf = t.confidence !== null && t.confidence !== undefined ? ` ${t.confidence}%` : '';
-    return `<span class="space-tag space-tag-ai">AI · ${escapeHtml(t.author)}${conf}</span>`;
+    if (t.source === '世') return '<span class="space-tag space-tag-shi">现实结果</span>';
+    if (t.source === '原') return `<span class="space-tag space-tag-yuan">${escapeHtml(t.author)}</span>`;
+    return `<span class="space-tag space-tag-ai">${escapeHtml(t.author)}</span>`;
   }
 
   function traceItem(t, newIds) {
@@ -189,11 +187,10 @@
   }
 
   function readingItem(r) {
-    const conf = r.confidence !== null && r.confidence !== undefined ? ` ${r.confidence}%` : '';
     const refs = r.refs && r.refs.length ? `<div class="space-item-meta">读的是 ${r.refs.map(id => `#${id}`).join(' ')}</div>` : '';
     return `
       <li class="space-item">
-        <div class="space-item-head"><span class="space-tag space-tag-ai">读法 · ${escapeHtml(r.reader)}${conf}</span></div>
+        <div class="space-item-head"><span class="space-tag space-tag-ai">读法 · ${escapeHtml(r.reader)}</span></div>
         <div class="space-item-content">${escapeHtml(r.content)}</div>
         ${refs}
       </li>
@@ -244,14 +241,14 @@
     const notice = panel.notice ? `<p class="space-notice">${escapeHtml(panel.notice)}</p>` : '';
     const items = premises.length
       ? `<ul class="space-list">${premises.map(p => premiseItem(p, e.subject, newIds)).join('')}</ul>`
-      : '<p class="space-note">这里还没有谁押上什么。押着的东西才能被顶回来。</p>';
+      : '<p class="space-note">这里还没有人写下想法。</p>';
     const fallen = (e.fallen || []).length ? `
       <details class="space-fallen">
-        <summary>已经不押了的 ${e.fallen.length} 条</summary>
+        <summary>已经放下的 ${e.fallen.length} 条</summary>
         <ul class="space-list">${e.fallen.map(p => `
           <li class="space-item space-item-closed">
             <div class="space-item-head">${sourceTag(p)}<span class="space-item-id">#${p.id}</span>
-              <span class="space-status space-status-withdrawn">${p.recut_to ? `重新切成 #${p.recut_to}` : '不押了'}</span></div>
+              <span class="space-status space-status-withdrawn">${p.recut_to ? `改成了 #${p.recut_to}` : '已放下'}</span></div>
             <div class="space-item-content">${escapeHtml(p.content)}</div>
           </li>`).join('')}</ul>
       </details>` : '';
@@ -263,21 +260,21 @@
     const hits = (p.hits || []).map(h => hitItem(h, p, mine, newIds)).join('');
     const meta = [];
     if (p.governs) meta.push(`管着：${escapeHtml(p.governs)}`);
-    if (p.recut_from) meta.push(`从 #${p.recut_from} 重新切出来`);
+    if (p.recut_from) meta.push(`从 #${p.recut_from} 改来`);
     return `
       <li class="space-item space-premise ${p.open_hits ? 'space-premise-hit' : ''}" data-trace-id="${p.id}">
         <div class="space-item-head">
           ${newIds.has(p.id) ? '<span class="space-new">新</span>' : ''}
-          <span class="space-holder">${mine ? '你押着' : `${escapeHtml(p.holder)} 押着`}</span>
+          <span class="space-holder">${mine ? '你写的' : `${escapeHtml(p.holder)} 写的`}</span>
           ${sourceTag(p)}
           <span class="space-item-id">#${p.id}</span>
-          ${p.open_hits ? `<span class="space-status space-status-rejected">被顶了 ${p.open_hits} 下，还没面对</span>` : ''}
+          ${p.open_hits ? `<span class="space-status space-status-rejected">有 ${p.open_hits} 条反对还没回应</span>` : ''}
         </div>
         <div class="space-item-content">${escapeHtml(p.content)}</div>
         ${meta.length ? `<div class="space-item-meta">${meta.join(' · ')}</div>` : ''}
         ${hits ? `<ul class="space-hits">${hits}</ul>` : ''}
         <div class="space-item-actions">
-          <button type="button" class="space-link-btn" data-action="hit">顶一下</button>
+          <button type="button" class="space-link-btn" data-action="hit">提出反对</button>
         </div>
       </li>
     `;
@@ -286,14 +283,14 @@
   function hitItem(h, p, mine, newIds) {
     const answer = h.answer ? `
       <div class="space-answer"><strong>${escapeHtml(h.answer.act)}</strong>（${escapeHtml(p.holder)}）${escapeHtml(h.answer.content)}</div>`
-      : `<div class="space-item-meta space-missing">还没面对</div>`;
+      : `<div class="space-item-meta space-missing">还没回应</div>`;
     const face = !h.answer && mine && p.standing
-      ? '<button type="button" class="space-link-btn" data-action="answer">面对这一下</button>' : '';
+      ? '<button type="button" class="space-link-btn" data-action="answer">回应这一下</button>' : '';
     return `
       <li class="space-hit" data-trace-id="${h.id}">
         <div class="space-item-head">
           ${newIds.has(h.id) ? '<span class="space-new">新</span>' : ''}
-          <span class="space-hit-label">被顶</span>${sourceTag(h)}<span class="space-item-id">#${h.id}</span>
+          <span class="space-hit-label">反对</span>${sourceTag(h)}<span class="space-item-id">#${h.id}</span>
         </div>
         <div class="space-item-content">${escapeHtml(h.content)}</div>
         ${answer}
@@ -305,9 +302,9 @@
   function premiseForm() {
     return `
       <form class="space-add-form space-premise-form" id="space-premise-form">
-        <textarea name="content" rows="2" placeholder="我押一条：你凭着在想、在做的那条前提" required></textarea>
+        <textarea name="content" rows="2" placeholder="写下一个你现在依据的想法" required></textarea>
         <input type="text" name="governs" placeholder="它管着什么（哪段代码、哪个做法，可不填）">
-        <button type="submit" class="space-submit-btn">押上</button>
+        <button type="submit" class="space-submit-btn">写下</button>
       </form>
     `;
   }
@@ -378,13 +375,13 @@
       if (item.querySelector(':scope > .space-hit-form')) return;
       item.insertAdjacentHTML('beforeend', `
         <form class="space-add-form space-hit-form" data-ref-id="${refId}">
-          <textarea name="content" rows="2" placeholder="是什么把它顶回来的：事实、矛盾、反例、现实的结果" required></textarea>
+          <textarea name="content" rows="2" placeholder="反对的理由：事实、矛盾、反例或现实结果" required></textarea>
           <div class="space-add-row">
             <select name="source" aria-label="这一下从哪来">
               <option value="原">我说的</option>
               <option value="世">现实碰回来的</option>
             </select>
-            <button type="submit" class="space-submit-btn">顶</button>
+            <button type="submit" class="space-submit-btn">提出反对</button>
           </div>
         </form>
       `);
@@ -395,8 +392,8 @@
       if (item.querySelector('.space-answer-form')) return;
       item.insertAdjacentHTML('beforeend', `
         <form class="space-add-form space-answer-form" data-hit-id="${refId}">
-          <select name="act" aria-label="怎么面对">${ANSWER_ACTS.map(a => `<option value="${a}">${a}</option>`).join('')}</select>
-          <textarea name="content" rows="2" placeholder="凭什么站得住 / 碎在哪 / 为什么这样切；这一下之后什么变了" required></textarea>
+          <select name="act" aria-label="这个想法现在">${ANSWER_ACTS.map(a => `<option value="${a}">${a}</option>`).join('')}</select>
+          <textarea name="content" rows="2" placeholder="你的回应" required></textarea>
           <textarea name="new_premise" rows="2" class="space-recut-only" placeholder="新的前提"></textarea>
           <input type="text" name="governs" class="space-recut-only" placeholder="新前提管着什么（不填就沿用）">
           <button type="submit" class="space-submit-btn">留下</button>
@@ -437,13 +434,13 @@
         const result = await post({ kind: 'hit', source: data.get('source') || '原', ref_id: parseInt(form.dataset.refId, 10), content });
         panel.notice = result.pushback?.message || null;
         if (result.pushback?.called) {
-          // 对话那边开始等押的那位把回答发回来
+          // 对话那边开始等写下想法的那位把回答发回来
           window.CognosCreationDetail?.waitForAgent(result.pushback.holder);
         }
         await reload();
       } catch (error) {
         console.error('Hit error:', error);
-        window.alert('没顶上：' + error.message);
+        window.alert('反对没写上：' + error.message);
       }
       return;
     }
@@ -477,7 +474,7 @@
         await reload();
       } catch (error) {
         console.error('Premise error:', error);
-        window.alert('没押上：' + error.message);
+        window.alert('没写上：' + error.message);
       }
       return;
     }

@@ -15,10 +15,10 @@ use Psr\Log\LoggerInterface;
  * - 卡住：只有交互对象、钱或现实能给的那一件。这一件停下，换另一件还拉着的。
  * - 完了：它凭什么算完。也停下；收不收由交互对象定。
  * 检查（reality）没过，不管它自己说停在哪，都接着叫，像 CI 红了一样。
- * 口子和以前走过的几乎一样，Cognos 记一条〔世〕「原地」，这一件停下：接着走不等于往前走。
+ * 口子和以前走过的几乎一样，Cognos 记一条现实结果「原地」，这一件停下：接着走不等于往前走。
  *
  * 没有心跳、没有定时：只在一次运行结束、有东西还拉着时才叫；每片空间每天有上限（continue_daily）。
- * 交互对象说的话和押着的前提被顶，排在它前面（PushBackService::drain 先走）。
+ * 交互对象说的话和写下的想法被反对，排在它前面（PushBackService::drain 先走）。
  * 来路见项目文件 框架审视/为什么会停-2026-10-27.md。
  */
 final class ContinuationService {
@@ -114,7 +114,7 @@ final class ContinuationService {
             return;
         }
         if ($branch !== null && $branch !== '') {
-            // 下一次从这条分支接着改，而不是又从 master 重新切
+            // 下一次从这条分支接着改，而不是又从 master 改成新的
             $this->config->setAppValue('cognos', $this->branchKey($spaceType, $spaceId, $openId), $branch);
         }
         if ($checks !== null) {
@@ -150,7 +150,7 @@ final class ContinuationService {
             }
             if ($this->similar((string)$stop['stopped_at'], $before['edge']) >= self::CIRCLING) {
                 $this->observe($spaceType, $spaceId, $openId, '原地', sprintf(
-                    '这一次的口子（#%d）和 #%d 走过的几乎一样：在原地转。这一件先停下，等别的东西撞进来，或者你按「接着走」。',
+                    '这一次停下的地方（#%d）和 #%d 几乎一样，这一件先停下，等有新东西进来，或者你按「接着走」。',
                     $stop['id'], $before['id'],
                 ));
                 return;
@@ -159,7 +159,7 @@ final class ContinuationService {
     }
 
     /**
-     * 手上的做完了、交互对象和顶也没排着：从还拉着的那一件接着叫。先接着刚才那件，再按挂上的先后。
+     * 手上的做完了、交互对象和反对也没排着：从还拉着的那一件接着叫。先接着刚才那件，再按挂上的先后。
      *
      * @return ?array{called: bool, message: string} 没有还拉着的就是 null
      */
@@ -184,8 +184,8 @@ final class ContinuationService {
         $lines[] = sprintf('这一次不是有人在对话里叫你。是 #%d 还没完，Cognos 让你从它接着走%s。', $open['id'], $force ? '（交互对象按了「接着走」）' : '');
         $lines[] = '';
         $lines[] = '## 还没完的';
-        $who = $open['source'] === '原' ? '〔原 ' . $open['author'] . '〕' : '〔' . $open['source'] . ' ' . $open['author'] . '〕';
-        $lines[] = sprintf('#%d %s%s', $open['id'], $who, $open['content']);
+        $who = $open['source'] === '世' ? '现实结果' : $open['author'];
+        $lines[] = sprintf('#%d %s：%s', $open['id'], $who, $open['content']);
 
         $stop = $open['last_stop'];
         $lines[] = '';
@@ -203,7 +203,7 @@ final class ContinuationService {
         $last = $open['last'];
         if ($last !== null && $last['kind'] === 'reality') {
             $lines[] = '';
-            $lines[] = sprintf('## 检查（〔世〕，%s）', $last['act']);
+            $lines[] = sprintf('## 检查结果（%s）', $last['act']);
             $lines[] = $last['content'];
         }
         if (count($open['edges']) > 1) {
