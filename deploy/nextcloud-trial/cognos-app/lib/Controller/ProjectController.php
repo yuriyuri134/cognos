@@ -7,6 +7,7 @@ use OCA\Cognos\Service\DecisionService;
 use OCA\Cognos\Service\DelegationService;
 use OCA\Cognos\Service\InitiumService;
 use OCA\Cognos\Service\ProjectService;
+use OCA\Cognos\Service\RestructureService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
@@ -20,7 +21,7 @@ use Psr\Log\LoggerInterface;
 final class ProjectController extends Controller {
     public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects,
         private DecisionService $decisions, private DelegationService $delegations, private InitiumService $initium,
-        private AdoptionService $adoptions,
+        private AdoptionService $adoptions, private RestructureService $restructures,
         private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
@@ -43,11 +44,13 @@ final class ProjectController extends Controller {
             $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]) + ['review' => $reviews[$l['id']] ?? 0],
                 $this->projects->locationStates($uid, $projectId));
             $out = ['decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
-                'formed_from' => $this->initium->forProject($uid, $projectId)];
+                'formed_from' => $this->initium->forProject($uid, $projectId),
+                'history' => $this->restructures->historyForProject($uid, $projectId), 'merged_into' => $this->mergedInto($uid, $projectId)];
             if ($location_id !== '') {
                 $out['handoff_text'] = $this->handoffText($uid, $location_id);
                 $out['delegations'] = $this->delegations->forLocation($uid, $location_id);
                 $out['revision'] = $this->projects->location($uid, $location_id)['revision'];
+                $out['location_history'] = $this->restructures->historyForLocation($uid, $location_id);
             }
             return $out;
         });
@@ -102,6 +105,37 @@ final class ProjectController extends Controller {
         Util::addScript('cognos', 'project-workspace');
         Util::addStyle('cognos', 'project-workspace');
         return new TemplateResponse('cognos', 'project-workspace', ['projectId' => $projectId, 'locationId' => $locationId]);
+    }
+
+    /** 重组：先预览后果（带 basis），确认时带回 basis，状态变了就整批不做。 */
+    #[NoAdminRequired]
+    public function previewRestructure(string $action, string $location_id = '', string $parent_id = '', string $project_id = '',
+        string $target_parent_id = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->restructures->preview($uid, $action,
+            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id)));
+    }
+
+    #[NoAdminRequired]
+    public function restructure(string $action, string $basis, string $request_id, string $location_id = '', string $parent_id = '',
+        string $project_id = '', string $target_parent_id = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->restructures->apply($uid, $action,
+            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id), $basis, $request_id));
+    }
+
+    private function restructureParams(string $action, string $locationId, string $parentId, string $projectId, string $targetParentId): array {
+        return match ($action) {
+            'move' => ['location_id' => $locationId, 'parent_id' => $parentId],
+            'independent' => ['location_id' => $locationId],
+            'merge' => ['project_id' => $projectId, 'target_parent_id' => $targetParentId],
+            default => [],
+        };
+    }
+
+    private function mergedInto(string $uid, string $projectId): ?array {
+        $p = $this->projects->project($uid, $projectId);
+        if (empty($p['merged_into'])) { return null; }
+        $t = $this->projects->project($uid, (string)$p['merged_into']);
+        return ['project_id' => (string)$t['id'], 'title' => (string)$t['title'], 'merged_at' => (int)$p['merged_at']];
     }
 
     /** 这个位置的采用、纠正经过和还没处理的影响。 */

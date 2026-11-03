@@ -17,6 +17,9 @@ return ['routes' => [
     // 在生效的决定、谁在动什么（见 DecisionService、ProjectService::activity）
     ['name'=>'project#overview','url'=>'/projects/{projectId}/overview','verb'=>'GET','requirements'=>['projectId'=>'[a-f0-9]{32}']],
     ['name'=>'project#recordDecision','url'=>'/projects/{projectId}/decisions','verb'=>'POST','requirements'=>['projectId'=>'[a-f0-9]{32}']],
+    // 重组：调整位置、独立成项目、合并（见 RestructureService）
+    ['name'=>'project#previewRestructure','url'=>'/projects/restructure/preview','verb'=>'POST'],
+    ['name'=>'project#restructure','url'=>'/projects/restructure','verb'=>'POST'],
     // 采用和纠正（见 AdoptionService）
     ['name'=>'project#adoptions','url'=>'/projects/locations/{locationId}/adoptions','verb'=>'GET'],
     ['name'=>'project#adopt','url'=>'/projects/locations/{locationId}/adoptions','verb'=>'POST'],

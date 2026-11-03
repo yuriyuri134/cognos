@@ -5,7 +5,7 @@
   if (!app) return;
   const base = OC.generateUrl('/apps/cognos');
   const state = { location: null, project: null, sources: [], dirty: false, messages: [], lastMessages: '', conflict: null, sending: false, loadingMessages: false,
-    decisionSource: null, decisionSupersedes: null, lastOverview: '', mode: 'location' };
+    decisionSource: null, decisionSupersedes: null, lastOverview: '', mode: 'location', pending: null };
   const requests = new Map();
   function node(tag, text, className) {
     const n = document.createElement(tag);
@@ -46,22 +46,28 @@
     if (!app.dataset.projectId && !app.dataset.locationId) {
       const data = await api('/projects/data');
       $('pw-projects').replaceChildren(...data.projects.map(p => {
-        const li = node('li'); li.append(link(p.title, base + '/projects/' + p.id)); return li;
+        const li = node('li'); li.append(link(p.title, base + '/projects/' + p.id));
+        const into = p.merged_into && data.projects.find(x => x.id === p.merged_into);
+        if (p.merged_into) li.append(node('span', '（已合并到「' + (into ? into.title : '另一个项目') + '」）', 'pw-hint'));
+        return li;
       }));
       if (!data.projects.length) $('pw-projects').append(node('li', '还没有项目。可以先在创立空间开始讨论，也可以在这里直接确立。', 'pw-hint'));
       return;
     }
     let id = app.dataset.locationId;
     // 只有项目、没有位置：项目总览（在生效的决定、谁在动什么、各位置现在怎样），不拿根位置页顶替
-    if (!id) { state.mode = 'project'; id = (await api('/projects/' + app.dataset.projectId + '/data')).project.root_location_id; }
+    let own = null;
+    if (!id) { state.mode = 'project'; own = (await api('/projects/' + app.dataset.projectId + '/data')).project; id = own.root_location_id; }
     const data = await api('/projects/locations/' + id + '/data');
-    state.location = data.location; state.project = data.project; state.sources = data.source_message_ids;
+    // 总览看的是这个项目本身：合并以后根位置已经在别的项目里，不能跟着它走
+    state.location = data.location; state.project = own || data.project; state.sources = data.source_message_ids;
     $('pw-list-view').hidden = true; $('pw-work-view').hidden = false;
     $('pw-overview-link').href = base + '/projects/' + state.project.id;
     if (state.mode === 'project') {
       for (const n of document.querySelectorAll('[data-location-only]')) n.hidden = true;
       $('pw-overview').hidden = false;
       $('pw-overview-link').setAttribute('aria-current', 'page');
+      $('pw-merge').hidden = false; loadMergeTargets().catch(e => notice(e.message, true));
       $('pw-location-name').previousElementSibling.textContent = '在项目下展开';
       $('pw-title').textContent = state.project.title; document.title = state.project.title + ' · Cognos';
       renderTree();
@@ -72,7 +78,7 @@
     $('pw-content').value = state.location.content;
     $('pw-revision').textContent = '版本 ' + state.location.revision;
     $('pw-original-chat').href = base + '/creations/' + state.location.creation_id;
-    renderTree(); renderUsages(data.usages); showSources();
+    renderTree(); renderUsages(data.usages); showSources(); fillMoveParents();
     await Promise.all([loadMessages(), loadSourceChoices(), loadOverview(), loadAdoptions()]);
   }
   function day(t) { return t ? new Date(t * 1000).toLocaleDateString() : ''; }
@@ -85,8 +91,17 @@
     state.lastOverview = hash;
     renderDecisions(data.decisions);
     renderWho(data.activity);
+    if (state.mode === 'location') renderHistory($('pw-location-history'), data.location_history || [], true);
     if (state.mode === 'project') {
       renderStates(data.locations, data.activity.runs); renderRecent(data.activity.recent, data.decisions); renderOrigin(data.formed_from || []);
+      renderHistory($('pw-project-history'), data.history || [], false); $('pw-project-history-box').hidden = !(data.history || []).length;
+      const merged = data.merged_into;
+      $('pw-merged-banner').hidden = !merged;
+      if (merged) {
+        $('pw-merged-banner').replaceChildren(document.createTextNode('这个项目已于 ' + date(merged.merged_at) + ' 合并到 '), link('「' + merged.title + '」', base + '/projects/' + merged.project_id),
+          document.createTextNode('。原来的位置都在那里，链接不变；这里的经过和来路照样可读。'));
+        $('pw-merge').hidden = true;
+      }
       return;
     }
     renderDelegations(data.delegations || []);
@@ -384,6 +399,52 @@
       li.append(' ', ok); box.append(li);
     }
   }
+  // 结构的经过：当时在哪、去了哪
+  function renderHistory(box, rows, here) {
+    box.replaceChildren();
+    for (const h of rows) {
+      const li = node('li', undefined, 'pw-hint');
+      const who = here ? '这一处' : '「' + (h.location_title || '某处') + '」';
+      if (h.action === 'move') li.textContent = date(h.changed_at) + ' ' + who + '从「' + (h.from_parent_title || '顶层') + '」下面移到「' + (h.to_parent_title || '顶层') + '」下面';
+      else {
+        li.append(document.createTextNode(date(h.changed_at) + ' ' + who + (h.action === 'merge' ? '随项目合并，' : '独立出来，') + '从项目 '));
+        li.append(link('「' + h.from_project_title + '」', base + '/projects/' + h.from_project_id), document.createTextNode(' 到项目 '));
+        li.append(link('「' + h.to_project_title + '」', base + '/projects/' + h.to_project_id));
+      }
+      box.append(li);
+    }
+  }
+  // 重组：先预览，确认时带回预览的 basis
+  function fillMoveParents() {
+    const sel = $('pw-move-parent'); sel.replaceChildren();
+    const below = new Set([state.location.id]);
+    for (let grew = true; grew;) { grew = false; for (const l of state.project.locations) if (l.parent_id && below.has(l.parent_id) && !below.has(l.id)) { below.add(l.id); grew = true; } }
+    for (const l of state.project.locations) {
+      if (below.has(l.id) || l.id === state.location.parent_id) continue;
+      const o = node('option', l.title); o.value = l.id; sel.append(o);
+    }
+    $('pw-restructure').hidden = !state.location.parent_id;
+    $('pw-preview-move').disabled = !sel.options.length;
+  }
+  async function loadMergeTargets() {
+    const data = await api('/projects/data');
+    const sel = $('pw-merge-project'); sel.replaceChildren();
+    for (const p of data.projects) if (p.id !== state.project.id && !p.merged_into) { const o = node('option', p.title); o.value = p.id; sel.append(o); }
+    await loadMergeParents();
+  }
+  async function loadMergeParents() {
+    const sel = $('pw-merge-parent'); sel.replaceChildren();
+    if (!$('pw-merge-project').value) return;
+    const p = (await api('/projects/' + $('pw-merge-project').value + '/data')).project;
+    for (const l of p.locations) { const o = node('option', l.title); o.value = l.id; sel.append(o); }
+  }
+  async function previewRestructure(params) {
+    const r = await api('/projects/restructure/preview', 'POST', params);
+    state.pending = {...params, basis: r.basis};
+    $('pw-restructure-lines').replaceChildren(...r.consequences.map(c => node('li', c)));
+    $('pw-restructure-preview').hidden = false;
+    $('pw-restructure-preview').scrollIntoView({block: 'nearest'});
+  }
   function openDecisionForm(content, sourceMessageId, supersedes) {
     $('pw-decision-add').open = true;
     $('pw-decision-content').value = content;
@@ -552,6 +613,22 @@
     });
   });
   $('pw-decision-reset').addEventListener('click', resetDecisionForm);
+  $('pw-preview-move').addEventListener('click', () => busy($('pw-restructure'), () => previewRestructure({action: 'move', location_id: state.location.id, parent_id: $('pw-move-parent').value})));
+  $('pw-preview-independent').addEventListener('click', () => busy($('pw-restructure'), () => previewRestructure({action: 'independent', location_id: state.location.id})));
+  $('pw-merge-project').addEventListener('change', () => loadMergeParents().catch(e => notice(e.message, true)));
+  $('pw-preview-merge').addEventListener('click', () => busy($('pw-merge'), () => previewRestructure({action: 'merge', project_id: state.project.id, target_parent_id: $('pw-merge-parent').value})));
+  $('pw-restructure-cancel').addEventListener('click', () => { state.pending = null; $('pw-restructure-preview').hidden = true; });
+  $('pw-restructure-apply').addEventListener('click', () => busy($('pw-restructure-preview'), async () => {
+    if (!state.pending) return;
+    try {
+      const r = await mutate('/projects/restructure', 'POST', state.pending);
+      const action = state.pending.action; state.pending = null;
+      location.href = action === 'move' ? locationUrl(r.location_id) : base + '/projects/' + r.project_id;
+    } catch (e) {
+      if (e.status === 409) { $('pw-restructure-preview').hidden = true; state.pending = null; }
+      throw e;
+    }
+  }));
   $('pw-adopt-content').addEventListener('click', () => {
     if (state.dirty) { notice('先保存，再采用保存下来的那一版。', true); return; }
     busy($('pw-content-form'), async () => {

@@ -28,6 +28,29 @@
                 <input id="pw-location-name" required maxlength="200" placeholder="新的部分或方向">
                 <button type="submit">建立位置</button>
             </form>
+            <details id="pw-restructure" data-location-only>
+                <summary>调整这一处</summary>
+                <label for="pw-move-parent">移到哪一处下面</label>
+                <select id="pw-move-parent"></select>
+                <div class="pw-inline">
+                    <button type="button" id="pw-preview-move">预览调整</button>
+                    <button type="button" id="pw-preview-independent">预览独立成项目</button>
+                </div>
+            </details>
+            <details id="pw-merge" hidden>
+                <summary>合并到另一个项目</summary>
+                <label for="pw-merge-project">目标项目</label>
+                <select id="pw-merge-project"></select>
+                <label for="pw-merge-parent">并到那里的哪一处下面</label>
+                <select id="pw-merge-parent"></select>
+                <button type="button" id="pw-preview-merge">预览合并</button>
+            </details>
+            <div id="pw-restructure-preview" hidden>
+                <p><strong>确认前先看后果</strong></p>
+                <ul id="pw-restructure-lines" class="pw-reach"></ul>
+                <div class="pw-inline"><button type="button" id="pw-restructure-apply">确认</button><button type="button" id="pw-restructure-cancel">算了</button></div>
+            </div>
+            <ul id="pw-location-history" class="pw-reach" data-location-only></ul>
         </aside>
         <div class="pw-main">
             <section class="pw-decisions" aria-labelledby="pw-decisions-title">
@@ -66,6 +89,7 @@
                 <h2 id="pw-who-title">谁在动什么</h2>
                 <div id="pw-who" aria-live="polite"></div>
             </section>
+            <p id="pw-merged-banner" class="pw-run pw-warn" hidden></p>
             <section id="pw-origin" aria-labelledby="pw-origin-title" hidden>
                 <h2 id="pw-origin-title">来路</h2>
                 <p class="pw-hint">这个项目是从哪段会话里的哪几句确立的。原会话没有搬动，还能接着聊。</p>
@@ -74,6 +98,10 @@
             <section id="pw-overview" aria-labelledby="pw-states-title" hidden>
                 <h2 id="pw-states-title">各位置现在怎样</h2>
                 <ul id="pw-location-states" class="pw-decision-list"></ul>
+                <div id="pw-project-history-box" hidden>
+                    <h2>结构的经过</h2>
+                    <ul id="pw-project-history" class="pw-reach"></ul>
+                </div>
                 <h2>最近交回的</h2>
                 <p class="pw-hint">每次交回时做事的那位上报了依据什么；没上报就照写「未上报依据」，不等于它没有依据。</p>
                 <ul id="pw-recent" class="pw-reach"></ul>
