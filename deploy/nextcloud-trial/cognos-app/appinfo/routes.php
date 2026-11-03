@@ -20,6 +20,11 @@ return ['routes' => [
     ['name'=>'project#delegate','url'=>'/projects/locations/{locationId}/delegations','verb'=>'POST'],
     ['name'=>'project#revokeDecision','url'=>'/projects/decisions/{decisionId}/revoke','verb'=>'POST','requirements'=>['decisionId'=>'[a-f0-9]{32}']],
     ['name'=>'home#index','url'=>'/home','verb'=>'GET','postfix'=>'home'],
+    // Initium：还没有项目时就能记、能聊、能让 AI 试；值得持续时确立成项目（见 InitiumService）
+    ['name'=>'project#initiumPage','url'=>'/initium','verb'=>'GET'],
+    ['name'=>'project#initium','url'=>'/initium/data','verb'=>'GET'],
+    ['name'=>'project#capture','url'=>'/initium/data','verb'=>'POST'],
+    ['name'=>'project#form','url'=>'/initium/form','verb'=>'POST'],
     ['name'=>'boardActivity#index','url'=>'/boards/{boardId}/events','verb'=>'GET'],
     ['name'=>'activity#participants','url'=>'/participants','verb'=>'GET'],
     ['name'=>'activity#createManual','url'=>'/activities/manual','verb'=>'POST'],

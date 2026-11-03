@@ -4,6 +4,7 @@ namespace OCA\Cognos\Controller;
 
 use OCA\Cognos\Service\DecisionService;
 use OCA\Cognos\Service\DelegationService;
+use OCA\Cognos\Service\InitiumService;
 use OCA\Cognos\Service\ProjectService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -17,7 +18,8 @@ use Psr\Log\LoggerInterface;
 
 final class ProjectController extends Controller {
     public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects,
-        private DecisionService $decisions, private DelegationService $delegations, private LoggerInterface $logger) {
+        private DecisionService $decisions, private DelegationService $delegations, private InitiumService $initium,
+        private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
 
@@ -37,7 +39,8 @@ final class ProjectController extends Controller {
             $counts = $this->delegations->countsForProject($projectId);
             $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]),
                 $this->projects->locationStates($uid, $projectId));
-            $out = ['decisions' => $decisions, 'activity' => $activity, 'locations' => $locations];
+            $out = ['decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
+                'formed_from' => $this->initium->forProject($uid, $projectId)];
             if ($location_id !== '') {
                 $out['handoff_text'] = $this->handoffText($uid, $location_id);
                 $out['delegations'] = $this->delegations->forLocation($uid, $location_id);
@@ -96,6 +99,33 @@ final class ProjectController extends Controller {
         Util::addScript('cognos', 'project-workspace');
         Util::addStyle('cognos', 'project-workspace');
         return new TemplateResponse('cognos', 'project-workspace', ['projectId' => $projectId, 'locationId' => $locationId]);
+    }
+
+    /** Initium：还没成为项目的会话，和确立。 */
+    #[NoAdminRequired]
+    #[NoCSRFRequired]
+    public function initiumPage(): TemplateResponse {
+        Util::addScript('cognos', 'initium');
+        Util::addStyle('cognos', 'project-workspace');
+        return new TemplateResponse('cognos', 'initium', []);
+    }
+
+    #[NoAdminRequired]
+    public function initium(): DataResponse {
+        return $this->respond(fn(string $uid) => ['items' => $this->initium->list($uid), 'projects' => $this->projects->projects($uid)]);
+    }
+
+    #[NoAdminRequired]
+    public function capture(string $text, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->initium->capture($uid, $text, $request_id));
+    }
+
+    /** 确立：$project_id 为空就是新项目，否则成为那个项目的又一段来路。 */
+    #[NoAdminRequired]
+    public function form(int $creation_id, array $message_ids, string $request_id, string $title = '', string $description = '',
+        string $reason = '', string $project_id = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->initium->form($uid, $creation_id, $message_ids, $title, $description,
+            $reason, $project_id, $request_id));
     }
 
     private function respond(callable $fn): DataResponse {

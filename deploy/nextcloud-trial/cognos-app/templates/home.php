@@ -6,6 +6,21 @@
 <div id="app">
     <div id="app-content">
         <div id="cognos-home">
+            <!-- Initium：还没有项目时就能做事 -->
+            <section class="cognos-section initium-section">
+                <div class="section-header">
+                    <h2>Initium</h2>
+                    <p>还没成为项目的想法和会话。一句话或一个链接就能留下；值得持续时，在那里确立成项目。</p>
+                </div>
+                <a href="/index.php/apps/cognos/initium" class="new-creation-btn" id="home-initium-link">
+                    <span class="btn-text">
+                        <strong>进入 Initium</strong>
+                        <small id="home-initium-count">记一句、聊一聊、让 AI 先试</small>
+                    </span>
+                    <span class="btn-arrow">→</span>
+                </a>
+            </section>
+
             <!-- 创立空间区域 -->
             <section class="cognos-section creation-section">
                 <div class="section-header">

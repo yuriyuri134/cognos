@@ -50,14 +50,18 @@ final class ProjectService {
 
     public function create(string $uid, string $title, string $requestId): array {
         $title = $this->title($title);
-        return $this->commit($uid, $requestId, ['create_project', $title], function () use ($uid, $title) {
-            $id = bin2hex(random_bytes(16));
-            $root = bin2hex(random_bytes(16));
-            $this->insert('cognos_projects', ['id' => $id, 'user_id' => $uid, 'title' => $title,
-                'root_location_id' => $root, 'created_at' => time()]);
-            $this->newLocation($uid, $id, $root, null, $title);
-            return ['project_id' => $id, 'location_id' => $root];
-        });
+        return $this->commit($uid, $requestId, ['create_project', $title], fn() => $this->newProject($uid, $title));
+    }
+
+    /** Create a project and its root location inside the caller's commit (InitiumService forms one from a conversation). */
+    public function newProject(string $uid, string $title): array {
+        $title = $this->title($title);
+        $id = bin2hex(random_bytes(16));
+        $root = bin2hex(random_bytes(16));
+        $this->insert('cognos_projects', ['id' => $id, 'user_id' => $uid, 'title' => $title,
+            'root_location_id' => $root, 'created_at' => time()]);
+        $this->newLocation($uid, $id, $root, null, $title);
+        return ['project_id' => $id, 'location_id' => $root];
     }
 
     public function addLocation(string $uid, string $projectId, string $parentId, string $title, string $requestId): array {
@@ -98,36 +102,40 @@ final class ProjectService {
             if (!is_int($v) || $v < 1) { throw new \InvalidArgumentException('来源消息编号无效'); }
         }
         $sources = array_values(array_unique($sources)); sort($sources);
-        return $this->commit($uid, $requestId, ['update_content', $id, $expected, $content, $sources, $editor, $delegationId], function () use ($uid, $id, $expected, $content, $sources, $editor, $delegationId) {
-            $loc = $this->location($uid, $id);
-            if ($loc['revision'] !== $expected) { throw new \RuntimeException('这里已有新版本，你的文本仍保留。请比较后再保存。', 409); }
-            $allowed = [$loc['creation_id']];
-            foreach ($this->usages($uid, $id) as $usage) { $allowed[] = $usage['source_creation_id']; }
-            foreach ($sources as $messageId) {
-                $qb = $this->db->getQueryBuilder();
-                $m = $qb->select('creation_id')->from('cognos_creation_messages')
-                    ->where($qb->expr()->eq('id', $qb->createNamedParameter($messageId, IQueryBuilder::PARAM_INT)))
-                    ->executeQuery()->fetch();
-                if (!$m || !in_array((int)$m['creation_id'], $allowed, true)
-                    || !$this->creations->get((int)$m['creation_id'], $uid)) {
-                    throw new \InvalidArgumentException('来源消息不在此处可访问的讨论或材料中');
-                }
-            }
-            $now = time(); $next = $expected + 1;
+        return $this->commit($uid, $requestId, ['update_content', $id, $expected, $content, $sources, $editor, $delegationId],
+            fn() => $this->saveContent($uid, $id, $expected, $content, $sources, $editor, $delegationId));
+    }
+
+    /** Write a new revision with an expected-revision check, inside the caller's commit. */
+    public function saveContent(string $uid, string $id, int $expected, string $content, array $sources, string $editor, ?string $delegationId): array {
+        $loc = $this->location($uid, $id);
+        if ($loc['revision'] !== $expected) { throw new \RuntimeException('这里已有新版本，你的文本仍保留。请比较后再保存。', 409); }
+        $allowed = [$loc['creation_id']];
+        foreach ($this->usages($uid, $id) as $usage) { $allowed[] = $usage['source_creation_id']; }
+        foreach ($sources as $messageId) {
             $qb = $this->db->getQueryBuilder();
-            $n = $qb->update('cognos_locations')->set('content', $qb->createNamedParameter($content))
-                ->set('revision', $qb->createNamedParameter($next, IQueryBuilder::PARAM_INT))
-                ->set('editor', $qb->createNamedParameter($editor))
-                ->set('updated_at', $qb->createNamedParameter($now, IQueryBuilder::PARAM_INT))
-                ->where($qb->expr()->eq('id', $qb->createNamedParameter($id)))
-                ->andWhere($qb->expr()->eq('revision', $qb->createNamedParameter($expected, IQueryBuilder::PARAM_INT)))
-                ->executeStatement();
-            if ($n !== 1) { throw new \RuntimeException('保存时出现新版本，请比较后再保存。', 409); }
-            $this->insert('cognos_location_revisions', ['location_id' => $id, 'revision' => $next,
-                'content' => $content, 'editor' => $editor, 'source_message_ids' => $this->json($sources), 'created_at' => $now,
-                'delegation_id' => $delegationId]);
-            return ['location_id' => $id, 'revision' => $next];
-        });
+            $m = $qb->select('creation_id')->from('cognos_creation_messages')
+                ->where($qb->expr()->eq('id', $qb->createNamedParameter($messageId, IQueryBuilder::PARAM_INT)))
+                ->executeQuery()->fetch();
+            if (!$m || !in_array((int)$m['creation_id'], $allowed, true)
+                || !$this->creations->get((int)$m['creation_id'], $uid)) {
+                throw new \InvalidArgumentException('来源消息不在此处可访问的讨论或材料中');
+            }
+        }
+        $now = time(); $next = $expected + 1;
+        $qb = $this->db->getQueryBuilder();
+        $n = $qb->update('cognos_locations')->set('content', $qb->createNamedParameter($content))
+            ->set('revision', $qb->createNamedParameter($next, IQueryBuilder::PARAM_INT))
+            ->set('editor', $qb->createNamedParameter($editor))
+            ->set('updated_at', $qb->createNamedParameter($now, IQueryBuilder::PARAM_INT))
+            ->where($qb->expr()->eq('id', $qb->createNamedParameter($id)))
+            ->andWhere($qb->expr()->eq('revision', $qb->createNamedParameter($expected, IQueryBuilder::PARAM_INT)))
+            ->executeStatement();
+        if ($n !== 1) { throw new \RuntimeException('保存时出现新版本，请比较后再保存。', 409); }
+        $this->insert('cognos_location_revisions', ['location_id' => $id, 'revision' => $next,
+            'content' => $content, 'editor' => $editor, 'source_message_ids' => $this->json($sources), 'created_at' => $now,
+            'delegation_id' => $delegationId]);
+        return ['location_id' => $id, 'revision' => $next];
     }
 
     public function history(string $uid, string $id, int $before = 0): array {
@@ -172,18 +180,21 @@ final class ProjectService {
     public function addUsage(string $uid, string $id, int $sourceId, string $purpose, string $requestId): array {
         $purpose = trim($purpose);
         if (mb_strlen($purpose) > 2000) { throw new \InvalidArgumentException('用途说明最多 2000 字'); }
-        return $this->commit($uid, $requestId, ['add_usage', $id, $sourceId, $purpose], function () use ($uid, $id, $sourceId, $purpose) {
-            $loc = $this->location($uid, $id);
-            if (!$this->creations->get($sourceId, $uid)) { throw new \RuntimeException('材料不存在或不可访问', 404); }
-            if ($loc['creation_id'] === $sourceId) { throw new \InvalidArgumentException('这就是当前位置的讨论'); }
-            foreach ($this->usages($uid, $id) as $u) {
-                if ($u['source_creation_id'] === $sourceId) { throw new \RuntimeException('这份材料已经关联在这里', 409); }
-            }
-            $usageId = bin2hex(random_bytes(16));
-            $this->insert('cognos_usages', ['id' => $usageId, 'location_id' => $id, 'source_creation_id' => $sourceId,
-                'purpose' => $purpose, 'created_at' => time()]);
-            return ['usage_id' => $usageId, 'location_id' => $id];
-        });
+        return $this->commit($uid, $requestId, ['add_usage', $id, $sourceId, $purpose], fn() => $this->newUsage($uid, $id, $sourceId, $purpose));
+    }
+
+    /** Relate an existing conversation to a location inside the caller's commit; the conversation is not moved. */
+    public function newUsage(string $uid, string $id, int $sourceId, string $purpose): array {
+        $loc = $this->location($uid, $id);
+        if (!$this->creations->get($sourceId, $uid)) { throw new \RuntimeException('材料不存在或不可访问', 404); }
+        if ($loc['creation_id'] === $sourceId) { throw new \InvalidArgumentException('这就是当前位置的讨论'); }
+        foreach ($this->usages($uid, $id) as $u) {
+            if ($u['source_creation_id'] === $sourceId) { throw new \RuntimeException('这份材料已经关联在这里', 409); }
+        }
+        $usageId = bin2hex(random_bytes(16));
+        $this->insert('cognos_usages', ['id' => $usageId, 'location_id' => $id, 'source_creation_id' => $sourceId,
+            'purpose' => $purpose, 'created_at' => time()]);
+        return ['usage_id' => $usageId, 'location_id' => $id];
     }
 
     /** The location whose dedicated discussion is this conversation, or null (a plain creation space or a shared source). */

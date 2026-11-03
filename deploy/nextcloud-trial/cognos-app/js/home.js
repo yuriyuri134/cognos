@@ -112,3 +112,13 @@
         init();
     }
 })();
+
+// Initium 里有几段还没成为项目的会话
+(function () {
+  const target = document.getElementById('home-initium-count');
+  if (!target || typeof OC === 'undefined') return;
+  fetch(OC.generateUrl('/apps/cognos/initium/data'), {credentials: 'same-origin', headers: {Accept: 'application/json', requesttoken: OC.requestToken}})
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d && d.items) target.textContent = d.items.length ? d.items.length + ' 段会话还没成为项目' : '还空着，记一句就有了'; })
+    .catch(() => {});
+})();

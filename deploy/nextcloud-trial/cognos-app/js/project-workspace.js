@@ -85,7 +85,10 @@
     state.lastOverview = hash;
     renderDecisions(data.decisions);
     renderWho(data.activity);
-    if (state.mode === 'project') { renderStates(data.locations, data.activity.runs); renderRecent(data.activity.recent, data.decisions); return; }
+    if (state.mode === 'project') {
+      renderStates(data.locations, data.activity.runs); renderRecent(data.activity.recent, data.decisions); renderOrigin(data.formed_from || []);
+      return;
+    }
     renderDelegations(data.delegations || []);
     await followRevision(data.revision);
     if (document.activeElement !== $('pw-handoff-text')) $('pw-handoff-text').value = data.handoff_text || '';
@@ -258,6 +261,20 @@
       if (l.open) now.push(l.open + ' 件交出去还没回来');
       if (l.held) now.push(l.held + ' 个留着待比较的版本');
       if (now.length) li.append(node('p', now.join(' · '), 'pw-run' + (l.held ? ' pw-warn' : '')));
+      box.append(li);
+    }
+  }
+  // 来路：确立时指向的那几句，原样；原会话还能接着聊
+  function renderOrigin(list) {
+    $('pw-origin').hidden = !list.length;
+    const box = $('pw-origin-list'); box.replaceChildren();
+    for (const f of list) {
+      const li = node('li', undefined, 'pw-decision pw-formation');
+      const head = node('p'); head.append(link(f.creation_title || '会话 #' + f.creation_id, base + '/creations/' + f.creation_id));
+      head.append(document.createTextNode(' · ' + f.formed_by + ' 确立于 ' + date(f.formed_at)));
+      li.append(head);
+      for (const q of f.quotes) li.append(node('blockquote', (q.role === 'user' ? '' : 'AI：') + q.content));
+      if (f.reason) li.append(node('p', '理由：' + f.reason, 'pw-hint'));
       box.append(li);
     }
   }
