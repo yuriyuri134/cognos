@@ -25,6 +25,7 @@ final class ClaudeBridgeService {
         private IClientService $http,
         private IConfig $config,
         private RunService $runs,
+        private DecisionService $decisions,
     ) {
     }
 
@@ -75,13 +76,18 @@ final class ClaudeBridgeService {
             throw new \RuntimeException('Claude Code 桥没有配置口令（occ config:app:set cognos claude_bridge_token）');
         }
 
+        // 入口里实际给了哪几条在生效的决定：记在运行上，不带给桥
+        $decisionIds = array_values(array_filter(array_map('strval', (array)($extra['decision_ids'] ?? []))));
+        unset($extra['decision_ids']);
         [$targetType, $targetId, $purpose] = $this->target($spaceType, $spaceId, $extra);
         $run = $this->runs->create($spaceType, $spaceId, $targetType, $targetId, $purpose, $subject, $caller, [
             'system' => $system,
             'history' => $history,
             'message' => $message,
             'extra' => $extra,
+            'decision_ids' => $decisionIds,
         ]);
+        $this->decisions->recordIncluded($run['id'], $decisionIds);
 
         try {
             $response = $this->http->newClient()->post($url, [

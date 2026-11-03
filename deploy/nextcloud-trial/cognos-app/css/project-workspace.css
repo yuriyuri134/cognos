@@ -37,6 +37,17 @@
 .pw-message-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; }
 .pw-message button { font-size: 12px; }
 .pw-run { padding: 8px 12px; font-size: 13px; border-left: 3px solid var(--pw-border); }
+.pw-decision-list { list-style: none; margin: 10px 0; padding: 0; }
+.pw-decision { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--pw-border); border-radius: 8px; }
+.pw-decision blockquote { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; font-size: 15px; }
+.pw-decision-revoked blockquote, .pw-decision-superseded blockquote { text-decoration: line-through; color: var(--color-text-maxcontrast, #5b6572); }
+.pw-reach { list-style: none; margin: 6px 0; padding: 0; font-size: 13px; line-height: 1.7; }
+.pw-scope { border: 0; padding: 0; margin: 8px 0; }
+.pw-scope label { display: inline-flex !important; align-items: center; gap: 6px; margin-right: 18px; }
+.pw-scope input { width: auto !important; }
+#pw-who h3 { font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+#pw-who ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.8; }
+.pw-warn { color: var(--color-warning-text, #8a5a00); border-left-color: var(--color-warning, #b58222); }
 .pw-sr { position: absolute !important; width: 1px !important; height: 1px; padding: 0 !important; margin: -1px !important; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media (max-width: 760px) {
   #project-workspace { padding: 16px 14px 60px; }

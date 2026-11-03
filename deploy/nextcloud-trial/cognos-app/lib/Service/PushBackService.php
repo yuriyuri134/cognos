@@ -119,7 +119,7 @@ final class PushBackService {
         $entry = $this->entries->entry($space, $holder, ['caller' => $hitter, 'message' => $message], $this->bridge->canDo($spaceType, $spaceId));
         try {
             // reply_to=0：发回来的回答不回对话里的任何一句
-            $this->bridge->send($spaceType, $spaceId, $holder, $this->entries->renderText($entry), [], $message, $hitter, ['hit_id' => $hit['id'], 'reply_to' => 0]);
+            $this->bridge->send($spaceType, $spaceId, $holder, $this->entries->renderText($entry), [], $message, $hitter, ['hit_id' => $hit['id'], 'reply_to' => 0, 'decision_ids' => SpaceEntryService::decisionIds($entry)]);
         } catch (\RuntimeException $error) {
             if ($error->getCode() === ClaudeBridgeService::BUSY) {
                 $this->enqueue($spaceType, $spaceId, 'hit:' . $hit['id']);

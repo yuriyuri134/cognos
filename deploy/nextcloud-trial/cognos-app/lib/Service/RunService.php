@@ -198,6 +198,15 @@ final class RunService {
         return ['duplicate' => false, 'message_id' => $messageId, 'run' => $this->get($run['id']) ?? $run];
     }
 
+    /** 结果交回时记下：运行起步以后才有、输入里没有的适用决定。 */
+    public function setDecisionsMissing(string $runId, array $missing): void {
+        $qb = $this->db->getQueryBuilder();
+        $qb->update('cognos_run_results')
+            ->set('decisions_missing', $qb->createNamedParameter(json_encode(array_values($missing), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)))
+            ->where($qb->expr()->eq('run_id', $qb->createNamedParameter($runId)))
+            ->executeStatement();
+    }
+
     /** @return list<array{type: string, id: string, version: ?string, note: ?string}> */
     public function dependencies(string $runId): array {
         $qb = $this->db->getQueryBuilder();

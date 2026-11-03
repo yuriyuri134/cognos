@@ -24,11 +24,13 @@ final class SpaceEntryService {
         private CreationSpaceService $creations,
         private IAppManager $apps,
         private ProjectService $projects,
+        private DecisionService $decisions,
     ) {
     }
 
     /**
      * 找到这片空间；不属于这个用户就返回 null。
+     * 它是项目里某个位置的讨论时，带上对这个位置适用的在生效的决定，和项目里谁在动什么。
      */
     public function resolve(string $spaceType, string $spaceId, string $uid): ?array {
         if ($spaceType !== 'creation' || !ctype_digit($spaceId)) {
@@ -39,8 +41,20 @@ final class SpaceEntryService {
             return null;
         }
         $project = $this->projects->contextForCreation($uid, (int)$spaceId);
+        $decisions = [];
+        $working = [];
+        if ($project !== null) {
+            $decisions = $this->decisions->applicable($uid, $project['location_id']);
+            $working = $this->projects->activity($uid, $project['project_id'])['runs'];
+        }
         return ['type' => 'creation', 'id' => $spaceId, 'title' => (string)$creation['title'],
-            'kind_label' => $project === null ? '创立空间' : '项目工作位置', 'project_context' => $project];
+            'kind_label' => $project === null ? '创立空间' : '项目工作位置', 'project_context' => $project,
+            'decisions' => $decisions, 'working' => $working];
+    }
+
+    /** 这次入口里实际给出的决定（运行起步时记下）。 */
+    public static function decisionIds(array $entry): array {
+        return array_column($entry['space']['decisions'] ?? [], 'id');
     }
 
     /**
@@ -143,6 +157,29 @@ final class SpaceEntryService {
     public function renderText(array $entry): string {
         $space = $entry['space'];
         $lines = [];
+
+        // 在生效的决定排在最前面：只放对这一处适用的，原话照录
+        if (!empty($space['project_context'])) {
+            $lines[] = '## 在生效的决定';
+            if (($space['decisions'] ?? []) === []) {
+                $lines[] = '这一处目前没有登记在生效的决定。';
+            }
+            foreach ($space['decisions'] ?? [] as $d) {
+                $when = $this->date((int)($d['said_at'] ?? $d['created_at']));
+                $scope = $d['scope_titles'] === [] ? '整个项目' : implode('、', $d['scope_titles']);
+                $lines[] = sprintf('- %s 说（%s，适用：%s）：「%s」', $d['author_name'], $when, $scope, $d['content']);
+            }
+            $lines[] = '';
+            $lines[] = '## 项目里谁在动什么';
+            if (($space['working'] ?? []) === []) {
+                $lines[] = '现在没有别的运行在进行。';
+            }
+            foreach ($space['working'] ?? [] as $w) {
+                $state = $w['state'] === 'unknown' ? '不知道做没做完（失联）' : '正在做';
+                $lines[] = sprintf('- %s 在「%s」：%s，%s（%s 起）', $w['subject'], $w['location']['title'] ?? '?', $w['purpose'], $state, $this->date($w['created_at']));
+            }
+            $lines[] = '';
+        }
 
         $lines[] = '## 你在哪';
         $lines[] = sprintf('这里是 Cognos 的%s「%s」。', $space['kind_label'], $space['title']);

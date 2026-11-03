@@ -7,7 +7,9 @@ namespace OCA\Cognos\Controller;
 use OCA\Cognos\Service\ClaudeBridgeService;
 use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
+use OCA\Cognos\Service\DecisionService;
 use OCA\Cognos\Service\HermesAgentService;
+use OCA\Cognos\Service\ProjectService;
 use OCA\Cognos\Service\PushBackService;
 use OCA\Cognos\Service\RunService;
 use OCA\Cognos\Service\SpaceEntryService;
@@ -38,6 +40,8 @@ final class SpaceApiController extends OCSController {
         private HermesAgentService $hermes,
         private IConfig $config,
         private RunService $runs,
+        private DecisionService $decisions,
+        private ProjectService $projects,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -230,6 +234,11 @@ final class SpaceApiController extends OCSController {
         }
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
         $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
+        // 运行起步以后才有、输入里没有的适用决定：结果照收，记下来，页面上标「起步时还没有这条决定」；不自动应用到共享内容
+        $missing = $this->decisions->missingForRun($uid, $run);
+        if ($missing !== []) {
+            $this->runs->setDecisionsMissing($run['id'], $missing);
+        }
         // 从哪件没完的叫起来的，以登记的运行为准
         $openId = $run['target_type'] === 'open' ? (int)$run['target_id'] : null;
         if ($openId !== null) {
@@ -244,7 +253,45 @@ final class SpaceApiController extends OCSController {
             }
         }
         $this->callNext($spaceType, $spaceId, $uid, $openId);
-        return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false], 201);
+        return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false, 'decisions_missing' => $missing], 201);
+    }
+
+    /**
+     * agent 代录一条在生效的决定：必须指向这段对话里用户说的那一句（source_message_id），原话要能在那一句里原样找到。
+     * 原作者记成用户本人，登记者记成 agent 报的名字。撤回、替代只有用户本人在项目页上能做。
+     * scope 是 here（这个位置及其下面）或 project（整个项目，默认）。
+     */
+    #[NoAdminRequired]
+    public function recordDecision(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $spaceType !== 'creation' || !ctype_digit($spaceId) || $this->creations->get((int)$spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $location = $this->projects->locationForCreation($uid, (int)$spaceId);
+        if ($location === null) {
+            return new DataResponse(['message' => '这片空间不是项目里的位置，决定要登记在项目上'], 422);
+        }
+        $body = $this->body();
+        $subject = $this->subject((string)($body['subject'] ?? ''));
+        if ($subject === $uid) {
+            return new DataResponse(['message' => 'agent 要用自己的名字登记'], 422);
+        }
+        $requestId = (string)($body['request_id'] ?? '');
+        if ($requestId === '') {
+            $requestId = 'agent-' . hash('sha256', json_encode([$spaceId, $subject, $body['source_message_id'] ?? null, $body['content'] ?? null, $body['scope'] ?? null]));
+            $requestId = substr($requestId, 0, 64);
+        }
+        try {
+            $result = $this->decisions->record($uid, $location['project_id'], (string)($body['content'] ?? ''),
+                ($body['scope'] ?? 'project') === 'here' ? [$location['id']] : [],
+                isset($body['source_message_id']) ? (int)$body['source_message_id'] : null,
+                isset($body['source_note']) ? (string)$body['source_note'] : null, null, $subject, null, $requestId);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        } catch (\RuntimeException $error) {
+            return new DataResponse(['message' => $error->getMessage()], in_array($error->getCode(), [404, 409], true) ? $error->getCode() : 500);
+        }
+        return new DataResponse($result, 201);
     }
 
     /** 这片空间最近的运行：谁在做什么、做到哪个状态。 */
