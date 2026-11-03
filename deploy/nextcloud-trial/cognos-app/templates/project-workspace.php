@@ -113,7 +113,7 @@
                 <form id="pw-content-form">
                     <label class="pw-sr" for="pw-content">当前位置的内容</label>
                     <textarea id="pw-content" rows="10" maxlength="100000" placeholder="正在研究的问题、已经形成的设计，或者要继续修改的成果……"></textarea>
-                    <div class="pw-inline"><button type="submit" id="pw-save">保存当前内容</button><span id="pw-dirty" aria-live="polite"></span></div>
+                    <div class="pw-inline"><button type="submit" id="pw-save">保存当前内容</button><button type="button" id="pw-adopt-content">在这里采用当前这一版</button><span id="pw-dirty" aria-live="polite"></span></div>
                 </form>
                 <div id="pw-conflict" hidden>
                     <p>保存期间已有新版本。你的文本还在上面，先比较，再继续。</p>
@@ -122,6 +122,16 @@
                 </div>
                 <p id="pw-content-sources" class="pw-hint"></p>
                 <details id="pw-history"><summary>查看修改经过</summary><div id="pw-history-list"></div><pre id="pw-history-content"></pre></details>
+            </section>
+            <section class="pw-adoptions" data-location-only aria-labelledby="pw-adoptions-title">
+                <h2 id="pw-adoptions-title">在这里采用的</h2>
+                <p class="pw-hint">这一处正式采用了哪一样东西的哪一版。只管这一处：在这里撤回，别处的采用不变。被纠正时，采用了那一版的进待复核，只是相关的只提示。</p>
+                <ul id="pw-impacts" class="pw-reach" aria-live="polite"></ul>
+                <ul id="pw-adoption-list" class="pw-decision-list"></ul>
+                <details id="pw-adoptions-ended-box" hidden>
+                    <summary>已撤回、被替代的</summary>
+                    <ul id="pw-adoptions-ended" class="pw-decision-list"></ul>
+                </details>
             </section>
             <section class="pw-materials" data-location-only>
                 <h2>在这里使用的材料</h2>

@@ -73,7 +73,7 @@
     $('pw-revision').textContent = '版本 ' + state.location.revision;
     $('pw-original-chat').href = base + '/creations/' + state.location.creation_id;
     renderTree(); renderUsages(data.usages); showSources();
-    await Promise.all([loadMessages(), loadSourceChoices(), loadOverview()]);
+    await Promise.all([loadMessages(), loadSourceChoices(), loadOverview(), loadAdoptions()]);
   }
   function day(t) { return t ? new Date(t * 1000).toLocaleDateString() : ''; }
   // 在生效的决定、谁在动什么：只显示有证据的，没有证据就照实说「尚无证据」
@@ -260,7 +260,8 @@
       if (working.get(l.id)) now.push(working.get(l.id) + ' 件正在做');
       if (l.open) now.push(l.open + ' 件交出去还没回来');
       if (l.held) now.push(l.held + ' 个留着待比较的版本');
-      if (now.length) li.append(node('p', now.join(' · '), 'pw-run' + (l.held ? ' pw-warn' : '')));
+      if (l.review) now.push(l.review + ' 件待复核');
+      if (now.length) li.append(node('p', now.join(' · '), 'pw-run' + (l.held || l.review ? ' pw-warn' : '')));
       box.append(li);
     }
   }
@@ -290,6 +291,99 @@
     }
     if (!recent.length) box.append(node('li', '还没有交回的结果。', 'pw-hint'));
   }
+  // 采用和纠正
+  function inlineForm(container, label, placeholder, submitText, onSubmit) {
+    const old = container.querySelector(':scope > .pw-inline-form'); if (old) { old.remove(); return; }
+    const form = node('form', undefined, 'pw-inline-form');
+    const box = node('textarea'); box.rows = 2; box.placeholder = placeholder; box.setAttribute('aria-label', label);
+    const ok = node('button', submitText); ok.type = 'submit';
+    const cancel = node('button', '算了'); cancel.type = 'button'; cancel.addEventListener('click', () => form.remove());
+    form.append(node('label', label), box, ok, cancel);
+    form.addEventListener('submit', e => { e.preventDefault(); busy(form, async () => { await onSubmit(box.value); form.remove(); }); });
+    container.append(form); box.focus();
+  }
+  function adoptButton(type, id, version) {
+    const b = node('button', '在这里采用'); b.type = 'button'; b.dataset.adopt = type + ':' + id + ':' + (version || '');
+    b.addEventListener('click', () => inlineForm(b.parentElement, '为什么在这里采用（可留空）', '例如：这一处按它来', '采用', async basis => {
+      await mutate('/projects/locations/' + state.location.id + '/adoptions', 'POST', {object_type: type, object_id: id, object_version: version || '', basis});
+      await loadAdoptions(); notice('已在这里采用。别处不受影响。');
+    }));
+    return b;
+  }
+  function correctButton(container, type, id, version) {
+    const b = node('button', '纠正'); b.type = 'button';
+    b.addEventListener('click', () => inlineForm(container, '哪里不对', '写下纠正；原来的不会被改掉', '提交纠正', async content => {
+      const r = await mutate('/projects/corrections', 'POST', {object_type: type, object_id: id, object_version: version || '', content});
+      await loadAdoptions(); state.lastOverview = ''; await loadOverview();
+      notice('纠正已记下：' + r.review + ' 处依赖它的进了待复核，' + r.hint + ' 处只提示。');
+    }));
+    return b;
+  }
+  function adoptionItem(a) {
+    const li = node('li', undefined, 'pw-decision pw-adoption' + (a.state === 'review' ? ' pw-adoption-review' : ''));
+    li.dataset.adoptionId = a.id;
+    const what = a.object_type === 'message'
+      ? (a.preview.role === 'user' ? '你在「' : 'AI 在「') + (a.preview.creation_title || '') + '」里的一段'
+      : '「' + (a.preview.location_title || '') + '」当前内容的版本 ' + a.object_version;
+    li.append(node('p', what, 'pw-hint'));
+    li.append(node('blockquote', a.preview.text));
+    const meta = [a.adopted_by + ' 采用于 ' + date(a.created_at)];
+    if (a.basis) meta.push('依据：' + a.basis);
+    if (a.state === 'withdrawn') meta.push('已撤回 ' + date(a.ended_at));
+    if (a.state === 'superseded') meta.push('已被改采用的一版替代 ' + date(a.ended_at));
+    li.append(node('p', meta.join(' · '), 'pw-hint'));
+    for (const c of a.corrections) {
+      li.append(node('p', '纠正' + (c.version ? '（针对版本 ' + c.version + '）' : '') + '：' + c.content + ' — ' + c.author + ' · ' + date(c.created_at), 'pw-correction'));
+    }
+    if (a.response) li.append(node('p', '仍然采用：' + a.response, 'pw-run'));
+    if (a.state !== 'active' && a.state !== 'review') return li;
+    if (a.state === 'review') li.append(node('p', '待复核：它被纠正了。仍然采用、撤回，或改采用别的一版。', 'pw-run pw-warn'));
+    const actions = node('div', undefined, 'pw-inline');
+    if (a.state === 'review') {
+      const keep = node('button', '仍然采用'); keep.type = 'button';
+      keep.addEventListener('click', () => inlineForm(li, '为什么仍然采用', '纠正和你的回应都会留着', '仍然采用', async response => {
+        await mutate('/projects/adoptions/' + a.id + '/reaffirm', 'POST', {response}); await loadAdoptions();
+      }));
+      actions.append(keep);
+    }
+    const drop = node('button', '撤回'); drop.type = 'button';
+    drop.addEventListener('click', () => busy(actions, async () => {
+      await mutate('/projects/adoptions/' + a.id + '/withdraw', 'POST', {}); await loadAdoptions();
+      notice('已在这里撤回。别处的采用不变，它们会得到提示。');
+    }));
+    actions.append(drop);
+    if (a.object_type === 'location_content' && a.preview.current_revision > Number(a.object_version)) {
+      const newer = node('button', '改采用版本 ' + a.preview.current_revision); newer.type = 'button';
+      newer.addEventListener('click', () => busy(actions, async () => {
+        await mutate('/projects/locations/' + state.location.id + '/adoptions', 'POST',
+          {object_type: 'location_content', object_id: a.object_id, object_version: String(a.preview.current_revision), supersedes: a.id});
+        await loadAdoptions();
+      }));
+      actions.append(newer);
+    }
+    if (a.state === 'active') actions.append(correctButton(li, a.object_type, a.object_id, a.object_version));
+    li.append(actions);
+    return li;
+  }
+  async function loadAdoptions() {
+    if (state.mode !== 'location') return;
+    const data = await api('/projects/locations/' + state.location.id + '/adoptions');
+    const live = data.adoptions.filter(a => a.state === 'active' || a.state === 'review');
+    const ended = data.adoptions.filter(a => a.state !== 'active' && a.state !== 'review');
+    $('pw-adoption-list').replaceChildren(...live.map(adoptionItem));
+    if (!live.length) $('pw-adoption-list').append(node('li', '这里还没有正式采用什么。讨论里的回答、材料里的话、当前内容的某一版，都可以在这里采用。', 'pw-hint'));
+    $('pw-adoptions-ended').replaceChildren(...ended.map(adoptionItem));
+    $('pw-adoptions-ended-box').hidden = !ended.length;
+    const box = $('pw-impacts'); box.replaceChildren();
+    for (const i of data.impacts.filter(i => !(i.target_kind === 'adoption' && i.effect === 'review'))) {
+      const li = node('li', (i.effect === 'review' ? '待复核：' : '提示：') + i.note + (i.correction ? '。纠正：「' + i.correction.content + '」' : ''),
+        'pw-run' + (i.effect === 'review' ? ' pw-warn' : ''));
+      li.dataset.impactId = i.id;
+      const ok = node('button', i.effect === 'review' ? '看过了' : '知道了'); ok.type = 'button';
+      ok.addEventListener('click', () => busy(li, async () => { await mutate('/projects/impacts/' + i.id + '/resolve', 'POST', {}); await loadAdoptions(); }));
+      li.append(' ', ok); box.append(li);
+    }
+  }
   function openDecisionForm(content, sourceMessageId, supersedes) {
     $('pw-decision-add').open = true;
     $('pw-decision-content').value = content;
@@ -318,6 +412,20 @@
     for (const u of usages) {
       const item = node('li'); item.append(link(u.title, base + '/creations/' + u.source_creation_id));
       if (u.purpose) item.append(node('p', u.purpose, 'pw-hint'));
+      const look = node('details'); look.append(node('summary', '看这份材料里的话'));
+      look.addEventListener('toggle', () => {
+        if (!look.open || look.querySelector('ul')) return;
+        api('/creations/' + u.source_creation_id + '/messages').then(data => {
+          const ul = node('ul', undefined, 'pw-material-messages');
+          for (const m of data.messages) {
+            const li = node('li', (m.role === 'user' ? '你：' : 'AI：') + m.content.slice(0, 600) + (m.content.length > 600 ? '…' : ''));
+            li.append(document.createElement('br'), adoptButton('message', String(m.id), null));
+            ul.append(li);
+          }
+          look.append(ul);
+        }).catch(e => notice(e.message, true));
+      });
+      item.append(look);
       list.append(item);
     }
     if (!usages.length) list.append(node('li', '可以关联同一份会话，在这里保留独立的用途。', 'pw-hint'));
@@ -360,6 +468,8 @@
             $('pw-content').focus();
           });
           item.append(add);
+          item.append(adoptButton('message', String(m.id), null));
+          if (m.role === 'assistant') item.append(correctButton(item, 'message', String(m.id), null));
           if (m.role === 'user') {
             const decide = node('button', '登记为决定');
             decide.type = 'button';
@@ -442,6 +552,14 @@
     });
   });
   $('pw-decision-reset').addEventListener('click', resetDecisionForm);
+  $('pw-adopt-content').addEventListener('click', () => {
+    if (state.dirty) { notice('先保存，再采用保存下来的那一版。', true); return; }
+    busy($('pw-content-form'), async () => {
+      await mutate('/projects/locations/' + state.location.id + '/adoptions', 'POST',
+        {object_type: 'location_content', object_id: state.location.id, object_version: String(state.location.revision)});
+      await loadAdoptions(); notice('已在这里采用当前内容的版本 ' + state.location.revision + '。');
+    });
+  });
   $('pw-delegate-form').addEventListener('submit', e => {
     e.preventDefault(); busy(e.currentTarget, async () => {
       if ($('pw-delegate-edit').checked && state.dirty) { notice('当前内容有没保存的修改，先保存，再交出去。', true); return; }
@@ -516,6 +634,7 @@
   setInterval(() => {
     if (!document.hidden && state.location && !state.sending) {
       if (state.mode === 'location') loadMessages().catch(e => notice('暂时无法刷新讨论：' + e.message, true));
+      if (state.mode === 'location' && !document.querySelector('.pw-adoptions .pw-inline-form')) loadAdoptions().catch(() => {});
       loadOverview().catch(e => notice('暂时无法刷新决定和进展：' + e.message, true));
     }
   }, 5000);
