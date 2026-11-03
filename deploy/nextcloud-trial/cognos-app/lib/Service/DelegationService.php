@@ -41,7 +41,7 @@ final class DelegationService {
      * @return array{delegation_id: string, message_id: int, state: string, note: ?string}
      */
     public function delegate(string $uid, string $locationId, string $ask, string $goal, string $means, string $forbidden,
-        int $returnMinutes, bool $mayEdit, string $requestId): array {
+        int $returnMinutes, bool $mayEdit, string $requestId, bool $mayAdopt = false): array {
         $ask = trim($ask);
         if ($ask === '' || mb_strlen($ask) > self::MAX_TEXT) {
             throw new \InvalidArgumentException('要交出去的事写一句话，最多 ' . self::MAX_TEXT . ' 字');
@@ -53,19 +53,19 @@ final class DelegationService {
         if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') !== 'claude-code') {
             throw new \RuntimeException('交出去现在只接本机的 Claude Code（creation_agent 不是 claude-code）', 422);
         }
-        $saved = $this->projects->commit($uid, $requestId, ['delegate', $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit],
-            function () use ($uid, $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit): array {
+        $saved = $this->projects->commit($uid, $requestId, ['delegate', $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt],
+            function () use ($uid, $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt): array {
                 $loc = $this->projects->location($uid, $locationId);
                 $now = time();
                 $returnBy = $now + $returnMinutes * 60;
-                $text = $this->message($ask, $goal, $means, $forbidden, $returnBy, $mayEdit, $loc['revision']);
+                $text = $this->message($ask, $goal, $means, $forbidden, $returnBy, $mayEdit, $loc['revision'], $mayAdopt);
                 $message = $this->creations->addMessage($loc['creation_id'], $uid, 'user', $text);
                 $id = bin2hex(random_bytes(16));
                 $this->projects->insert('cognos_delegations', [
                     'id' => $id, 'project_id' => $loc['project_id'], 'location_id' => $locationId, 'ask' => $ask,
                     'goal' => $goal === '' ? null : $goal, 'means' => $means === '' ? null : $means,
                     'forbidden' => $forbidden === '' ? null : $forbidden, 'return_by' => $returnBy,
-                    'may_edit' => $mayEdit ? 1 : 0, 'base_revision' => $loc['revision'], 'state' => 'sending', 'note' => null,
+                    'may_edit' => $mayEdit ? 1 : 0, 'may_adopt' => $mayAdopt ? 1 : 0, 'base_revision' => $loc['revision'], 'state' => 'sending', 'note' => null,
                     'run_id' => null, 'message_id' => (int)$message['id'], 'result_message_id' => null, 'applied_revision' => null,
                     'held_content' => null, 'held_base_revision' => null, 'held_reason' => null, 'held_at' => null,
                     'created_by' => $uid, 'created_at' => $now, 'updated_at' => $now,
@@ -92,6 +92,7 @@ final class DelegationService {
             return [
                 'id' => (string)$r['id'], 'ask' => (string)$r['ask'], 'goal' => $r['goal'], 'means' => $r['means'],
                 'forbidden' => $r['forbidden'], 'return_by' => (int)$r['return_by'], 'may_edit' => (int)$r['may_edit'] === 1,
+                'may_adopt' => (int)($r['may_adopt'] ?? 0) === 1,
                 'base_revision' => (int)$r['base_revision'], 'state' => (string)$r['state'], 'note' => $r['note'],
                 'run_id' => $r['run_id'], 'run_state' => $r['run_state'], 'subject' => $r['subject'],
                 'message_id' => (int)$r['message_id'], 'result_message_id' => $int($r['result_message_id']),
@@ -141,11 +142,21 @@ final class DelegationService {
         if ($d === null) {
             return [];
         }
+        $adopt = (int)($d['may_adopt'] ?? 0) === 1
+            ? ['adopt：这次交给你的事允许你在这一处采用一样东西的一版（讨论或材料里的一段回答、当前内容的某一版），采用者记你，依据记这次委托。']
+            : [];
         if ((int)$d['may_edit'] !== 1) {
-            return ['这次交给你的事没有给改这一处当前内容的权限，你交回的只作为回答；write_content 会被拒。'];
+            return array_merge(['这次交给你的事没有给改这一处当前内容的权限，你交回的只作为回答；write_content 会被拒。'], $adopt);
         }
-        return [sprintf('write_content：这次交给你的事允许改这一处的当前内容（交出去时是版本 %d）。把改好的全文交给它，'
-            . '会作为你署名的新版本保存；起步后有人改过这一处，就不覆盖，你的版本留着等人比较。只回答、不调用它也可以。', (int)$d['base_revision'])];
+        return array_merge($adopt, [sprintf('write_content：这次交给你的事允许改这一处的当前内容（交出去时是版本 %d）。把改好的全文交给它，'
+            . '会作为你署名的新版本保存；起步后有人改过这一处，就不覆盖，你的版本留着等人比较。只回答、不调用它也可以。', (int)$d['base_revision'])]);
+    }
+
+    /** 这次运行挂着的委托（没有就是 null）。 */
+    public function forRun(string $runId): ?array {
+        $qb = $this->db->getQueryBuilder();
+        $r = $qb->select('*')->from('cognos_delegations')->where($qb->expr()->eq('run_id', $qb->createNamedParameter($runId)))->executeQuery()->fetch();
+        return $r === false ? null : $r;
     }
 
     /**
@@ -245,7 +256,7 @@ final class DelegationService {
     }
 
     /** 留在讨论里的那句话：交出去的人填了什么就写什么，没填的不写。 */
-    private function message(string $ask, string $goal, string $means, string $forbidden, int $returnBy, bool $mayEdit, int $revision): string {
+    private function message(string $ask, string $goal, string $means, string $forbidden, int $returnBy, bool $mayEdit, int $revision, bool $mayAdopt = false): string {
         $lines = [$ask];
         if ($goal !== '') { $lines[] = '要做成：' . $goal; }
         if ($means !== '') { $lines[] = '用：' . $means; }
@@ -254,6 +265,7 @@ final class DelegationService {
         $lines[] = $mayEdit
             ? sprintf('可以改这一处的当前内容（交出去时是版本 %d）。', $revision)
             : '只要回答，不改这一处的当前内容。';
+        if ($mayAdopt) { $lines[] = '可以在这一处采用（讨论或材料里的一段回答、当前内容的某一版）。'; }
         return implode("\n", $lines);
     }
 

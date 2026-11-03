@@ -240,6 +240,26 @@ TOOLS += [
         },
     },
     {
+        "name": "adopt",
+        "description": (
+            "在这一处采用一样东西的一版：讨论或材料里的一段回答（object_type=message，object_id 是那句的 id），"
+            "或当前内容的某一版（object_type=location_content，object_id 是位置 id，object_version 是版本号）。"
+            "交给你的事允许在这里采用时直接采用；否则只记成你的提议，等用户定。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "space_id": SPACE_ID,
+                "space_type": SPACE_TYPE,
+                "object_type": {"type": "string", "enum": ["message", "location_content"]},
+                "object_id": {"type": "string"},
+                "object_version": {"type": "string", "description": "location_content 的版本号"},
+                "basis": {"type": "string", "description": "为什么采用"},
+            },
+            "required": ["space_id", "object_type", "object_id"],
+        },
+    },
+    {
         "name": "note_basis",
         "description": (
             "记下这次真正依据的一样东西：一条在生效的决定（decision_quote 照抄原话里的一段），"
@@ -384,6 +404,10 @@ def run_tool(name: str, args: dict) -> str:
                 "acknowledged_drift": bool(args.get("acknowledged"))}
         call_api("POST", space_path(args) + "/messages", body=body)
         return "已交回。" + ("交回时记下了你看过的差异。" if lines else "")
+    if name == "adopt":
+        body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
+        body["subject"] = SUBJECT
+        return call_api("POST", space_path(args) + "/adoptions", body=body)["message"]
     if name == "note_basis":
         body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
         body["subject"] = SUBJECT

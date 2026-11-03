@@ -67,9 +67,9 @@ final class ProjectController extends Controller {
     /** 从这个位置交出去一件事，交给本机 Claude Code；结果回到这个位置。 */
     #[NoAdminRequired]
     public function delegate(string $locationId, string $ask, string $request_id, string $goal = '', string $means = '',
-        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false): DataResponse {
+        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false, bool $may_adopt = false): DataResponse {
         return $this->respond(fn(string $uid) => $this->delegations->delegate($uid, $locationId, $ask, $goal, $means, $forbidden,
-            $return_minutes, $may_edit, $request_id));
+            $return_minutes, $may_edit, $request_id, $may_adopt));
     }
 
     #[NoAdminRequired]
@@ -149,6 +149,16 @@ final class ProjectController extends Controller {
         string $basis = '', string $supersedes = ''): DataResponse {
         return $this->respond(fn(string $uid) => $this->adoptions->adopt($uid, $locationId, $object_type, $object_id,
             $object_version === '' ? null : $object_version, $basis, $supersedes === '' ? null : $supersedes, $request_id));
+    }
+
+    #[NoAdminRequired]
+    public function acceptProposal(string $adoptionId, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->adoptions->acceptProposal($uid, $adoptionId, $request_id));
+    }
+
+    #[NoAdminRequired]
+    public function declineProposal(string $adoptionId, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->adoptions->declineProposal($uid, $adoptionId, $request_id));
     }
 
     #[NoAdminRequired]
