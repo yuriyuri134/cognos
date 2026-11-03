@@ -4,8 +4,8 @@
 <div id="app-content">
 <main id="project-workspace" data-project-id="<?php p($_['projectId']); ?>" data-location-id="<?php p($_['locationId']); ?>">
     <header class="pw-header">
-        <a href="<?php p(\OCP\Util::linkToRoute('cognos.home.index')); ?>">Cognos</a>
-        <a id="pw-all-projects" href="<?php p(\OCP\Util::linkToRoute('cognos.project.page')); ?>">所有项目</a>
+        <a href="/index.php/apps/cognos/home">Cognos</a>
+        <a id="pw-all-projects" href="/index.php/apps/cognos/projects">所有项目</a>
         <h1 id="pw-title">项目</h1>
     </header>
     <p id="pw-notice" role="status" aria-live="polite"></p>

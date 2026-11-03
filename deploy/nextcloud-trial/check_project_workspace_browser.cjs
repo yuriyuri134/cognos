@@ -111,12 +111,15 @@ async function main() {
   await call('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: false});
   await sleep(300);
   assert(await evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), 'mobile page must not overflow horizontally');
-  await evaluate('window.scrollTo(0,0)');
+  // Nextcloud scrolls an inner container, not the window: bring the page header back into view.
+  await evaluate('document.querySelector(".pw-header").scrollIntoView({block:"start"})');
+  await sleep(200);
   let shot = await call('Page.captureScreenshot');
   fs.writeFileSync(path.join(evidenceDir, 'project-workspace-mobile.png'), Buffer.from(shot.data, 'base64'));
   checks.push('390px layout has no horizontal overflow');
   await call('Emulation.setDeviceMetricsOverride', {width: 1360, height: 1000, deviceScaleFactor: 1, mobile: false});
-  await evaluate('document.querySelector("#pw-history").open=false; window.scrollTo(0,0)');
+  await evaluate('document.querySelector("#pw-history").open=false; document.querySelector(".pw-header").scrollIntoView({block:"start"})');
+  await sleep(200);
   shot = await call('Page.captureScreenshot');
   fs.writeFileSync(path.join(evidenceDir, 'project-workspace-desktop.png'), Buffer.from(shot.data, 'base64'));
   if (fixture.agent && typeof fixture.agent === 'object' && fixture.agent.replies === 1) {
