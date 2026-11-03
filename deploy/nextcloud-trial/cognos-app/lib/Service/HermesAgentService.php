@@ -576,7 +576,9 @@ final class HermesAgentService {
                 $space,
                 $subject,
                 ['caller' => $caller, 'message' => $message],
-                array_merge($this->bridge->canDo('creation', (string)$creationId), $canDo),
+                // 不在项目里的空间没有决定和当前内容可依据，不给 note_basis
+                array_merge(array_values(array_filter($this->bridge->canDo('creation', (string)$creationId),
+                    static fn(string $line): bool => !empty($space['project_context']) || !str_starts_with($line, 'note_basis'))), $canDo),
             );
             $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller,
                 array_merge($extra, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry)]));

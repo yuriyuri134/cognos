@@ -16,6 +16,7 @@
             <button type="submit">确立项目</button>
         </form>
         <ul id="pw-projects" class="pw-names"></ul>
+        <p class="pw-hint"><a href="/index.php/apps/cognos/initium">Initium</a>：还没成为项目的想法和会话，在那里也可以确立项目。</p>
     </section>
     <section id="pw-work-view" hidden>
         <aside class="pw-structure">
@@ -64,6 +65,11 @@
             <section class="pw-who" aria-labelledby="pw-who-title">
                 <h2 id="pw-who-title">谁在动什么</h2>
                 <div id="pw-who" aria-live="polite"></div>
+            </section>
+            <section id="pw-origin" aria-labelledby="pw-origin-title" hidden>
+                <h2 id="pw-origin-title">来路</h2>
+                <p class="pw-hint">这个项目是从哪段会话里的哪几句确立的。原会话没有搬动，还能接着聊。</p>
+                <ul id="pw-origin-list" class="pw-decision-list"></ul>
             </section>
             <section id="pw-overview" aria-labelledby="pw-states-title" hidden>
                 <h2 id="pw-states-title">各位置现在怎样</h2>

@@ -158,7 +158,12 @@ final class SpaceEntryService {
         $space = $entry['space'];
         $lines = [];
 
-        // 在生效的决定排在最前面：只放对这一处适用的，原话照录；没有就不写这一段
+        // 在生效的决定排在最前面：只放对这一处适用的，原话照录。项目里的位置没有适用的决定时照实写一句，
+        // 免得分不清是没有还是没给（11/03 Claude Code 在 Initium 里试的时候指出的）；不在项目里的空间没有决定这回事，不写
+        if (!empty($space['project_context']) && ($space['decisions'] ?? []) === []) {
+            $lines[] = '这一处现在没有在生效的决定。';
+            $lines[] = '';
+        }
         if (($space['decisions'] ?? []) !== []) {
             $lines[] = '## 在生效的决定';
             foreach ($space['decisions'] as $d) {
