@@ -6,9 +6,10 @@
 
 ## 先读什么
 
-1. [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md)：唯一的全局说明。先读〇到二节（动手前先问自己的六问、项目为了什么、AI 在这里反复犯的错），再看产品结构、代码与运行、当前进展。
+1. [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md)：唯一的全局说明。按任务查阅目的原话、历史经验、产品结构、代码与运行、当前进展。
 2. [`docs/README.md`](docs/README.md)：全部资料的地图，每份是什么、在哪，给 AI 的阅读顺序，哪些故意不在仓库里。
-3. [`docs/现状-2026-10-28.md`](docs/现状-2026-10-28.md)：现在走到哪、卡在哪（快照）。
+3. [`docs/项目管理/规划与方案.md`](docs/项目管理/规划与方案.md)：11/03 的项目部分整合候选，包含代码核对与后续规划。
+4. [`docs/现状-2026-10-28.md`](docs/现状-2026-10-28.md)：10/28 的状态快照，结合后续日期记录阅读。
 
 agent 的工作规则在 [`CLAUDE.md`](CLAUDE.md)、[`AGENTS.md`](AGENTS.md)，都先指回 PROJECT-OVERVIEW。
 
