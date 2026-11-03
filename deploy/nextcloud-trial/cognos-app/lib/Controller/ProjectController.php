@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace OCA\Cognos\Controller;
 
+use OCA\Cognos\Service\AdoptionService;
 use OCA\Cognos\Service\DecisionService;
 use OCA\Cognos\Service\DelegationService;
 use OCA\Cognos\Service\InitiumService;
@@ -19,6 +20,7 @@ use Psr\Log\LoggerInterface;
 final class ProjectController extends Controller {
     public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects,
         private DecisionService $decisions, private DelegationService $delegations, private InitiumService $initium,
+        private AdoptionService $adoptions,
         private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
@@ -37,7 +39,8 @@ final class ProjectController extends Controller {
             unset($d);
             unset($activity['creation_ids']);
             $counts = $this->delegations->countsForProject($projectId);
-            $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]),
+            $reviews = $this->adoptions->reviewCounts($projectId);
+            $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]) + ['review' => $reviews[$l['id']] ?? 0],
                 $this->projects->locationStates($uid, $projectId));
             $out = ['decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
                 'formed_from' => $this->initium->forProject($uid, $projectId)];
@@ -99,6 +102,41 @@ final class ProjectController extends Controller {
         Util::addScript('cognos', 'project-workspace');
         Util::addStyle('cognos', 'project-workspace');
         return new TemplateResponse('cognos', 'project-workspace', ['projectId' => $projectId, 'locationId' => $locationId]);
+    }
+
+    /** 这个位置的采用、纠正经过和还没处理的影响。 */
+    #[NoAdminRequired]
+    public function adoptions(string $locationId): DataResponse {
+        return $this->respond(fn(string $uid) => $this->adoptions->forLocation($uid, $locationId));
+    }
+
+    #[NoAdminRequired]
+    public function adopt(string $locationId, string $object_type, string $object_id, string $request_id, string $object_version = '',
+        string $basis = '', string $supersedes = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->adoptions->adopt($uid, $locationId, $object_type, $object_id,
+            $object_version === '' ? null : $object_version, $basis, $supersedes === '' ? null : $supersedes, $request_id));
+    }
+
+    #[NoAdminRequired]
+    public function withdrawAdoption(string $adoptionId, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->adoptions->withdraw($uid, $adoptionId, $request_id));
+    }
+
+    #[NoAdminRequired]
+    public function reaffirmAdoption(string $adoptionId, string $response, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->adoptions->reaffirm($uid, $adoptionId, $response, $request_id));
+    }
+
+    #[NoAdminRequired]
+    public function correct(string $object_type, string $object_id, string $content, string $request_id, string $object_version = '',
+        string $basis = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->adoptions->correct($uid, $object_type, $object_id,
+            $object_version === '' ? null : $object_version, $content, $basis, $request_id));
+    }
+
+    #[NoAdminRequired]
+    public function resolveImpact(string $impactId, string $request_id, string $resolution = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->adoptions->resolveImpact($uid, $impactId, $resolution, $request_id));
     }
 
     /** Initium：还没成为项目的会话，和确立。 */

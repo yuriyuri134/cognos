@@ -17,6 +17,13 @@ return ['routes' => [
     // 在生效的决定、谁在动什么（见 DecisionService、ProjectService::activity）
     ['name'=>'project#overview','url'=>'/projects/{projectId}/overview','verb'=>'GET','requirements'=>['projectId'=>'[a-f0-9]{32}']],
     ['name'=>'project#recordDecision','url'=>'/projects/{projectId}/decisions','verb'=>'POST','requirements'=>['projectId'=>'[a-f0-9]{32}']],
+    // 采用和纠正（见 AdoptionService）
+    ['name'=>'project#adoptions','url'=>'/projects/locations/{locationId}/adoptions','verb'=>'GET'],
+    ['name'=>'project#adopt','url'=>'/projects/locations/{locationId}/adoptions','verb'=>'POST'],
+    ['name'=>'project#withdrawAdoption','url'=>'/projects/adoptions/{adoptionId}/withdraw','verb'=>'POST','requirements'=>['adoptionId'=>'[a-f0-9]{32}']],
+    ['name'=>'project#reaffirmAdoption','url'=>'/projects/adoptions/{adoptionId}/reaffirm','verb'=>'POST','requirements'=>['adoptionId'=>'[a-f0-9]{32}']],
+    ['name'=>'project#correct','url'=>'/projects/corrections','verb'=>'POST'],
+    ['name'=>'project#resolveImpact','url'=>'/projects/impacts/{impactId}/resolve','verb'=>'POST','requirements'=>['impactId'=>'[a-f0-9]{32}']],
     ['name'=>'project#delegate','url'=>'/projects/locations/{locationId}/delegations','verb'=>'POST'],
     ['name'=>'project#revokeDecision','url'=>'/projects/decisions/{decisionId}/revoke','verb'=>'POST','requirements'=>['decisionId'=>'[a-f0-9]{32}']],
     ['name'=>'home#index','url'=>'/home','verb'=>'GET','postfix'=>'home'],
