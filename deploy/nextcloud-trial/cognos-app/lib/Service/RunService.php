@@ -207,6 +207,29 @@ final class RunService {
             ->executeStatement();
     }
 
+    /**
+     * 运行进行中，做事的那位自己报一条依据（同一条只记一次）。只收还在做的运行。
+     *
+     * @return bool 新记下返回 true，已经记过返回 false
+     */
+    public function addDependency(string $runId, string $type, string $id, ?string $version, ?string $note): bool {
+        $dep = $this->normalizeDependencies([['type' => $type, 'id' => $id, 'version' => $version, 'note' => $note]])[0];
+        foreach ($this->dependencies($runId) as $have) {
+            if ($have['type'] === $dep['type'] && $have['id'] === $dep['id'] && $have['version'] === $dep['version']) {
+                return false;
+            }
+        }
+        $qb = $this->db->getQueryBuilder();
+        $qb->insert('cognos_run_dependencies')->values([
+            'run_id' => $qb->createNamedParameter($runId),
+            'object_type' => $qb->createNamedParameter($dep['type']),
+            'object_id' => $qb->createNamedParameter($dep['id']),
+            'version' => $qb->createNamedParameter($dep['version']),
+            'note' => $qb->createNamedParameter($dep['note']),
+        ])->executeStatement();
+        return true;
+    }
+
     /** @return list<array{type: string, id: string, version: ?string, note: ?string}> */
     public function dependencies(string $runId): array {
         $qb = $this->db->getQueryBuilder();

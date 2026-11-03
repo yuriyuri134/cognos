@@ -86,5 +86,7 @@ return ['routes' => [
     // agent 代录在生效的决定（只能指向用户说的那一句）
     ['name' => 'spaceApi#recordDecision', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/decisions', 'verb' => 'POST'],
     // agent 在交给它的事里交回当前内容（只在委托允许改内容时收）
+    // agent 报这次依据了哪条决定 / 当前内容的哪一版（可以不报）
+    ['name' => 'spaceApi#addBasis', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/basis', 'verb' => 'POST'],
     ['name' => 'spaceApi#writeContent', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/content', 'verb' => 'POST'],
 ]];

@@ -54,6 +54,7 @@ final class ClaudeBridgeService {
             'answer_hit：回应别人对你的想法提出的反对，act 是还成立、放下或改成新的（改成新的要写出新的想法）。',
             'hang_open：把一件还没完的挂在这片空间里（比如你自己的一个尝试，它还有你够不着的后续）。挂着的会拉着下一次，Cognos 会从它接着叫。',
             'stop_here：记下这一次停在哪件没完的哪里：接着（Cognos 会从口子叫下一次）、卡住（等交互对象）、完了。',
+            'note_basis：这次真正依据了哪条在生效的决定（照抄原话里的一段）或这一处当前内容的哪一版，想记就记，不记也可以。',
             '这些工具都要填 space_id：这里是 ' . $spaceId . '，space_type 是 ' . $spaceType . '。',
         ];
         if ($this->isSelf($spaceType, $spaceId)) {

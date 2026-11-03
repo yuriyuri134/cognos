@@ -137,6 +137,27 @@ final class DecisionService {
         });
     }
 
+    /**
+     * 用一段原话找对这一处适用、现在生效的那条决定（agent 报依据时照抄原话里的一段，不用记编号）。
+     *
+     * @throws \InvalidArgumentException 没找到，或者对上了不止一条
+     */
+    public function byQuote(string $uid, string $locationId, string $quote): array {
+        $quote = $this->squash($quote);
+        if (mb_strlen($quote) < 2) {
+            throw new \InvalidArgumentException('照抄那条决定原话里的一段（至少两个字）');
+        }
+        $hits = array_values(array_filter($this->applicable($uid, $locationId),
+            fn(array $d): bool => mb_strpos($this->squash($d['content']), $quote) !== false));
+        if ($hits === []) {
+            throw new \InvalidArgumentException('这一处适用的在生效的决定里没有这段原话');
+        }
+        if (count($hits) > 1) {
+            throw new \InvalidArgumentException('这段话对上了不止一条决定，多抄几个字');
+        }
+        return $hits[0];
+    }
+
     /** 一次运行起步时入口里给了哪几条决定。 */
     public function recordIncluded(string $runId, array $decisionIds): void {
         foreach (array_values(array_unique($decisionIds)) as $decisionId) {

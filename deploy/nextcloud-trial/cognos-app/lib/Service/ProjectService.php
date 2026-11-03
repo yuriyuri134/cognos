@@ -243,7 +243,32 @@ final class ProjectService {
                     'revision' => (int)$r['revision'], 'editor' => (string)$r['editor'], 'created_at' => (int)$r['created_at']];
             }
         }
+        // 最近交回的几次各自上报了什么依据；没报就是空的（「未上报依据」，不等于没有依赖）
+        if ($recent !== []) {
+            $qb = $this->db->getQueryBuilder();
+            $deps = $qb->select('run_id', 'object_type', 'object_id', 'version')->from('cognos_run_dependencies')
+                ->where($qb->expr()->in('run_id', $qb->createNamedParameter(array_column($recent, 'run_id'), IQueryBuilder::PARAM_STR_ARRAY)))
+                ->orderBy('id', 'ASC')->executeQuery()->fetchAll();
+            $byRun = [];
+            foreach ($deps as $d) {
+                $byRun[$d['run_id']][] = ['type' => (string)$d['object_type'], 'id' => (string)$d['object_id'], 'version' => $d['version']];
+            }
+            foreach ($recent as &$item) { $item['basis'] = $byRun[$item['run_id']] ?? []; }
+            unset($item);
+        }
         return ['runs' => $runs, 'recent' => $recent, 'edits' => $edits, 'creation_ids' => array_map('strval', array_keys($byChat))];
+    }
+
+    /** 项目总览里各位置现在怎样：当前内容第几版、谁最后改的、什么时候。 */
+    public function locationStates(string $uid, string $projectId): array {
+        $this->project($uid, $projectId);
+        $qb = $this->db->getQueryBuilder();
+        $rows = $qb->select('id', 'parent_id', 'title', 'revision', 'editor', 'updated_at', 'content')->from('cognos_locations')
+            ->where($qb->expr()->eq('project_id', $qb->createNamedParameter($projectId)))
+            ->orderBy('created_at', 'ASC')->addOrderBy('id', 'ASC')->executeQuery()->fetchAll();
+        return array_map(static fn(array $r): array => ['id' => (string)$r['id'], 'parent_id' => $r['parent_id'], 'title' => (string)$r['title'],
+            'revision' => (int)$r['revision'], 'editor' => (string)$r['editor'], 'updated_at' => (int)$r['updated_at'],
+            'length' => mb_strlen((string)$r['content'])], $rows);
     }
 
     /** Snapshot content for a verified owner's dedicated conversation; references stay references. */

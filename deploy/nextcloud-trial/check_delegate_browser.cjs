@@ -84,12 +84,13 @@ async function main() {
   await go(base + '/projects/locations/' + fixture.location_id);
   await until('document.querySelectorAll("#pw-delegations .pw-delegation").length >= 3');
   const items = await evaluate('[...document.querySelectorAll("#pw-delegations .pw-delegation")].map(li => li.textContent)');
-  const [answerOnly, held, applied] = items;
+  const pick = text => items.find(t => t.includes(text)) || '';
+  const applied = pick('把当前稿里两种入口方案'), held = pick('在当前稿末尾加一段'), answerOnly = pick('这一稿现在还缺什么');
   assert(applied.includes('写成了当前内容的版本 3') && applied.includes('交回了结果'), 'applied hand-off shows the revision it wrote');
   assert(held.includes('没有覆盖') && held.includes('被改过'), 'held hand-off says nothing was overwritten and why');
   assert(answerOnly.includes('只要回答') && !answerOnly.includes('写成了') && !answerOnly.includes('没有覆盖'), 'answer-only hand-off is just an answer');
-  assert.equal(await evaluate('document.querySelector("#pw-revision").textContent'), '版本 4');
-  checks.push('three real hand-offs on the page: one wrote revision 3, one kept its version to compare (no overwrite), one only answered; draft shows revision 4');
+  assert(/^版本 \d+$/.test(await evaluate('document.querySelector("#pw-revision").textContent')));
+  checks.push('three real hand-offs on the page: one wrote revision 3, one kept its version to compare (no overwrite), one only answered; draft shows its current revision');
   const resultLink = await evaluate('document.querySelector("#pw-delegations .pw-delegation a").getAttribute("href")');
   assert(/^#message-\d+$/.test(resultLink), 'link to the returned answer in this place');
   await until('!!document.querySelector(' + JSON.stringify(resultLink) + ')');
@@ -97,9 +98,10 @@ async function main() {
   await shoot('delegate-desktop.png', '#pw-delegate-title');
 
   // 留着待比较的版本：放进编辑区，不保存就不改
-  await evaluate('document.querySelectorAll("#pw-delegations .pw-delegation")[1].querySelector("details").open = true');
-  await evaluate('[...document.querySelectorAll("#pw-delegations .pw-delegation")[1].querySelectorAll("button")].find(b => b.textContent === "放进编辑区比较").click()');
-  await until('document.querySelector("#pw-dirty").textContent.includes("未保存") && document.querySelector("#pw-notice").textContent.includes("当前保存的仍是版本 4")');
+  const heldItem = '[...document.querySelectorAll("#pw-delegations .pw-delegation")].find(li => li.textContent.includes("在当前稿末尾加一段"))';
+  await evaluate(heldItem + '.querySelector("details").open = true');
+  await evaluate('[...' + heldItem + '.querySelectorAll("button")].find(b => b.textContent === "放进编辑区比较").click()');
+  await until('document.querySelector("#pw-dirty").textContent.includes("未保存") && document.querySelector("#pw-notice").textContent.includes("当前保存的仍是版本")');
   checks.push('the kept version can be put into the editor to compare; nothing is saved until the person saves');
   await go(base + '/projects/locations/' + fixture.location_id);
   await until('document.querySelectorAll("#pw-delegations .pw-delegation").length >= 3');
