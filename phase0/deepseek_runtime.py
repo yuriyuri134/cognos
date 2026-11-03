@@ -179,12 +179,7 @@ def list_opencode_go_models() -> list[dict[str, str]]:
 
 
 UNDERSTANDING_FIRST_PROTOCOL = """
-参考协议：~/.claude/agent-base/understanding-first-protocol.md
-
-核心规则：
-1. 实质性操作前必须先输出理解
-2. 表达不确定性（百分比）
-3. 做界面和基本形态时参考成熟产品；做架构和「AI 怎么思考」时，不拿成熟产品或现成理论的形状代替目标
+做界面和基本形态时参考成熟产品；做架构和「AI 怎么思考」时，不拿成熟产品或现成理论的形状代替目标。
 """
 
 
