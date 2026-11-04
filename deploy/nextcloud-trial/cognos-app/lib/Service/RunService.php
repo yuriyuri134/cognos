@@ -145,7 +145,7 @@ final class RunService {
      * @return array{duplicate: bool, message_id: ?int, run: array}
      * @throws \InvalidArgumentException 不是这次运行登记的参与者、这次运行已经收过另一个结果、或依据写得不对
      */
-    public function receiveResult(array $run, string $resultId, string $subject, array $dependsOn, callable $store): array {
+    public function receiveResult(array $run, string $resultId, string $subject, array $dependsOn, callable $store, ?callable $finalize = null): array {
         if (!preg_match('/^[a-f0-9]{32}$/', $resultId)) {
             throw new \InvalidArgumentException('result_id must be 32 hex chars');
         }
@@ -205,6 +205,8 @@ final class RunService {
                 ->set('updated_at', $qb->createNamedParameter(time(), IQueryBuilder::PARAM_INT))
                 ->where($qb->expr()->eq('id', $qb->createNamedParameter($run['id'])))
                 ->executeStatement();
+            // Database-only completion belongs to the same receipt transaction. Never dispatch external work here.
+            if ($finalize !== null) { $finalize($messageId); }
             $this->db->commit();
         } catch (\Throwable $error) {
             $this->db->rollBack();

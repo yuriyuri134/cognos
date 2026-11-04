@@ -225,9 +225,42 @@ final class SpaceApiController extends OCSController {
         }
         // 回的是对话里哪一句；被反对叫回来的回答是 0（不回任何一句）
         $replyTo = isset($body['reply_to']) && $body['reply_to'] !== null ? (int)$body['reply_to'] : null;
+        $missing = []; $changed = [];
+        $finalize = function (int $messageId) use ($uid, $run, $body, $spaceType, $spaceId, &$missing, &$changed): void {
+            // 运行起步以后才有、输入里没有的适用决定：结果照收，记下来，页面上标「起步时还没有这条决定」；不自动应用到共享内容
+            $drift = $this->driftSnapshot($uid, $run);
+            $missing = $drift['decisions_missing'];
+            if ($missing !== []) {
+                $this->runs->setDecisionsMissing($run['id'], $missing);
+            }
+            // 它报过的依据在这期间被改了：照收，记下来；它交回前看过差异（acknowledged_drift）也记下
+            $changed = $drift['basis_changed'];
+            $seen = !empty($body['acknowledged_drift']) && is_string($body['drift_token'] ?? null)
+                && hash_equals($drift['drift_token'], $body['drift_token'])
+                && ($missing !== [] || $changed !== []) ? time() : null;
+            if ($changed !== [] || $seen !== null) {
+                $this->runs->setDrift($run['id'], $changed, $seen);
+            }
+            if ($run['target_type'] === 'delegation') {
+                $this->delegations->returned($run['target_id'], (int)$messageId);
+            }
+            // 从哪件没完的叫起来的，以登记的运行为准
+            $openId = $run['target_type'] === 'open' ? (int)$run['target_id'] : null;
+            if ($openId !== null) {
+                $checks = is_array($body['checks'] ?? null)
+                    ? ['ok' => (bool)($body['checks']['ok'] ?? false), 'text' => trim((string)($body['checks']['text'] ?? ''))]
+                    : null;
+                try {
+                    $this->continuation->afterRun($spaceType, $spaceId, $openId, (int)($body['run_started'] ?? 0),
+                        isset($body['branch']) ? (string)$body['branch'] : null, $checks, (bool)($body['timed_out'] ?? false));
+                } catch (\InvalidArgumentException $error) {
+                    // 那件没完的不在了：回答照样留下，只是不接着走
+                }
+            }
+        };
         try {
             $received = $this->runs->receiveResult($run, $resultId, trim((string)($body['subject'] ?? '')), array_values($dependsOn),
-                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo)['id']);
+                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo)['id'], $finalize);
         } catch (\DomainException $error) {
             return new DataResponse(['message' => $error->getMessage()], 403);
         } catch (\InvalidArgumentException $error) {
@@ -240,36 +273,8 @@ final class SpaceApiController extends OCSController {
         }
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
         $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
-        // 运行起步以后才有、输入里没有的适用决定：结果照收，记下来，页面上标「起步时还没有这条决定」；不自动应用到共享内容
-        $drift = $this->driftSnapshot($uid, $run);
-        $missing = $drift['decisions_missing'];
-        if ($missing !== []) {
-            $this->runs->setDecisionsMissing($run['id'], $missing);
-        }
-        // 它报过的依据在这期间被改了：照收，记下来；它交回前看过差异（acknowledged_drift）也记下
-        $changed = $drift['basis_changed'];
-        $seen = !empty($body['acknowledged_drift']) && is_string($body['drift_token'] ?? null)
-            && hash_equals($drift['drift_token'], $body['drift_token'])
-            && ($missing !== [] || $changed !== []) ? time() : null;
-        if ($changed !== [] || $seen !== null) {
-            $this->runs->setDrift($run['id'], $changed, $seen);
-        }
-        if ($run['target_type'] === 'delegation') {
-            $this->delegations->returned($run['target_id'], (int)$received['message_id']);
-        }
-        // 从哪件没完的叫起来的，以登记的运行为准
+        // Only external dispatch remains after the committed receipt.
         $openId = $run['target_type'] === 'open' ? (int)$run['target_id'] : null;
-        if ($openId !== null) {
-            $checks = is_array($body['checks'] ?? null)
-                ? ['ok' => (bool)($body['checks']['ok'] ?? false), 'text' => trim((string)($body['checks']['text'] ?? ''))]
-                : null;
-            try {
-                $this->continuation->afterRun($spaceType, $spaceId, $openId, (int)($body['run_started'] ?? 0),
-                    isset($body['branch']) ? (string)$body['branch'] : null, $checks, (bool)($body['timed_out'] ?? false));
-            } catch (\InvalidArgumentException $error) {
-                // 那件没完的不在了：回答照样留下，只是不接着走
-            }
-        }
         $this->callNext($spaceType, $spaceId, $uid, $openId);
         return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false, 'decisions_missing' => $missing,
             'basis_changed' => $changed], 201);
