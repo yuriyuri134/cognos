@@ -17,6 +17,14 @@ final class ProjectService {
         return $this->lifecycle->lock($id);
     }
 
+    public function lockedLocation(string $uid, string $id): array {
+        $before=$this->location($uid,$id);
+        $this->lockedProject($uid,$before['project_id']);
+        $after=$this->location($uid,$id);
+        if ($before['project_id'] !== $after['project_id']) { throw new \RuntimeException('位置归属已变化，请重新读取入口',409); }
+        return $after;
+    }
+
     public function lifecycleHistory(string $uid, string $projectId): array {
         $this->project($uid, $projectId);
         $q = $this->db->getQueryBuilder();
@@ -107,7 +115,7 @@ final class ProjectService {
     public function addLocation(string $uid, string $projectId, string $parentId, string $title, string $requestId): array {
         $title = $this->title($title);
         return $this->commit($uid, $requestId, ['add_location', $projectId, $parentId, $title], function () use ($uid, $projectId, $parentId, $title) {
-            $this->project($uid, $projectId);
+            $this->lockedProject($uid, $projectId);
             $parent = $this->location($uid, $parentId);
             if ($parent['project_id'] !== $projectId) { throw new \InvalidArgumentException('上级位置不属于此项目'); }
             $depth = 1;
@@ -148,7 +156,7 @@ final class ProjectService {
 
     /** Write a new revision with an expected-revision check, inside the caller's commit. */
     public function saveContent(string $uid, string $id, int $expected, string $content, array $sources, string $editor, ?string $delegationId): array {
-        $loc = $this->location($uid, $id);
+        $loc = $this->lockedLocation($uid, $id);
         if ($delegationId !== null && !$this->lifecycle->delegationEligible($loc['project_id'], $delegationId)) {
             throw new \RuntimeException('项目已暂停、结束或这次运行属于旧的推进安排，结果留作比较', 409);
         }

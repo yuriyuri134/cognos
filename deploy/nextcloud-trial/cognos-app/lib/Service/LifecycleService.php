@@ -27,7 +27,13 @@ final class LifecycleService {
         $loc = $q->select('project_id')->from('cognos_locations')
             ->where($q->expr()->eq('creation_id', $q->createNamedParameter((int)$id, IQueryBuilder::PARAM_INT)))
             ->executeQuery()->fetch();
-        return $loc ? $this->lock((string)$loc['project_id']) : null;
+        if (!$loc) { return null; }
+        $project=$this->lock((string)$loc['project_id']);
+        $q=$this->db->getQueryBuilder();
+        $current=$q->select('project_id')->from('cognos_locations')
+            ->where($q->expr()->eq('creation_id',$q->createNamedParameter((int)$id,IQueryBuilder::PARAM_INT)))->executeQuery()->fetch();
+        if (!$current || $current['project_id'] !== $loc['project_id']) { throw new \RuntimeException('位置归属已变化，请重新读取入口',409); }
+        return $project;
     }
 
     public function assertCanStart(string $type, string $id): void {

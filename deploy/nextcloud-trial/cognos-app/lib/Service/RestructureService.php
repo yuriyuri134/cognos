@@ -36,6 +36,9 @@ final class RestructureService {
 
     public function apply(string $uid, string $action, array $params, string $basis, string $requestId): array {
         return $this->projects->commit($uid, $requestId, ['restructure', $action, $params, $basis], function () use ($uid, $action, $params, $basis): array {
+            $ids=$this->affectedProjects($uid,$params);
+            foreach ($ids as $id) { $this->projects->lockedProject($uid,$id); }
+            if ($ids !== $this->affectedProjects($uid,$params)) { throw new \RuntimeException('位置归属已变化，请重新预览',409); }
             $plan = $this->plan($uid, $action, $params);
             if (!hash_equals($plan['basis'], $basis)) {
                 throw new \RuntimeException('预览以后这里有了变化，没有做任何改动。请重新看一遍预览再确认。', 409);
@@ -69,6 +72,15 @@ final class RestructureService {
                 $qb->expr()->eq('h.to_project_id', $qb->createNamedParameter($projectId))))
             ->orderBy('h.changed_at', 'DESC')->addOrderBy('h.id', 'DESC')->setMaxResults(200)->executeQuery()->fetchAll();
         return $this->describeRows($uid, $rows);
+    }
+
+    private function affectedProjects(string $uid,array $params): array {
+        $ids=[];
+        if (!empty($params['project_id'])) { $ids[]=$this->projects->project($uid,(string)$params['project_id'])['id']; }
+        foreach (['location_id','parent_id','target_parent_id'] as $key) {
+            if (!empty($params[$key])) { $ids[]=$this->projects->location($uid,(string)$params[$key])['project_id']; }
+        }
+        $ids=array_values(array_unique($ids));sort($ids,SORT_STRING);return $ids;
     }
 
     private function plan(string $uid, string $action, array $params): array {
@@ -230,7 +242,7 @@ final class RestructureService {
             sort($locs);
             $decs = array_map(static fn(array $d): array => [$d['id'], $d['status'], $d['scope_location_ids']], $this->decisions->forProject($uid, $pid));
             sort($decs);
-            $state[] = [$pid, $p['merged_into'] ?? null, $locs, $decs];
+            $state[] = [$pid, $p['merged_into'] ?? null, $p['state'], (int)$p['execution_epoch'], $locs, $decs];
         }
         return hash('sha256', json_encode($state, JSON_THROW_ON_ERROR));
     }
