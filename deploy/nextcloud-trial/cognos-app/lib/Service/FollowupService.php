@@ -72,7 +72,7 @@ final class FollowupService {
   $event=$this->get($id);return $event && $event['user_id']===$uid && $this->transition($id,'pending','claimed') ? $event : null;
  }
  public function defer(string $id,string $note):void {$this->transition($id,'pending','pending',$note);}
- public function retryClaim(string $id):void {$this->transition($id,'claimed','pending','桥明确忙拒绝，原工作仍在队列等待');}
+ public function retryClaim(string $id,string $note='桥明确忙拒绝，原工作仍在队列等待'):void {$this->transition($id,'claimed','pending',$note);}
  public function cancelClaim(string $id):void {$this->transition($id,'claimed','cancelled','领取后项目停止派新工作，不延续旧安排');}
  public function finish(string $id):void {$this->transition($id,'claimed','attempted','已执行一次接续选择；实际执行状态以关联运行为准');}
  public function cancel(string $id,string $note):void {$this->transition($id,'pending','cancelled',$note);}

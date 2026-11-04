@@ -86,6 +86,7 @@ final class PushBackService {
             if($state==='claimed'){$this->dispatchQueue->settle($item['id'],$followupId,'skipped',$result['message']);continue;}
             return [$state==='queued'?'busy':($state==='unknown'?'unknown':'hit'),$id,$claim];
         }
+        if($this->dispatchQueue->hasHeld($spaceType,$spaceId))return ['held',0,null];
         return $this->dispatchQueue->blocked($spaceType,$spaceId)?['blocked',0,null]:null;
     }
 
@@ -150,7 +151,7 @@ final class PushBackService {
         $raw=$this->config->getAppValue('cognos','pushback_queue_'.$spaceType.'_'.$spaceId,'[]');
         $items=json_decode($raw,true);
         if(!is_array($items))throw new \RuntimeException('旧队列无法识别，保留原记录供核对');
-        $this->dispatchQueue->importLegacy($spaceType,$spaceId,$items);
+        $this->dispatchQueue->importHeldLegacy($spaceType,$spaceId,$items);
     }
     private function enqueue(string $spaceType,string $spaceId,string $item,bool $front=false):array {
         $this->importLegacy($spaceType,$spaceId);[$kind,$id]=explode(':',$item,2);

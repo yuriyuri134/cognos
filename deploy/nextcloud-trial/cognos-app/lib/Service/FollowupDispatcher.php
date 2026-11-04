@@ -9,8 +9,9 @@ final class FollowupDispatcher {
  public function __construct(private IDBConnection $db,private FollowupService $events,private RunService $runs,
   private LifecycleService $lifecycle,private CreationSpaceService $creations,private PushBackService $pushBack,
   private ContinuationService $continuation,private HermesAgentService $hermes,private IConfig $config,
-  private IUserSession $users,private IUserManager $userManager,private DispatchQueueService $dispatchQueue){}
+  private IUserSession $users,private IUserManager $userManager,private DispatchQueueService $dispatchQueue,private LegacyQueueImportService $legacyImports){}
  public function recover():void {
+  $this->legacyImports->scan();
   $this->dispatchQueue->expireClaims(time()-1800);
   $this->events->expireClaims(time()-1800);
   foreach($this->events->pending() as $event)$this->process($event['result_id'],$event['user_id']);
@@ -44,7 +45,7 @@ final class FollowupDispatcher {
    $this->config->deleteAppValue('cognos','agent_pending_who_creation_'.(int)$event['space_id']);
    $this->callNext($event['space_type'],$event['space_id'],$uid,$event['open_id']===null?null:(int)$event['open_id'],$id);
    $this->events->finish($id);
-  }catch(\Throwable $e){if($e instanceof ProjectInactiveException)$this->events->cancelClaim($id);elseif($e instanceof \RuntimeException&&$e->getCode()===ClaudeBridgeService::BUSY)$this->events->retryClaim($id);else $this->events->unknown($id);}finally{$this->users->setUser($previous);}
+  }catch(\Throwable $e){if($e instanceof QueueHeldException)$this->events->retryClaim($id,'旧积压需先核对，未派发');elseif($e instanceof ProjectInactiveException)$this->events->cancelClaim($id);elseif($e instanceof \RuntimeException&&$e->getCode()===ClaudeBridgeService::BUSY)$this->events->retryClaim($id);else $this->events->unknown($id);}finally{$this->users->setUser($previous);}
   return true;
  }
     private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan,string $followupId): void {
@@ -54,6 +55,7 @@ final class FollowupDispatcher {
             return;
         }
         [$what, $messageId,$claim] = $next;
+        if($what==='held')throw new QueueHeldException('旧积压需核对');
         if($what==='busy')throw new \RuntimeException('桥明确忙拒绝',ClaudeBridgeService::BUSY);
         if(in_array($what,['unknown','blocked'],true))throw new \RuntimeException('队列有未核清派发，不能继续');
         if ($what !== 'msg') {
