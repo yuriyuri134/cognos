@@ -44,7 +44,7 @@ final class RunService {
         try {
             $project = $this->lifecycle->forSpace($spaceType, $spaceId);
             if ($project !== null && $project['state'] !== 'active') {
-                throw new \RuntimeException('项目当前为 ' . $project['state'] . '，已停止派新工作；已有结果仍可交回', 409);
+                throw new ProjectInactiveException('项目当前为 ' . $project['state'] . '，已停止派新工作；已有结果仍可交回');
             }
             $id = bin2hex(random_bytes(16));
             $now = time();
@@ -93,6 +93,10 @@ final class RunService {
     }
 
     /** 桥重启时发现这一件做到一半没了：不知道做没做完。 */
+    public function dispatchUnknown(string $runId, string $reason): bool {
+        return $this->moveFrom($runId, ['queued'], 'unknown', $reason, null);
+    }
+
     public function markUnknown(string $runId, string $reason): bool {
         return $this->moveFrom($runId, self::LIVE, 'unknown', $reason, null);
     }

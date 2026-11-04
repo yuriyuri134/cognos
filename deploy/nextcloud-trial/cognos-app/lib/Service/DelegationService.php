@@ -57,7 +57,7 @@ final class DelegationService {
             function () use ($uid, $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt): array {
                 $loc = $this->projects->location($uid, $locationId);
                 $project = $this->projects->lockedProject($uid,$loc['project_id']);
-                if ($project['state'] !== 'active') { throw new \RuntimeException('项目已停止派新工作，请先调整推进安排',409); }
+                if ($project['state'] !== 'active') { throw new ProjectInactiveException('项目已停止派新工作，请先调整推进安排'); }
                 $now = time();
                 $returnBy = $now + $returnMinutes * 60;
                 $text = $this->message($ask, $goal, $means, $forbidden, $this->localTime($uid, $returnBy), $mayEdit, $loc['revision'], $mayAdopt);
@@ -76,7 +76,8 @@ final class DelegationService {
             });
         $this->send($uid, $saved['delegation_id']);
         $d = $this->get($saved['delegation_id']);
-        return $saved + ['state' => (string)$d['state'], 'note' => $d['note'] === null ? null : (string)$d['note']];
+        $run = empty($d['run_id']) ? null : $this->runs->get((string)$d['run_id']);
+        return $saved + ['run_state' => $run['state'] ?? null, 'state' => (string)$d['state'], 'note' => $d['note'] === null ? null : (string)$d['note']];
     }
 
     /** 这个位置交出去过的事，最近的在前，带运行状态、是否过了约定时间。 */
@@ -241,11 +242,13 @@ final class DelegationService {
             $this->agents->chatCreation($loc['creation_id'], $message, $context, (int)$d['message_id'],
                 ['delegation_id' => $id, 'delegation_ask' => (string)$d['ask']], $this->canDoLines($id));
         } catch (\Throwable $error) {
-            $this->update($id, ['state' => 'not_taken', 'note' => mb_substr($error->getMessage(), 0, 1000),
-                'run_id' => $this->runFor($id)]);
+            $runId = $this->runFor($id);
+            $run = $runId === null ? null : $this->runs->get($runId);
+            $this->update($id, ['state' => $run !== null && $run['state'] !== 'failed' ? 'sent' : 'not_taken',
+                'note' => mb_substr($error->getMessage(), 0, 1000), 'run_id' => $runId], 'starting');
             return;
         }
-        $this->update($id, ['state' => 'sent', 'run_id' => $this->runFor($id)]);
+        $this->update($id, ['state' => 'sent', 'run_id' => $this->runFor($id)], 'starting');
     }
 
     private function runFor(string $id): ?string {
@@ -285,12 +288,14 @@ final class DelegationService {
         return (new \DateTimeImmutable('@' . $ts))->setTimezone($zone)->format('Y-m-d H:i');
     }
 
-    private function update(string $id, array $values): void {
+    private function update(string $id, array $values, ?string $expectedState = null): void {
         $qb = $this->db->getQueryBuilder();
         $qb->update('cognos_delegations');
         foreach ($values + ['updated_at' => time()] as $key => $value) {
             $qb->set($key, $qb->createNamedParameter($value, $value === null ? IQueryBuilder::PARAM_NULL : (is_int($value) ? IQueryBuilder::PARAM_INT : IQueryBuilder::PARAM_STR)));
         }
-        $qb->where($qb->expr()->eq('id', $qb->createNamedParameter($id)))->executeStatement();
+        $qb->where($qb->expr()->eq('id', $qb->createNamedParameter($id)));
+        if ($expectedState !== null) { $qb->andWhere($qb->expr()->eq('state', $qb->createNamedParameter($expectedState))); }
+        $qb->executeStatement();
     }
 }

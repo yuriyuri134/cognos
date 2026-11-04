@@ -30,6 +30,15 @@ final class LifecycleService {
         return $loc ? $this->lock((string)$loc['project_id']) : null;
     }
 
+    public function assertCanStart(string $type, string $id): void {
+        $this->db->beginTransaction();
+        try {
+            $p=$this->forSpace($type,$id);
+            if ($p !== null && $p['state'] !== 'active') { throw new ProjectInactiveException('项目当前为 '.$p['state'].'，已停止派新工作；已有结果仍可交回'); }
+            $this->db->commit();
+        } catch (\Throwable $e) { $this->db->rollBack(); throw $e; }
+    }
+
     public function eligible(string $projectId, array $run): bool {
         $p = $this->lock($projectId);
         return $p['state'] === 'active' && ($run['project_id'] ?? null) === $projectId

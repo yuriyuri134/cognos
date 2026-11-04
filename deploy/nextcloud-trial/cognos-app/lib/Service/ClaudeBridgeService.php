@@ -116,8 +116,8 @@ final class ClaudeBridgeService {
                 'nextcloud' => ['allow_local_address' => true],
             ]);
         } catch (\Throwable $error) {
-            $this->runs->failed($run['id'], '连不上桥：' . $error->getMessage());
-            throw new \RuntimeException('连不上本机的 Claude Code 桥（' . $url . '）：桥可能没起来，在仓库目录跑 python tools\\cognos-space-mcp\\claude_bridge.py');
+            $this->runs->dispatchUnknown($run['id'], '桥响应丢失，不能确认是否已经开工：' . $error->getMessage());
+            throw new \RuntimeException('没有收到桥的确认，工作可能已经开始；已记为状态未知，请先核对，勿重复派发。');
         }
 
         $status = $response->getStatusCode();
@@ -132,8 +132,12 @@ final class ClaudeBridgeService {
         }
         $body = json_decode((string)$response->getBody(), true);
         $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
-        $this->runs->failed($run['id'], ($status === self::BUSY ? '桥正忙，没接下' : '桥没接下（HTTP ' . $status . '）') . ($reason !== '' ? '：' . $reason : ''));
-        throw new \RuntimeException('Claude Code 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
+        if (in_array($status, [400, 401, 403, self::BUSY, 422], true)) {
+            $this->runs->failed($run['id'], '桥明确拒绝（HTTP ' . $status . '）' . ($reason !== '' ? '：' . $reason : ''));
+            throw new \RuntimeException('Claude Code 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
+        }
+        $this->runs->dispatchUnknown($run['id'], '桥返回 HTTP ' . $status . '，不能确认是否已经开工');
+        throw new \RuntimeException('桥返回异常回复，工作是否开始尚不确定；请先核对，勿重复派发。');
     }
 
     /**

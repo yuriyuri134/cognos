@@ -48,6 +48,7 @@ final class HermesAgentService {
         private CreationSpaceService $creations,
         private ClaudeBridgeService $bridge,
         private PushBackService $pushBack,
+        private LifecycleService $lifecycle,
         private IConfig $config,
         private LoggerInterface $logger,
     ) {
@@ -538,6 +539,8 @@ final class HermesAgentService {
         if ($last !== false && ($last['role'] ?? '') === 'user' && trim((string)($last['content'] ?? '')) === $message) {
             array_pop($history);
         }
+
+        $this->lifecycle->assertCanStart('creation',(string)$creationId);
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
         if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {

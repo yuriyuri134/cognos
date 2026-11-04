@@ -355,6 +355,7 @@ final class ProjectService {
                 'truncated' => count($taken) < count($messages) || mb_strlen($text) > 4000];
         }
         return ['project_id' => $project['id'], 'project_title' => $project['title'],
+            'state' => $project['state'], 'execution_epoch' => (int)$project['execution_epoch'],
             'location_id' => $loc['id'], 'path' => array_reverse($path), 'revision' => $loc['revision'],
             'working_content' => mb_substr($loc['content'], 0, 16000), 'editor' => $loc['editor'],
             'content_truncated' => mb_strlen($loc['content']) > 16000, 'content_hash' => hash('sha256', $loc['content']),

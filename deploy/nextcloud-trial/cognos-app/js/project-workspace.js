@@ -694,7 +694,7 @@
         may_edit: $('pw-delegate-edit').checked, may_adopt: $('pw-delegate-adopt').checked});
       $('pw-delegate-ask').value = ''; $('pw-delegate-goal').value = ''; $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
       state.lastOverview = ''; await Promise.all([loadOverview(), loadMessages()]);
-      notice(r.state === 'not_taken' ? '记下了，但没交出去：' + r.note : '交出去了。可以走开，结果会回到这里。', r.state === 'not_taken');
+      notice(r.run_state === 'unknown' ? '还不能确认对方是否已经开工，已记为状态未知；请先核对，勿重复派发。' : (r.state === 'not_taken' ? '记下了，但没交出去：' + r.note : '交出去了。可以走开，结果会回到这里。'), r.state === 'not_taken' || r.run_state === 'unknown');
     });
   });
   $('pw-handoff-copy').addEventListener('click', async () => {
