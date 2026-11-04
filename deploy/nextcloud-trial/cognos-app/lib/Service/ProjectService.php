@@ -10,6 +10,40 @@ use OCP\IDBConnection;
 final class ProjectService {
     public function __construct(private IDBConnection $db, private CreationSpaceService $creations, private LifecycleService $lifecycle) {}
 
+
+    public function lifecycleHistory(string $uid, string $projectId): array {
+        $this->project($uid, $projectId);
+        $q = $this->db->getQueryBuilder();
+        return $q->select('*')->from('cognos_lifecycle_history')
+            ->where($q->expr()->eq('project_id', $q->createNamedParameter($projectId)))
+            ->orderBy('revision', 'DESC')->setMaxResults(100)->executeQuery()->fetchAll();
+    }
+
+    public function changeLifecycle(string $uid, string $id, string $action, int $expected, string $requestId, string $note, string $reopenWhen): array {
+        $targets = ['pause'=>'paused', 'end'=>'ended', 'explore'=>'exploring', 'resume'=>'active'];
+        if (!isset($targets[$action]) || $expected < 1 || mb_strlen($note) > 4000 || mb_strlen($reopenWhen) > 2000) {
+            throw new \InvalidArgumentException('状态操作或说明无效');
+        }
+        return $this->commit($uid, $requestId, ['lifecycle',$id,$action,$expected,$note,$reopenWhen],
+            function () use ($uid,$id,$action,$expected,$note,$reopenWhen,$targets): array {
+                $this->project($uid,$id);
+                $p = $this->lifecycle->lock($id);
+                if (!empty($p['merged_into'])) { throw new \RuntimeException('项目已经合并，请到目标项目调整状态',409); }
+                if ((int)$p['lifecycle_revision'] !== $expected) { throw new \RuntimeException('项目状态已变化，请查看最新记录再操作',409); }
+                $next=$targets[$action];
+                if ($p['state'] === $next) { throw new \RuntimeException('项目已经处于这个状态',409); }
+                $revision=$expected+1; $epoch=(int)$p['execution_epoch']+1;
+                $q=$this->db->getQueryBuilder();
+                $q->update('cognos_projects')->set('state',$q->createNamedParameter($next))
+                    ->set('lifecycle_revision',$q->createNamedParameter($revision,IQueryBuilder::PARAM_INT))
+                    ->set('execution_epoch',$q->createNamedParameter($epoch,IQueryBuilder::PARAM_INT))
+                    ->where($q->expr()->eq('id',$q->createNamedParameter($id)))->executeStatement();
+                $this->insert('cognos_lifecycle_history',['project_id'=>$id,'revision'=>$revision,'from_state'=>$p['state'],
+                    'to_state'=>$next,'actor'=>$uid,'note'=>$note,'reopen_when'=>$reopenWhen,'created_at'=>time()]);
+                return ['project_id'=>$id,'state'=>$next,'lifecycle_revision'=>$revision,'execution_epoch'=>$epoch];
+            });
+    }
+
     public function projects(string $uid): array {
         $qb = $this->db->getQueryBuilder();
         return $qb->select('id', 'title', 'root_location_id', 'merged_into')->from('cognos_projects')

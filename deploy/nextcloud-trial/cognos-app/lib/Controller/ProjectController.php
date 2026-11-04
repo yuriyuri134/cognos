@@ -44,7 +44,7 @@ final class ProjectController extends Controller {
             $reviews = $this->adoptions->reviewCounts($projectId);
             $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]) + ['review' => $reviews[$l['id']] ?? 0],
                 $this->projects->locationStates($uid, $projectId));
-            $out = ['decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
+            $out = ['project' => $this->projects->project($uid, $projectId), 'lifecycle_history' => $this->projects->lifecycleHistory($uid, $projectId), 'decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
                 'formed_from' => $this->initium->forProject($uid, $projectId),
                 'history' => $this->restructures->historyForProject($uid, $projectId), 'merged_into' => $this->mergedInto($uid, $projectId)];
             if ($location_id !== '') {
@@ -216,6 +216,11 @@ final class ProjectController extends Controller {
         $tz = $this->config->getUserValue($uid, 'core', 'timezone', '') ?: 'Asia/Shanghai';
         try { $zone = new \DateTimeZone($tz); } catch (\Exception) { $zone = new \DateTimeZone('Asia/Shanghai'); }
         return (new \DateTimeImmutable('@' . $ts))->setTimezone($zone)->format($format);
+    }
+
+    #[NoAdminRequired]
+    public function lifecycle(string $projectId, string $action, int $expected_revision, string $request_id, string $note = '', string $reopen_when = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->projects->changeLifecycle($uid,$projectId,$action,$expected_revision,$request_id,$note,$reopen_when));
     }
 
     private function respond(callable $fn): DataResponse {

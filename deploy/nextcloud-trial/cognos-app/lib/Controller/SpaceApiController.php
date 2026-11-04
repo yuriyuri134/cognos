@@ -408,8 +408,13 @@ final class SpaceApiController extends OCSController {
         $purpose = $purpose === '' ? '自己进来做事' : mb_substr($purpose, 0, 500);
         $entry = $this->entries->entry($space, $subject, null, []);
         $decisionIds = SpaceEntryService::decisionIds($entry);
+        try {
         $run = $this->runs->create($spaceType, $spaceId, 'conversation', $spaceType . ':' . $spaceId, $purpose, $subject, $uid,
             ['system' => $this->entries->renderText($entry), 'decision_ids' => $decisionIds, 'started_by' => 'agent']);
+        } catch (\RuntimeException $e) {
+            if ($e->getCode() !== 409) { throw $e; }
+            return new DataResponse(['message'=>$e->getMessage()],409);
+        }
         $this->decisions->recordIncluded($run['id'], $decisionIds);
         $this->runs->startedByAgent($run['id']);
         $this->spaces->markSeen($spaceType, $spaceId, $subject);

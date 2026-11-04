@@ -158,6 +158,9 @@ final class CreationSpaceController extends Controller {
             try {
                 $agentResponse = $this->hermes->chatCreation($id, $message, $context, $replyTo);
             } catch (\RuntimeException $error) {
+                if ($error->getCode() === 409) {
+                    return new DataResponse(['messages'=>$saved,'pending'=>false,'message'=>$error->getMessage(),'execution_blocked'=>true]);
+                }
                 if ($error->getCode() !== ClaudeBridgeService::BUSY) {
                     return new DataResponse(['messages' => $saved, 'message' => $error->getMessage()], 502);
                 }

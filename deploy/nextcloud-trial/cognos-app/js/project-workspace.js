@@ -89,6 +89,7 @@
     const hash = JSON.stringify(data);
     if (hash === state.lastOverview) return;
     state.lastOverview = hash;
+    if (data.project) { state.project = data.project; renderLifecycle(data.lifecycle_history || []); }
     renderDecisions(data.decisions);
     renderWho(data.activity);
     if (state.mode === 'location') renderHistory($('pw-location-history'), data.location_history || [], true);
@@ -108,6 +109,30 @@
     await followRevision(data.revision);
     if (document.activeElement !== $('pw-handoff-text')) $('pw-handoff-text').value = data.handoff_text || '';
   }
+  const lifecycleNames = {active:'正在推进',paused:'已暂停',ended:'已结束',exploring:'自由探索'};
+  function renderLifecycle(history) {
+    const current = state.project.state || 'active';
+    $('pw-lifecycle-state').textContent = lifecycleNames[current] + (current === 'active' ? '。' : '。已停止派新工作；已在执行的参与者可能仍在运行，结果可以交回。');
+    const select = $('pw-lifecycle-action');
+    if (select.dataset.current !== current) {
+      select.replaceChildren();
+      for (const [action,target,label] of [['pause','paused','暂停'],['end','ended','结束这一轮'],['explore','exploring','退回自由探索'],['resume','active','重新开始推进']]) {
+        if (target !== current) { const option=node('option',label); option.value=action; select.append(option); }
+      }
+      select.dataset.current=current;
+    }
+    $('pw-lifecycle-form').hidden=!!state.project.merged_into;
+    $('pw-lifecycle-history').replaceChildren(...history.map(h => node('li', date(h.created_at)+' · '+h.actor+'：'+lifecycleNames[h.from_state]+' → '+lifecycleNames[h.to_state]+(h.note?'；'+h.note:'')+(h.reopen_when?'；再开条件或未完成：'+h.reopen_when:''))));
+  }
+  $('pw-lifecycle-form').addEventListener('submit', e => {
+    e.preventDefault();
+    busy(e.currentTarget,async()=>{
+      try {
+        await mutate('/projects/'+state.project.id+'/lifecycle','POST',{action:$('pw-lifecycle-action').value,expected_revision:Number(state.project.lifecycle_revision),note:$('pw-lifecycle-note').value,reopen_when:$('pw-lifecycle-reopen').value});
+        $('pw-lifecycle-note').value=''; $('pw-lifecycle-reopen').value=''; notice('推进安排已保存。');
+      } finally { state.lastOverview=''; await loadOverview(); }
+    });
+  });
   function decisionItem(d) {
     const li = node('li', undefined, 'pw-decision pw-decision-' + d.status);
     li.dataset.decisionId = d.id;
@@ -714,7 +739,7 @@
       state.sending = true;
       try {
         const result = await api('/creations/' + state.location.creation_id + '/messages', 'POST', {message});
-        $('pw-message').value = ''; notice(result.queued ? '原话已保存，将在当前回复后继续处理。' : '原话已保存。');
+        $('pw-message').value = ''; notice(result.execution_blocked ? '原话已保存。'+result.message : (result.queued ? '原话已保存，将在当前回复后继续处理。' : '原话已保存。'));
       } catch (error) {
         if (error.body?.messages?.length) {
           $('pw-message').value = ''; notice('原话已保存，但这次未能叫来 AI：' + error.message, true);

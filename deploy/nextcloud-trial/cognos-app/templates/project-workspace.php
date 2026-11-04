@@ -85,6 +85,22 @@
                     <button type="button" id="pw-handoff-copy">复制</button>
                 </details>
             </section>
+            <section aria-labelledby="pw-lifecycle-title">
+                <h2 id="pw-lifecycle-title">项目状态</h2>
+                <p id="pw-lifecycle-state" role="status"></p>
+                <details><summary>调整推进安排</summary>
+                    <form id="pw-lifecycle-form">
+                        <label for="pw-lifecycle-action">操作</label>
+                        <select id="pw-lifecycle-action"></select>
+                        <label for="pw-lifecycle-note">这次为什么调整（可留空）</label>
+                        <textarea id="pw-lifecycle-note" rows="2" maxlength="4000"></textarea>
+                        <label for="pw-lifecycle-reopen">再开条件或未完成内容（可留空）</label>
+                        <textarea id="pw-lifecycle-reopen" rows="2" maxlength="2000"></textarea>
+                        <button type="submit">保存推进安排</button>
+                    </form>
+                </details>
+                <details><summary>状态变化记录</summary><ul id="pw-lifecycle-history"></ul></details>
+            </section>
             <section class="pw-who" aria-labelledby="pw-who-title">
                 <h2 id="pw-who-title">谁在动什么</h2>
                 <div id="pw-who" aria-live="polite"></div>
