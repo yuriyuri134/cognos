@@ -115,20 +115,21 @@ final class ProjectController extends Controller {
     /** 重组：先预览后果（带 basis），确认时带回 basis，状态变了就整批不做。 */
     #[NoAdminRequired]
     public function previewRestructure(string $action, string $location_id = '', string $parent_id = '', string $project_id = '',
-        string $target_parent_id = ''): DataResponse {
+        string $target_parent_id = '', string $change_id = ''): DataResponse {
         return $this->respond(fn(string $uid) => $this->restructures->preview($uid, $action,
-            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id)));
+            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id, $change_id)));
     }
 
     #[NoAdminRequired]
     public function restructure(string $action, string $basis, string $request_id, string $location_id = '', string $parent_id = '',
-        string $project_id = '', string $target_parent_id = ''): DataResponse {
+        string $project_id = '', string $target_parent_id = '', string $change_id = ''): DataResponse {
         return $this->respond(fn(string $uid) => $this->restructures->apply($uid, $action,
-            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id), $basis, $request_id));
+            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id, $change_id), $basis, $request_id));
     }
 
-    private function restructureParams(string $action, string $locationId, string $parentId, string $projectId, string $targetParentId): array {
+    private function restructureParams(string $action, string $locationId, string $parentId, string $projectId, string $targetParentId, string $changeId): array {
         return match ($action) {
+            'undo_move' => ['change_id' => $changeId],
             'move' => ['location_id' => $locationId, 'parent_id' => $parentId],
             'independent' => ['location_id' => $locationId],
             'merge' => ['project_id' => $projectId, 'target_parent_id' => $targetParentId],
