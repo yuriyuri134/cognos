@@ -1,0 +1,9 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{execFileSync}=require('node:child_process');
+const p=JSON.parse(fs.readFileSync(path.join(__dirname,'evidence/queue-resume.json'),'utf8'));
+const headers={Authorization:'Basic '+Buffer.from('cognos-admin:'+fs.readFileSync(path.join(__dirname,'.secrets/admin-password'),'utf8').trim()).toString('base64'),'OCS-APIRequest':'true',Accept:'application/json'};
+async function main(){const event=JSON.parse(execFileSync('docker',['exec','-u','www-data','-w','/var/www/html','cognos-nextcloud-trial-app-1','php','/tmp/start_queue_resume_live.php',Buffer.from(JSON.stringify(p)).toString('base64')],{encoding:'utf8'}));
+ let view,item;const end=Date.now()+420000;
+ do{const r=await fetch('http://127.0.0.1:8780/index.php/apps/cognos/projects/'+p.project_id+'/overview',{headers});assert(r.ok);view=await r.json();item=view.dispatch_queue.find(x=>x.id===p.item_id);if(item?.run_state==='delivered')break;await new Promise(r=>setTimeout(r,3000));}while(Date.now()<end);
+ assert.equal(item.state,'sent');assert.equal(item.run_state,'delivered');assert.equal(view.dispatch_queue.find(x=>x.id===p.first_item_id).state,'held');assert.equal(view.followups.find(x=>x.result_id===event.followup_id).request_note,'浏览器明确继续：只执行第二项，第一项保留暂挂');
+ const report={result:'pass',project_id:p.project_id,item_id:p.item_id,run_id:item.run_id,checks:['persisted browser approval is recovered without resubmission; real Claude Code returns selected second item; unselected first item stays held']};fs.writeFileSync(path.join(__dirname,'evidence/queue-resume-live.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));}
+main().catch(e=>{console.error(e.message);process.exitCode=1});

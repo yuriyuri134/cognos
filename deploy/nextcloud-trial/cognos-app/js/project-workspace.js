@@ -145,6 +145,7 @@
       const li=node('li',undefined,'pw-decision'+(item.state==='unknown'?' pw-warn':''));li.dataset.resultId=item.result_id;
       li.append(node('p',labels[item.state]||item.state));
       const source=node('p');source.append(link('查看对应讨论',base+'/creations/'+item.space_id),document.createTextNode(' · '+date(item.updated_at)));li.append(source);
+      if(item.request_note)li.append(node('p','核对原话：'+item.request_note));
       if(item.note){const note=node('p',item.note);note.style.whiteSpace='pre-wrap';li.append(note);}
       if(['pending','unknown'].includes(item.state)){
         const form=node('form');const input=node('textarea');input.required=true;input.maxLength=2000;input.rows=2;input.id='pw-close-followup-'+item.result_id;
@@ -173,8 +174,9 @@
         const form=node('form');const input=node('textarea');input.required=true;input.rows=2;input.maxLength=2000;input.id='pw-queue-note-'+item.id;
         const label=node('label','核对或取消说明');label.htmlFor=input.id;
         const button=node('button',item.state==='unknown'?'已核清，关闭本次派发':'取消本次排队');button.type='submit';form.append(label,input,button);
-        form.addEventListener('submit',e=>{e.preventDefault();busy(form,async()=>{
-          try{await mutate('/projects/queue/'+item.id+'/close','POST',{creation_id:Number(item.space_id),expected_state:item.state,note:input.value});notice('队列记录已关闭，没有重放，也没有改变实际运行状态。');}
+        if(item.state==='held'){const resume=node('button','核对后继续这一项');resume.type='submit';resume.dataset.resume='1';form.append(resume);}
+        form.addEventListener('submit',e=>{e.preventDefault();const continuing=e.submitter?.dataset.resume==='1';busy(form,async()=>{
+          try{await mutate('/projects/queue/'+item.id+(continuing?'/resume':'/close'),'POST',{creation_id:Number(item.space_id),...(continuing?{}:{expected_state:item.state}),note:input.value});notice(continuing?'已记录明确继续；后台会在当前安排有效时领取这一项。':'队列记录已关闭，没有重放，也没有改变实际运行状态。');}
           finally{document.activeElement?.blur();state.lastOverview='';await loadOverview();}
         });});li.append(form);
       }

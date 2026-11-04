@@ -256,6 +256,18 @@ final class ProjectController extends Controller {
         }));
     }
 
+    #[NoAdminRequired]
+    public function resumeQueue(string $itemId,int $creation_id,string $note,string $request_id):DataResponse {
+        return $this->respond(fn(string $uid)=>$this->projects->commit($uid,$request_id,['resume_queue',$itemId,$creation_id,$note],function()use($uid,$itemId,$creation_id,$note):array {
+            $loc=$this->projects->locationForCreation($uid,$creation_id);if($loc===null)throw new \RuntimeException('项目讨论不存在或不可访问',404);
+            $loc=$this->projects->lockedLocation($uid,$loc['id']);$project=$this->projects->lockedProject($uid,$loc['project_id']);
+            if($project['state']!=='active')throw new \RuntimeException('请先明确恢复项目推进，再继续旧排队',409);
+            $item=$this->dispatchQueue->releaseHeld($itemId,(string)$creation_id,$uid,$note);$intent=bin2hex(random_bytes(16));
+            $this->followups->enqueueReviewed($intent,$uid,(string)$creation_id,$itemId,$project,trim($note));
+            return ['item_id'=>$itemId,'state'=>'queued','followup_id'=>$intent];
+        }));
+    }
+
     private function respond(callable $fn): DataResponse {
         $user = $this->users->getUser();
         if (!$user) { return new DataResponse(['message' => '请先登录'], 401); }

@@ -13,6 +13,12 @@ final class FollowupService {
   foreach($values as $key=>$v)$values[$key]=$q->createNamedParameter($v,$v===null?IQueryBuilder::PARAM_NULL:(is_int($v)?IQueryBuilder::PARAM_INT:IQueryBuilder::PARAM_STR));
   $q->insert('cognos_followups')->values($values)->executeStatement();
  }
+
+ public function enqueueReviewed(string $id,string $uid,string $spaceId,string $itemId,array $project,string $note):void {
+  $q=$this->db->getQueryBuilder();$v=['result_id'=>$id,'run_id'=>null,'user_id'=>$uid,'space_type'=>'creation','space_id'=>$spaceId,'state'=>'pending','open_id'=>null,'note'=>'人工核对后继续单个旧项',
+   'created_at'=>time(),'updated_at'=>time(),'origin'=>'queue_review','queue_item_id'=>$itemId,'project_id'=>$project['id'],'execution_epoch'=>(int)$project['execution_epoch'],'request_note'=>$note];
+  foreach($v as $k=>$value)$v[$k]=$q->createNamedParameter($value,$value===null?IQueryBuilder::PARAM_NULL:(is_int($value)?IQueryBuilder::PARAM_INT:IQueryBuilder::PARAM_STR));$q->insert('cognos_followups')->values($v)->executeStatement();
+ }
  public function get(string $id):?array {
   $q=$this->db->getQueryBuilder();$r=$q->select('*')->from('cognos_followups')->where($q->expr()->eq('result_id',$q->createNamedParameter($id)))->executeQuery()->fetch();return $r?:null;
  }
@@ -60,6 +66,7 @@ final class FollowupService {
   $record=$event['note']."\n核对记录（".$uid.'）：'.$note.'；关闭本次接续，不重放，不改变实际运行状态。';
   if(!$this->transition($id,$expected,$next,$record))throw new \RuntimeException('接续状态已变化，请先看最新记录',409);
   if($expected==='unknown')$this->dispatchQueue->reconcileIntent($id,$uid.'：'.$note);
+  if($expected==='pending'&&($event['origin']??'result')==='queue_review')$this->dispatchQueue->suspendReviewed($event['queue_item_id']);
   return ['result_id'=>$id,'state'=>$next];
  }
  public function lockOwned(string $id,string $uid):void {
@@ -75,7 +82,7 @@ final class FollowupService {
  public function retryClaim(string $id,string $note='桥明确忙拒绝，原工作仍在队列等待'):void {$this->transition($id,'claimed','pending',$note);}
  public function cancelClaim(string $id):void {$this->transition($id,'claimed','cancelled','领取后项目停止派新工作，不延续旧安排');}
  public function finish(string $id):void {$this->transition($id,'claimed','attempted','已执行一次接续选择；实际执行状态以关联运行为准');}
- public function cancel(string $id,string $note):void {$this->transition($id,'pending','cancelled',$note);}
+ public function cancel(string $id,string $note):void {$event=$this->get($id);if($this->transition($id,'pending','cancelled',$note)&&($event['origin']??'result')==='queue_review')$this->dispatchQueue->suspendReviewed($event['queue_item_id']);}
  public function unknown(string $id):void {$this->transition($id,'claimed','unknown','接续处理中断，可能已派出；不能自动重复');}
  public function expireClaims(int $before):int {
   $q=$this->db->getQueryBuilder();return $q->update('cognos_followups')->set('state',$q->createNamedParameter('unknown'))

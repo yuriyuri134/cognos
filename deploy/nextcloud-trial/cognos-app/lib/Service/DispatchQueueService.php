@@ -52,10 +52,10 @@ final class DispatchQueueService {
  public function hasHeld(string $type,string $spaceId):bool {
   $q=$this->db->getQueryBuilder();return (bool)$q->select('id')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($this->scope($type,$spaceId))))->andWhere($q->expr()->eq('state',$q->createNamedParameter('held')))->setMaxResults(1)->executeQuery()->fetch();
  }
- public function claim(string $type,string $spaceId,string $followupId, ?string $expectedItem = null):?array {
-  $scope=$this->scope($type,$spaceId);return $this->atomic($scope,function()use($scope,$followupId,$expectedItem):?array {
-   $q=$this->db->getQueryBuilder();$blocked=$q->select('id')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($scope)))->andWhere($q->expr()->in('state',$q->createNamedParameter(['claimed','unknown','held'],IQueryBuilder::PARAM_STR_ARRAY)))->setMaxResults(1)->executeQuery()->fetch();if($blocked)return null;
-   $q=$this->db->getQueryBuilder();$row=$q->select('*')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($scope)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('queued')))->orderBy('position','ASC')->addOrderBy('id','ASC')->setMaxResults(1)->executeQuery()->fetch();if(!$row||($expectedItem!==null&&$row['id']!==$expectedItem))return null;
+ public function claim(string $type,string $spaceId,string $followupId, ?string $expectedItem = null, bool $exact = false):?array {
+  $scope=$this->scope($type,$spaceId);return $this->atomic($scope,function()use($scope,$followupId,$expectedItem,$exact):?array {
+   $q=$this->db->getQueryBuilder();$blocked=$q->select('id')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($scope)))->andWhere($q->expr()->in('state',$q->createNamedParameter($exact?['claimed','unknown']:['claimed','unknown','held'],IQueryBuilder::PARAM_STR_ARRAY)))->setMaxResults(1)->executeQuery()->fetch();if($blocked)return null;
+   $q=$this->db->getQueryBuilder();$q->select('*')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($scope)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('queued')));if($exact){$q->andWhere($q->expr()->eq('id',$q->createNamedParameter($expectedItem)));$q->andWhere($q->expr()->isNotNull('reviewed_at'));}else{$q->andWhere($q->expr()->isNull('reviewed_at'));}$row=$q->orderBy('position','ASC')->addOrderBy('id','ASC')->setMaxResults(1)->executeQuery()->fetch();if(!$row||($expectedItem!==null&&$row['id']!==$expectedItem))return null;
    $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter('claimed'))->set('followup_id',$q->createNamedParameter($followupId))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('id',$q->createNamedParameter($row['id'])))->executeStatement();return $this->get($row['id']);
   });
  }
@@ -100,6 +100,19 @@ final class DispatchQueueService {
    $states=$q->createNamedParameter(['queued','claimed','unknown','held'],IQueryBuilder::PARAM_STR_ARRAY);$q->andWhere($active?$q->expr()->in('state',$states):$q->expr()->notIn('state',$states))->orderBy('updated_at','DESC')->addOrderBy('id','ASC');if(!$active)$q->setMaxResults(10);return $q->executeQuery()->fetchAll();
   };
   $rows=array_merge($read(true),$read(false));foreach($rows as &$row){$row['space_id']=$scopes[$row['scope_id']];$row['run_state']=null;if($row['run_id']!==null){$q=$this->db->getQueryBuilder();$run=$q->select('state')->from('cognos_runs')->where($q->expr()->eq('id',$q->createNamedParameter($row['run_id'])))->executeQuery()->fetch();$row['run_state']=$run['state']??null;}}unset($row);return $rows;
+ }
+
+ public function suspendReviewed(string $id):void {
+  $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter('held'))->set('reviewed_at',$q->createNamedParameter(null,IQueryBuilder::PARAM_NULL))->set('note',$q->createNamedParameter('继续许可已取消或项目安排变化，需要重新核对'))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))
+   ->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('queued')))->andWhere($q->expr()->isNull('run_id'))->andWhere($q->expr()->isNotNull('reviewed_at'))->executeStatement();
+ }
+ public function releaseHeld(string $id,string $spaceId,string $uid,string $note):array {
+  $item=$this->get($id);if(!$item||$item['scope_id']!==$this->scope('creation',$spaceId))throw new \RuntimeException('旧队列记录不存在或不可访问',404);
+  $note=trim($note);if($note===''||mb_strlen($note)>2000)throw new \InvalidArgumentException('请写下核对后继续的说明，最多 2000 字');
+  $q=$this->db->getQueryBuilder();$n=$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter('queued'))->set('reviewed_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))
+   ->set('note',$q->createNamedParameter($item['note']."\n明确继续（".$uid.'）：'.$note))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))
+   ->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('held')))->executeStatement();
+  if($n!==1)throw new \RuntimeException('旧队列状态已变化，请重新核对',409);return $this->get($id);
  }
  public function close(string $id,string $spaceId,string $uid,string $expected,string $note):array {
   $item=$this->get($id);if(!$item||$item['scope_id']!==$this->scope('creation',$spaceId))throw new \RuntimeException('队列记录不存在或不可访问',404);

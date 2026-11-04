@@ -28,8 +28,12 @@ final class FollowupDispatcher {
    $project=$this->lifecycle->forSpace($event['space_type'],$event['space_id']);
    // Serialize different followup intents for the same conversation, including Initium.
    $q=$this->db->getQueryBuilder();$q->update('cognos_creations')->set('updated_at','updated_at')->where($q->expr()->eq('id',$q->createNamedParameter((int)$event['space_id'],\OCP\DB\QueryBuilder\IQueryBuilder::PARAM_INT)))->executeStatement();
-   $run=$this->runs->get($event['run_id']);
-   if(!$run||$run['state']!=='delivered'||($project!==null&&($project['state']!=='active'||$run['project_id']!==$project['id']||(int)$run['execution_epoch']!==(int)$project['execution_epoch']))){
+   $manual=($event['origin']??'result')==='queue_review';
+   $run=$event['run_id']===null?null:$this->runs->get($event['run_id']);
+   $selected=$manual?$this->dispatchQueue->get((string)$event['queue_item_id']):null;
+   $validSource=$manual?($event['run_id']===null&&$selected!==null&&$selected['state']==='queued'&&$selected['reviewed_at']!==null):($run!==null&&$run['state']==='delivered');
+   $expectedProject=$manual?$event['project_id']:($run['project_id']??null);$expectedEpoch=$manual?$event['execution_epoch']:($run['execution_epoch']??null);
+   if(!$validSource||($project!==null&&($project['state']!=='active'||$expectedProject!==$project['id']||(int)$expectedEpoch!==(int)$project['execution_epoch']))){
     $this->events->cancel($id,'项目安排或归属已变化，不自动延续旧安排');$this->db->commit();return false;
    }
    $q=$this->db->getQueryBuilder();$claimed=$q->select('result_id')->from('cognos_followups')->where($q->expr()->eq('space_type',$q->createNamedParameter($event['space_type'])))->andWhere($q->expr()->eq('space_id',$q->createNamedParameter($event['space_id'])))->andWhere($q->expr()->in('state',$q->createNamedParameter(['claimed','unknown'],\OCP\DB\QueryBuilder\IQueryBuilder::PARAM_STR_ARRAY)))->setMaxResults(1)->executeQuery()->fetch();
@@ -43,14 +47,15 @@ final class FollowupDispatcher {
    $this->users->setUser($user);
    $this->config->deleteAppValue('cognos','agent_pending_creation_'.(int)$event['space_id']);
    $this->config->deleteAppValue('cognos','agent_pending_who_creation_'.(int)$event['space_id']);
-   $this->callNext($event['space_type'],$event['space_id'],$uid,$event['open_id']===null?null:(int)$event['open_id'],$id);
+   $this->callNext($event['space_type'],$event['space_id'],$uid,$event['open_id']===null?null:(int)$event['open_id'],$id,$event['queue_item_id']??null);
    $this->events->finish($id);
   }catch(\Throwable $e){if($e instanceof QueueHeldException)$this->events->retryClaim($id,'旧积压需先核对，未派发');elseif($e instanceof ProjectInactiveException)$this->events->cancelClaim($id);elseif($e instanceof \RuntimeException&&$e->getCode()===ClaudeBridgeService::BUSY)$this->events->retryClaim($id);else $this->events->unknown($id);}finally{$this->users->setUser($previous);}
   return true;
  }
-    private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan,string $followupId): void {
-        $next = $this->pushBack->drain($spaceType, $spaceId, $uid,$followupId);
+    private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan,string $followupId,?string $selectedItem = null): void {
+        $next = $this->pushBack->drain($spaceType, $spaceId, $uid,$followupId,$selectedItem);
         if ($next === null) {
+            if($selectedItem!==null)return;
             $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
             return;
         }
@@ -67,7 +72,7 @@ final class FollowupDispatcher {
                 $this->dispatchQueue->settle($claim['item_id'],$followupId,'sent','直调 AI 已返回回答');
                 // 叫来的是 Hermes：回答当场就有，没人占着桥，没完的接着走
                 $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $answer, $messageId);
-                $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
+                if($selectedItem===null)$this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
             }
         } catch (\Throwable $error) {
             if($error instanceof ProjectInactiveException){$this->dispatchQueue->settle($claim['item_id'],$followupId,'queued','项目暂停，未创建运行');throw $error;}

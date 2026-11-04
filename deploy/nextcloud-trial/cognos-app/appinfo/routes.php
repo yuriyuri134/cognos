@@ -9,6 +9,7 @@ return ['routes' => [
     ['name'=>'project#create','url'=>'/projects/data','verb'=>'POST'],
     ['name'=>'project#get','url'=>'/projects/{projectId}/data','verb'=>'GET'],
     ['name'=>'project#exploreFrom','url'=>'/projects/{projectId}/explorations','verb'=>'POST'],
+    ['name'=>'project#resumeQueue','url'=>'/projects/queue/{itemId}/resume','verb'=>'POST'],
     ['name'=>'project#closeQueue','url'=>'/projects/queue/{itemId}/close','verb'=>'POST'],
     ['name'=>'project#closeFollowup','url'=>'/projects/followups/{resultId}/close','verb'=>'POST'],
     ['name'=>'project#lifecycle','url'=>'/projects/{projectId}/lifecycle','verb'=>'POST'],

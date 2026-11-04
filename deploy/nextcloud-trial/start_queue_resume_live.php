@@ -1,0 +1,7 @@
+<?php
+declare(strict_types=1);define('OC_CONSOLE',1);$_SERVER['SCRIPT_FILENAME']='/var/www/html/console.php';require '/var/www/html/lib/base.php';set_exception_handler(function($e){fwrite(STDERR,(string)$e);exit(1);});
+use OCA\Cognos\Service\{RunService,CreationSpaceService,FollowupDispatcher};
+$data=json_decode(base64_decode($argv[1]),true);$runs=\OC::$server->get(RunService::class);$chats=\OC::$server->get(CreationSpaceService::class);$db=\OC::$server->get(\OCP\IDBConnection::class);
+$blocker=$runs->get($data['blocker_id']);if($blocker['state']!=='delivered')$runs->receiveResult($blocker,bin2hex(random_bytes(16)),$blocker['subject'],[],fn()=>(int)$chats->addMessage($data['creation_id'],'cognos-admin','assistant','页面核对验证的占位结束；未执行模型工作')['id']);
+$q=$db->getQueryBuilder();$event=$q->select('*')->from('cognos_followups')->where($q->expr()->eq('queue_item_id',$q->createNamedParameter($data['item_id'])))->andWhere($q->expr()->eq('state',$q->createNamedParameter('pending')))->executeQuery()->fetch();if(!$event)throw new RuntimeException('reviewed pending intent missing');
+\OC::$server->get(FollowupDispatcher::class)->process($event['result_id'],'cognos-admin');echo json_encode(['followup_id'=>$event['result_id']]);

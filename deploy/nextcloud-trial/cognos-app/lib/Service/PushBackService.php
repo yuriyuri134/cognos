@@ -72,18 +72,18 @@ final class PushBackService {
      *
      * @return ?array{0: string, 1: int}
      */
-    public function drain(string $spaceType,string $spaceId,string $uid,string $followupId):?array {
+    public function drain(string $spaceType,string $spaceId,string $uid,string $followupId,?string $selectedItem = null):?array {
         $this->importLegacy($spaceType,$spaceId);
-        while($item=$this->dispatchQueue->claim($spaceType,$spaceId,$followupId)){
+        while($item=$this->dispatchQueue->claim($spaceType,$spaceId,$followupId,$selectedItem,$selectedItem!==null)){
             $claim=['item_id'=>$item['id'],'followup_id'=>$followupId];$id=(int)$item['ref_id'];
             if($item['kind']==='msg')return ['msg',$id,$claim];
             $hit=$this->spaces->getTrace($spaceType,$spaceId,$id);
             $premise=$hit===null?null:$this->spaces->premiseState($spaceType,$spaceId,(int)$hit['ref_id']);
             $open=$premise===null?[]:array_filter($premise['hits'],static fn(array $h):bool=>$h['id']===$id&&$h['answer']===null);
-            if($premise===null||!$premise['standing']||$open===[]){$this->dispatchQueue->settle($item['id'],$followupId,'skipped','原反对目标已失效或已回应');continue;}
+            if($premise===null||!$premise['standing']||$open===[]){$this->dispatchQueue->settle($item['id'],$followupId,'skipped','原反对目标已失效或已回应');if($selectedItem!==null)return ['skipped',$id,$claim];continue;}
             $result=$this->call($spaceType,$spaceId,$uid,$premise,$hit,$claim);
             $state=$this->dispatchQueue->get($item['id'])['state'];
-            if($state==='claimed'){$this->dispatchQueue->settle($item['id'],$followupId,'skipped',$result['message']);continue;}
+            if($state==='claimed'){$this->dispatchQueue->settle($item['id'],$followupId,'skipped',$result['message']);if($selectedItem!==null)return ['skipped',$id,$claim];continue;}
             return [$state==='queued'?'busy':($state==='unknown'?'unknown':'hit'),$id,$claim];
         }
         if($this->dispatchQueue->hasHeld($spaceType,$spaceId))return ['held',0,null];
