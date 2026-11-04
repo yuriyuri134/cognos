@@ -598,7 +598,7 @@ final class HermesAgentService {
      *
      * @return ?string 同 chatCreation
      */
-    public function chatCreationFromMessage(int $creationId, int $messageId): ?string {
+    public function chatCreationFromMessage(int $creationId, int $messageId, array $extra = []): ?string {
         $user = $this->users->getUser();
         if ($user === null) {
             throw new \RuntimeException('Authentication required');
@@ -617,7 +617,7 @@ final class HermesAgentService {
             throw new \InvalidArgumentException('Message not found');
         }
         $context['messages'] = $upTo;
-        return $this->chatCreation($creationId, (string)$said['content'], $context, $messageId);
+        return $this->chatCreation($creationId, (string)$said['content'], $context, $messageId, $extra);
     }
 
     /**

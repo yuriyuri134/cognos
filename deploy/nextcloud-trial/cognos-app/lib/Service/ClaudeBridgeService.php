@@ -80,6 +80,8 @@ final class ClaudeBridgeService {
 
         // 入口里实际给了哪几条在生效的决定：记在运行上，不带给桥
         $decisionIds = array_values(array_filter(array_map('strval', (array)($extra['decision_ids'] ?? []))));
+        $queueClaim = isset($extra['queue_claim']) && is_array($extra['queue_claim']) ? $extra['queue_claim'] : null;
+        unset($extra['queue_claim']);
         unset($extra['decision_ids']);
         [$targetType, $targetId, $purpose] = $this->target($spaceType, $spaceId, $extra);
         $run = $this->runs->create($spaceType, $spaceId, $targetType, $targetId, $purpose, $subject, $caller, [
@@ -88,7 +90,8 @@ final class ClaudeBridgeService {
             'message' => $message,
             'extra' => $extra,
             'decision_ids' => $decisionIds,
-        ]);
+            'queue_claim' => $queueClaim,
+        ], $queueClaim);
         $this->decisions->recordIncluded($run['id'], $decisionIds);
 
         try {

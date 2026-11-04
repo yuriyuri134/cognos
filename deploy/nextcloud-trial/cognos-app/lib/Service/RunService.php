@@ -33,13 +33,14 @@ final class RunService {
         private IDBConnection $db,
         private IConfig $config,
         private LifecycleService $lifecycle,
+        private DispatchQueueService $dispatchQueue,
     ) {
     }
 
     /**
      * @param array<string, mixed> $input 实际给出去的东西（系统提示、消息……），原样存一份
      */
-    public function create(string $spaceType, string $spaceId, string $targetType, string $targetId, string $purpose, string $subject, ?string $caller, array $input): array {
+    public function create(string $spaceType, string $spaceId, string $targetType, string $targetId, string $purpose, string $subject, ?string $caller, array $input, ?array $queueClaim = null): array {
         $this->db->beginTransaction();
         try {
             $project = $this->lifecycle->forSpace($spaceType, $spaceId);
@@ -48,6 +49,7 @@ final class RunService {
             }
             $id = bin2hex(random_bytes(16));
             $now = time();
+            if ($queueClaim !== null) { $input['queue_claim'] = $queueClaim; }
             $snapshot = json_encode($input, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
             $row = [
                 'id' => $id,
@@ -76,6 +78,10 @@ final class RunService {
                 $values[$column] = $qb->createNamedParameter($value, $type);
             }
             $qb->insert('cognos_runs')->values($values)->executeStatement();
+            if ($queueClaim !== null) {
+                $this->dispatchQueue->bindRun((string)($queueClaim['item_id'] ?? ''),(string)($queueClaim['followup_id'] ?? ''),
+                    $spaceType,$spaceId,$id,$targetType,$targetId,$input);
+            }
             $this->db->commit();
             return $this->publicRow($row);
         } catch (\Throwable $e) { $this->db->rollBack(); throw $e; }

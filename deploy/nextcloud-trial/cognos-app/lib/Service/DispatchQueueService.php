@@ -51,6 +51,22 @@ final class DispatchQueueService {
    $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter('claimed'))->set('followup_id',$q->createNamedParameter($followupId))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('id',$q->createNamedParameter($row['id'])))->executeStatement();return $this->get($row['id']);
   });
  }
+ /** Called only inside run creation's transaction, before any network dispatch. */
+ public function bindRun(string $id,string $followupId,string $type,string $spaceId,string $runId,string $targetType,string $targetId,array $input):void {
+  $item=$this->get($id);
+  if(!$item||$item['scope_id']!==$this->scope($type,$spaceId)||$item['state']!=='claimed'||$item['followup_id']!==$followupId)throw new \RuntimeException('队列领取或空间已变化，没有创建运行',409);
+  $extra=is_array($input['extra']??null)?$input['extra']:[];
+  $matches=$item['kind']==='hit' ? $targetType==='hit'&&(string)$item['ref_id']===$targetId
+   : $targetType==='conversation'&&$targetId===$type.':'.$spaceId&&(int)($extra['reply_to']??0)===(int)$item['ref_id'];
+  if(!$matches)throw new \RuntimeException('运行目标与队列原引用不一致',409);
+  if($item['run_id']!==null)throw new \RuntimeException('队列项已经关联运行，不能重复派发',409);
+  $q=$this->db->getQueryBuilder();$n=$q->update('cognos_dispatch_queue')->set('run_id',$q->createNamedParameter($runId))
+   ->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))
+   ->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('claimed')))
+   ->andWhere($q->expr()->eq('followup_id',$q->createNamedParameter($followupId)))->andWhere($q->expr()->isNull('run_id'))->executeStatement();
+  if($n!==1)throw new \RuntimeException('队列已被其他派发占用，没有创建重复运行',409);
+ }
+
  public function settle(string $id,string $followupId,string $state,string $note=''):bool {
   if(!in_array($state,['queued','sent','unknown','skipped'],true))throw new \InvalidArgumentException('队列状态无效');
   $q=$this->db->getQueryBuilder();return $q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter($state))->set('note',$q->createNamedParameter($note))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('followup_id',$q->createNamedParameter($followupId)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('claimed')))->executeStatement()===1;
