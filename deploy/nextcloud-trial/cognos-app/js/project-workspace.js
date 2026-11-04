@@ -92,6 +92,7 @@
     if (data.project) { state.project = data.project; renderLifecycle(data.lifecycle_history || []); }
     renderDecisions(data.decisions);
     renderWho(data.activity);
+    renderFollowups(data.followups || []);
     if (state.mode === 'location') renderHistory($('pw-location-history'), data.location_history || [], true);
     if (state.mode === 'project') {
       renderStates(data.locations, data.activity.runs); renderRecent(data.activity.recent, data.decisions); renderOrigin(data.formed_from || []);
@@ -134,6 +135,28 @@
       } finally { state.lastOverview=''; await loadOverview(); }
     });
   });
+  function renderFollowups(items) {
+    if(document.activeElement?.closest('#pw-followups form')) return;
+    $('pw-followups-section').hidden=!items.length;
+    const labels={pending:'待接续',claimed:'正在处理接续',attempted:'已尝试接续，执行情况看对应运行',cancelled:'本次接续已取消',unknown:'接续状态未知，先核对，不能直接重试',reconciled:'已核清并关闭本次接续'};
+    const list=$('pw-followups');list.replaceChildren();
+    for(const item of items){
+      const li=node('li',undefined,'pw-decision'+(item.state==='unknown'?' pw-warn':''));li.dataset.resultId=item.result_id;
+      li.append(node('p',labels[item.state]||item.state));
+      const source=node('p');source.append(link('查看对应讨论',base+'/creations/'+item.space_id),document.createTextNode(' · '+date(item.updated_at)));li.append(source);
+      if(item.note){const note=node('p',item.note);note.style.whiteSpace='pre-wrap';li.append(note);}
+      if(['pending','unknown'].includes(item.state)){
+        const form=node('form');const input=node('textarea');input.required=true;input.maxLength=2000;input.rows=2;input.id='pw-close-followup-'+item.result_id;
+        const label=node('label',item.state==='unknown'?'核对了什么，为什么可以关闭':'为什么关闭这次接续');label.htmlFor=input.id;
+        const button=node('button',item.state==='unknown'?'已核清，关闭本次接续':'关闭本次接续');button.type='submit';form.append(label,input,button);
+        form.addEventListener('submit',e=>{e.preventDefault();busy(form,async()=>{
+          try{await mutate('/projects/followups/'+item.result_id+'/close','POST',{expected_state:item.state,note:input.value});input.value='';notice('本次接续已关闭，没有重放，也没有改变实际运行状态。');}
+          finally{document.activeElement?.blur();state.lastOverview='';await loadOverview();}
+        });});li.append(form);
+      }
+      list.append(li);
+    }
+  }
   function decisionItem(d) {
     const li = node('li', undefined, 'pw-decision pw-decision-' + d.status);
     li.dataset.decisionId = d.id;

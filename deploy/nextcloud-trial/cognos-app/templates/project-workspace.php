@@ -106,6 +106,11 @@
                 <h2 id="pw-who-title">谁在动什么</h2>
                 <div id="pw-who" aria-live="polite"></div>
             </section>
+            <section id="pw-followups-section" hidden aria-labelledby="pw-followups-title">
+                <h2 id="pw-followups-title">接续安排</h2>
+                <p class="pw-hint">这里只记录一次接续选择，不代表 AI 已完成。未知项先核对外部运行；关闭本次接续不会重放它，也不会把实际运行标成完成。</p>
+                <ul id="pw-followups" class="pw-decision-list"></ul>
+            </section>
             <p id="pw-merged-banner" class="pw-run pw-warn" hidden></p>
             <section id="pw-origin" aria-labelledby="pw-origin-title" hidden>
                 <h2 id="pw-origin-title">来路</h2>

@@ -23,6 +23,7 @@ final class ProjectController extends Controller {
     public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects,
         private DecisionService $decisions, private DelegationService $delegations, private InitiumService $initium,
         private AdoptionService $adoptions, private RestructureService $restructures,
+        private \OCA\Cognos\Service\FollowupService $followups,
         private IConfig $config, private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
@@ -39,12 +40,13 @@ final class ProjectController extends Controller {
             $progress = $this->decisions->progress(array_column($decisions, 'id'), $activity['creation_ids']);
             foreach ($decisions as &$d) { $d['progress'] = $progress[$d['id']] ?? []; }
             unset($d);
+            $followups = $this->followups->forCreations($uid,$activity['creation_ids']);
             unset($activity['creation_ids']);
             $counts = $this->delegations->countsForProject($projectId);
             $reviews = $this->adoptions->reviewCounts($projectId);
             $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]) + ['review' => $reviews[$l['id']] ?? 0],
                 $this->projects->locationStates($uid, $projectId));
-            $out = ['project' => $this->projects->project($uid, $projectId), 'lifecycle_history' => $this->projects->lifecycleHistory($uid, $projectId), 'decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
+            $out = ['followups' => $followups, 'project' => $this->projects->project($uid, $projectId), 'lifecycle_history' => $this->projects->lifecycleHistory($uid, $projectId), 'decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
                 'formed_from' => $this->initium->forProject($uid, $projectId),
                 'history' => $this->restructures->historyForProject($uid, $projectId), 'merged_into' => $this->mergedInto($uid, $projectId)];
             if ($location_id !== '') {
@@ -226,6 +228,12 @@ final class ProjectController extends Controller {
     #[NoAdminRequired]
     public function lifecycle(string $projectId, string $action, int $expected_revision, string $request_id, string $note = '', string $reopen_when = ''): DataResponse {
         return $this->respond(fn(string $uid) => $this->projects->changeLifecycle($uid,$projectId,$action,$expected_revision,$request_id,$note,$reopen_when));
+    }
+
+    #[NoAdminRequired]
+    public function closeFollowup(string $resultId,string $expected_state,string $note,string $request_id):DataResponse {
+        return $this->respond(fn(string $uid) => $this->projects->commit($uid,$request_id,['close_followup',$resultId,$expected_state,$note],
+            fn()=>$this->followups->close($resultId,$uid,$expected_state,$note)));
     }
 
     private function respond(callable $fn): DataResponse {

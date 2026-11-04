@@ -35,6 +35,32 @@ final class FollowupService {
   return true;
  }
 
+
+ public function forCreations(string $uid,array $ids):array {
+  if($ids===[])return [];
+  $read=function(bool $active)use($uid,$ids):array {
+   $q=$this->db->getQueryBuilder();$q->select('*')->from('cognos_followups')
+    ->where($q->expr()->eq('user_id',$q->createNamedParameter($uid)))
+    ->andWhere($q->expr()->eq('space_type',$q->createNamedParameter('creation')))
+    ->andWhere($q->expr()->in('space_id',$q->createNamedParameter(array_map('strval',$ids),IQueryBuilder::PARAM_STR_ARRAY)));
+   $states=$q->createNamedParameter(['pending','claimed','unknown'],IQueryBuilder::PARAM_STR_ARRAY);
+   $q->andWhere($active?$q->expr()->in('state',$states):$q->expr()->notIn('state',$states))->orderBy('updated_at','DESC')->addOrderBy('result_id','ASC');
+   if(!$active)$q->setMaxResults(10);
+   return $q->executeQuery()->fetchAll();
+  };
+  return array_merge($read(true),$read(false));
+ }
+ /** Inside ProjectService::commit; never reruns external work or changes a run's state. */
+ public function close(string $id,string $uid,string $expected,string $note):array {
+  $event=$this->get($id);
+  if(!$event||$event['user_id']!==$uid)throw new \RuntimeException('接续记录不存在或不可访问',404);
+  $note=trim($note);
+  if(!in_array($expected,['pending','unknown'],true)||$note===''||mb_strlen($note)>2000)throw new \InvalidArgumentException('请留下核对或关闭说明，最多 2000 字');
+  $next=$expected==='unknown'?'reconciled':'cancelled';
+  $record=$event['note']."\n核对记录（".$uid.'）：'.$note.'；关闭本次接续，不重放，不改变实际运行状态。';
+  if(!$this->transition($id,$expected,$next,$record))throw new \RuntimeException('接续状态已变化，请先看最新记录',409);
+  return ['result_id'=>$id,'state'=>$next];
+ }
  public function pending(int $limit=10):array {
   $q=$this->db->getQueryBuilder();return $q->select('*')->from('cognos_followups')->where($q->expr()->eq('state',$q->createNamedParameter('pending')))->orderBy('updated_at','ASC')->addOrderBy('result_id','ASC')->setMaxResults($limit)->executeQuery()->fetchAll();
  }
