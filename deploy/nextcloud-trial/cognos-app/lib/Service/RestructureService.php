@@ -83,6 +83,10 @@ final class RestructureService {
         $ids=array_values(array_unique($ids));sort($ids,SORT_STRING);return $ids;
     }
 
+    private function stateLabel(string $state): string {
+        return ['active'=>'正在推进','paused'=>'已暂停','ended'=>'已结束','exploring'=>'自由探索'][$state] ?? $state;
+    }
+
     private function plan(string $uid, string $action, array $params): array {
         return match ($action) {
             'move' => $this->planMove($uid, (string)($params['location_id'] ?? ''), (string)($params['parent_id'] ?? '')),
@@ -122,6 +126,7 @@ final class RestructureService {
         $lines = [sprintf('「%s」%s成为新项目「%s」；它成为新项目的根位置。', $loc['title'],
             count($subtree) > 1 ? sprintf('连同它下面的 %d 处，', count($subtree) - 1) : '', $loc['title']),
             sprintf('原项目「%s」里不再有这几处；原项目总览的经过里记着它们去了哪。位置的链接和讨论都不变。', $project['title'])];
+        $lines[] = '新项目继承原来的推进状态：' . $this->stateLabel($project['state']) . '；需要重新推进时，在新项目明确再开。旧运行的结果仍可交回，直接改稿或采用的资格不会跟过去。';
         $moving = []; $staying = [];
         foreach ($this->decisions->forProject($uid, $project['id']) as $d) {
             if ($d['status'] !== 'active') { continue; }
@@ -137,7 +142,12 @@ final class RestructureService {
         return ['consequences' => $lines, 'basis' => $this->basis($uid, [$project['id']]), 'project_id' => $newId, 'location_id' => $locationId,
             'do' => function (string $change, int $now) use ($uid, $loc, $project, $subtree, $moving, $newId, $parents): void {
                 $this->projects->insert('cognos_projects', ['id' => $newId, 'user_id' => $uid, 'title' => $loc['title'],
-                    'root_location_id' => $loc['id'], 'created_at' => $now, 'merged_into' => null, 'merged_at' => null]);
+                    'root_location_id' => $loc['id'], 'created_at' => $now, 'merged_into' => null, 'merged_at' => null,
+                    'state' => $project['state'], 'lifecycle_revision' => 1, 'execution_epoch' => 1]);
+                $previous = $this->projects->lifecycleHistory($uid,$project['id']);
+                $this->projects->insert('cognos_lifecycle_history',['project_id'=>$newId,'revision'=>1,'from_state'=>$project['state'],
+                    'to_state'=>$project['state'],'actor'=>$uid,'note'=>'系统记录：独立时继承原项目「'.$project['title'].'」的推进状态；这不是新的用户决定。',
+                    'reopen_when'=>(string)($previous[0]['reopen_when'] ?? ''),'created_at'=>$now]);
                 foreach ($subtree as $id) {
                     $this->setLocation($id, ['project_id' => $newId] + ($id === $loc['id'] ? ['parent_id' => null] : []));
                     $this->history($id, $change, 'independent', $project['id'], $newId, $parents[$id], $id === $loc['id'] ? null : $parents[$id], $uid, $now);
@@ -156,6 +166,7 @@ final class RestructureService {
         $lines = [sprintf('项目「%s」的全部 %d 处并到项目「%s」的「%s」下面；原来的根位置「%s」成为那里的一处。', $source['title'], count($source['locations']),
             $target['title'], $this->path($target['locations'], $targetParentId), $this->titleIn($source['locations'], $root)),
             sprintf('项目「%s」的身份留着，标为已合并到「%s」，它的链接打开后指向那里；位置的链接和讨论都不变。', $source['title'], $target['title'])];
+        $lines[] = '原项目状态：'.$this->stateLabel($source['state']).'；合并后这些位置遵循目标项目状态：'.$this->stateLabel($target['state']).'。原运行仍可交回结果，直接改稿或采用的资格不会迁移；需要继续工作时重新登记或委托。';
         $wide = array_values(array_filter($this->decisions->forProject($uid, $source['id']), static fn(array $d): bool => $d['status'] === 'active' && $d['scope_location_ids'] === []));
         if ($wide !== []) { $lines[] = '原项目整个项目的决定，合并后只管原来那部分：' . $this->quoteList($wide) . '。'; }
         $targetWide = array_values(array_filter($this->decisions->forProject($uid, $target['id']), static fn(array $d): bool => $d['status'] === 'active' && $d['scope_location_ids'] === []));
