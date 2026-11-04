@@ -43,6 +43,7 @@ final class SpaceApiController extends OCSController {
         private IConfig $config,
         private RunService $runs,
         private \OCA\Cognos\Service\FollowupService $followups,
+        private \OCA\Cognos\Service\FollowupDispatcher $followupDispatcher,
         private DecisionService $decisions,
         private ProjectService $projects,
         private DelegationService $delegations,
@@ -568,36 +569,7 @@ final class SpaceApiController extends OCSController {
 
     /** 这一位做完了：排着的下一件接着叫（一条反对，或者交互对象在它忙时说的一句）；都没有，就从还拉着的没完的接着走。 */
     private function processFollowup(string $resultId,string $uid):void {
-        $this->followups->process($resultId,$uid,function(array $event)use($uid):void {
-            $this->config->deleteAppValue('cognos','agent_pending_creation_'.(int)$event['space_id']);
-            $this->config->deleteAppValue('cognos','agent_pending_who_creation_'.(int)$event['space_id']);
-            $this->callNext($event['space_type'],$event['space_id'],$uid,$event['open_id']===null?null:(int)$event['open_id']);
-        });
-    }
-
-    private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan): void {
-        $next = $this->pushBack->drain($spaceType, $spaceId, $uid);
-        if ($next === null) {
-            $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
-            return;
-        }
-        [$what, $messageId] = $next;
-        if ($what !== 'msg') {
-            return;
-        }
-        try {
-            $answer = $this->hermes->chatCreationFromMessage((int)$spaceId, $messageId);
-            if ($answer !== null) {
-                // 叫来的是 Hermes：回答当场就有，没人占着桥，没完的接着走
-                $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $answer, $messageId);
-                $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
-            }
-        } catch (\Throwable $error) {
-            if ($error instanceof \RuntimeException && $error->getCode() === ClaudeBridgeService::BUSY) {
-                $this->pushBack->enqueueMessage($spaceType, $spaceId, $messageId, true);
-            }
-            // 别的原因叫不上：那句还在对话里、没人回，页面上能「再叫一次」
-        }
+        $this->followupDispatcher->process($resultId,$uid);
     }
 
     private function uid(): ?string {

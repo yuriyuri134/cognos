@@ -34,6 +34,17 @@ final class FollowupService {
   }
   return true;
  }
+
+ public function pending(int $limit=10):array {
+  $q=$this->db->getQueryBuilder();return $q->select('*')->from('cognos_followups')->where($q->expr()->eq('state',$q->createNamedParameter('pending')))->orderBy('updated_at','ASC')->addOrderBy('result_id','ASC')->setMaxResults($limit)->executeQuery()->fetchAll();
+ }
+ public function claim(string $id,string $uid):?array {
+  $event=$this->get($id);return $event && $event['user_id']===$uid && $this->transition($id,'pending','claimed') ? $event : null;
+ }
+ public function defer(string $id,string $note):void {$this->transition($id,'pending','pending',$note);}
+ public function finish(string $id):void {$this->transition($id,'claimed','attempted','已执行一次接续选择；实际执行状态以关联运行为准');}
+ public function cancel(string $id,string $note):void {$this->transition($id,'pending','cancelled',$note);}
+ public function unknown(string $id):void {$this->transition($id,'claimed','unknown','接续处理中断，可能已派出；不能自动重复');}
  public function expireClaims(int $before):int {
   $q=$this->db->getQueryBuilder();return $q->update('cognos_followups')->set('state',$q->createNamedParameter('unknown'))
    ->set('note',$q->createNamedParameter('领取接续后失联，可能已派出；不能自动重复'))
