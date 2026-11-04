@@ -87,6 +87,7 @@ powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-bridge.ps1
 - 没有心跳和定时：只在一次走完、还有东西拉着时才叫。每片空间每天最多接着走 12 次（`occ config:app:set cognos continue_daily --value=<次数>`），到了就挂着，明天或你按「接着走」再叫。
 - 侧栏里每件没完的有「接着走」（停在原地、卡住、完了的也再叫一次）和「这件完了」（收起来）。
 
+- 改动报告：改了代码，桥把它的回答、改了哪些文件、检查结果、整份 diff 写成一份 Markdown，存进你的 Nextcloud 文件 `Cognos/改动报告/<空间>/<分支>.md`，回答末尾只附一行链接；本机那片空间的 `changes/` 下也留一份。存不进去时，才把文件列表和 diff 直接贴进对话（最多 12000 字）。入口里也请它在回答最后写一节「改了什么」，每个文件一两句，不读代码也看得懂。来路见 PR #10。
 - 长进身体（起桥前设 `COGNOS_SELF_MERGE=1` 才开）：Cognos 自己的空间里改的代码检查过了，桥就把它合进本机正在跑的那条分支，不用等你来合。改了 `cognos-app` 就重启 app 容器（升了 `info.xml` 版本号或加了迁移，还会在容器里跑 `occ upgrade`，不然整站 503），改了桥就换成新桥，然后才发回回答，下一次叫到的就是新的。合之前打本机标签 `cognos-body/<时间>`，回答里写着怎么退回（`git reset --hard <标签>`）。跑着的那份有没提交的改动、合不上、检查没过，都不合，留在分支上等你。不推，不碰 master。副本也从跑着的那份切（`COGNOS_SELF_BASE` 默认还是 master，开了长进身体建议设成 `HEAD`）。
 
 接着走总是叫本机的 Claude Code（经桥），和 `creation_agent` 设的是谁无关。来路见项目文件 `框架审视/为什么会停-2026-10-27.md`。
