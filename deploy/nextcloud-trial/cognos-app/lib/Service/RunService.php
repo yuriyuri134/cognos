@@ -93,9 +93,9 @@ final class RunService {
         $this->moveFrom($runId, ['queued'], 'running', null, time() + max(1, $lease));
     }
 
-    /** 没送出去（桥没起来、正忙）：桥那边什么都没做。 */
-    public function failed(string $runId, string $error): void {
-        $this->moveFrom($runId, ['queued'], 'failed', $error, null);
+    /** 明确未开始；只有可靠的忙拒绝可重排。连接异常应走 unknown。 */
+    public function failed(string $runId, string $error, bool $retryable = false): void {
+        $this->moveFrom($runId, ['queued'], 'failed', $error, null, $retryable);
     }
 
     /** 桥重启时发现这一件做到一半没了：不知道做没做完。 */
@@ -211,6 +211,7 @@ final class RunService {
                 ->set('updated_at', $qb->createNamedParameter(time(), IQueryBuilder::PARAM_INT))
                 ->where($qb->expr()->eq('id', $qb->createNamedParameter($run['id'])))
                 ->executeStatement();
+            $this->dispatchQueue->runOutcome($run['id'],'delivered');
             // Database-only completion belongs to the same receipt transaction. Never dispatch external work here.
             if ($finalize !== null) { $finalize($messageId); }
             $this->db->commit();
@@ -303,19 +304,17 @@ final class RunService {
 
     /** 租约过了还没回来的：标成 unknown。只改仍在 claimed/running 的，不和同时到的结果抢。 */
     private function expireLeases(): void {
-        $now = time();
-        $qb = $this->db->getQueryBuilder();
-        $qb->update('cognos_runs')
-            ->set('state', $qb->createNamedParameter('unknown'))
-            ->set('error', $qb->createNamedParameter('租约到了还没收到结果：不知道做没做完。'))
-            ->set('updated_at', $qb->createNamedParameter($now, IQueryBuilder::PARAM_INT))
-            ->where($qb->expr()->in('state', $qb->createNamedParameter(self::LIVE, IQueryBuilder::PARAM_STR_ARRAY)))
-            ->andWhere($qb->expr()->isNotNull('lease_until'))
-            ->andWhere($qb->expr()->lt('lease_until', $qb->createNamedParameter($now, IQueryBuilder::PARAM_INT)))
-            ->executeStatement();
+        $q=$this->db->getQueryBuilder();
+        $expired=$q->select('id')->from('cognos_runs')
+            ->where($q->expr()->in('state',$q->createNamedParameter(self::LIVE,IQueryBuilder::PARAM_STR_ARRAY)))
+            ->andWhere($q->expr()->isNotNull('lease_until'))
+            ->andWhere($q->expr()->lt('lease_until',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT)))->executeQuery()->fetchAll();
+        foreach($expired as $r){$this->moveFrom((string)$r['id'],self::LIVE,'unknown','租约到了还没收到结果：不知道做没做完。',null);}
     }
 
-    private function moveFrom(string $runId, array $from, string $to, ?string $error, ?int $leaseUntil): bool {
+    private function moveFrom(string $runId, array $from, string $to, ?string $error, ?int $leaseUntil, bool $retryable = false): bool {
+        $this->db->beginTransaction();
+        try {
         $qb = $this->db->getQueryBuilder();
         $qb->update('cognos_runs')
             ->set('state', $qb->createNamedParameter($to))
@@ -326,7 +325,10 @@ final class RunService {
         if ($error !== null) {
             $qb->set('error', $qb->createNamedParameter($error));
         }
-        return $qb->executeStatement() > 0;
+        $changed = $qb->executeStatement() > 0;
+        if ($changed) { $this->dispatchQueue->runOutcome($runId,$to,$retryable); }
+        $this->db->commit();return $changed;
+        } catch (\Throwable $e) { $this->db->rollBack();throw $e; }
     }
 
     /** @return list<array{type: string, id: string, version: ?string, note: ?string}> */

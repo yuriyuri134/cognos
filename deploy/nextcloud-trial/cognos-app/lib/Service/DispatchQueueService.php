@@ -67,8 +67,18 @@ final class DispatchQueueService {
   if($n!==1)throw new \RuntimeException('队列已被其他派发占用，没有创建重复运行',409);
  }
 
+ /** Same transaction as the run outcome. A late outcome can affect only its own binding. */
+ public function runOutcome(string $runId,string $outcome,bool $retryable=false):void {
+  $state=match($outcome){'running','delivered'=>'sent','unknown'=>'unknown','failed'=>$retryable?'queued':'skipped',default=>throw new \InvalidArgumentException('运行结果状态无效')};
+  $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter($state))
+   ->set('note',$q->createNamedParameter('运行 '.$runId.'：'.$outcome.($retryable?'；明确忙拒绝，保留原工作等待重排':'')))
+   ->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT));
+  if($state==='queued'){$q->set('run_id',$q->createNamedParameter(null,IQueryBuilder::PARAM_NULL));$q->set('followup_id',$q->createNamedParameter(null,IQueryBuilder::PARAM_NULL));}
+  $q->where($q->expr()->eq('run_id',$q->createNamedParameter($runId)))->andWhere($q->expr()->in('state',$q->createNamedParameter(['claimed','sent','unknown'],IQueryBuilder::PARAM_STR_ARRAY)))->executeStatement();
+ }
+
  public function settle(string $id,string $followupId,string $state,string $note=''):bool {
   if(!in_array($state,['queued','sent','unknown','skipped'],true))throw new \InvalidArgumentException('队列状态无效');
-  $q=$this->db->getQueryBuilder();return $q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter($state))->set('note',$q->createNamedParameter($note))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('followup_id',$q->createNamedParameter($followupId)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('claimed')))->executeStatement()===1;
+  $q=$this->db->getQueryBuilder();return $q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter($state))->set('note',$q->createNamedParameter($note))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('followup_id',$q->createNamedParameter($followupId)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('claimed')))->andWhere($q->expr()->isNull('run_id'))->executeStatement()===1;
  }
 }

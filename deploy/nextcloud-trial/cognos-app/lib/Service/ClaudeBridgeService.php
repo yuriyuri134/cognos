@@ -136,7 +136,7 @@ final class ClaudeBridgeService {
         $body = json_decode((string)$response->getBody(), true);
         $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
         if (in_array($status, [400, 401, 403, self::BUSY, 422], true)) {
-            $this->runs->failed($run['id'], '桥明确拒绝（HTTP ' . $status . '）' . ($reason !== '' ? '：' . $reason : ''));
+            $this->runs->failed($run['id'], '桥明确拒绝（HTTP ' . $status . '）' . ($reason !== '' ? '：' . $reason : ''), $status === self::BUSY);
             throw new \RuntimeException('Claude Code 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
         }
         $this->runs->dispatchUnknown($run['id'], '桥返回 HTTP ' . $status . '，不能确认是否已经开工');
