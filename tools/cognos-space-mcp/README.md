@@ -92,3 +92,28 @@ powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-bridge.ps1
 接着走总是叫本机的 Claude Code（经桥），和 `creation_agent` 设的是谁无关。来路见项目文件 `框架审视/为什么会停-2026-10-27.md`。
 
 每次运行的完整输入输出（`system.txt`、`prompt.txt`、`stream.jsonl`、`meta.json`）存在 `deploy/nextcloud-trial/evidence/claude-bridge/runs/`，起桥前设 `COGNOS_RUN_LABEL` 可以给运行打标签；`compare_runs.py` 按标签对照。见 `docs/条件B对照-2026-11-01.md`。
+
+
+## 本机 Codex 独立进入（2026-11-04，app 0.32.1）
+
+`codex_entry.py` 使用现有 `codex exec` 和 Cognos MCP 进入一个指定位置，不编辑全局 Codex 配置。先在本机完成 Codex 登录；本次实际验证为 codex-cli 0.159.2、ChatGPT 登录、gpt-6.1-sol。配置方式参考 [OpenAI MCP 文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)及[非交互执行文档](https://learn.chatgpt.com/docs/non-interactive-mode)。
+
+为 Codex 单独建立 Nextcloud 应用密码，在运行它的终端设置 `COGNOS_URL`、`COGNOS_USER`、`COGNOS_APP_PASSWORD`。不要把密码放进任务文本或提交仓库。实际验证的凭据保存在本机 `.secrets/codex-app-password`。它仍对应原 Nextcloud 账号，不是独立多账号权限体系。
+
+```powershell
+$env:COGNOS_URL = 'http://127.0.0.1:8780'
+$env:COGNOS_USER = 'cognos-admin'
+$env:COGNOS_APP_PASSWORD = (Get-Content -Raw deploy/nextcloud-trial/.secrets/codex-app-password).Trim()
+$env:COGNOS_MCP_STATE_DIR = "$env:LOCALAPPDATA/cognos-codex-handoff"
+py -3 tools/cognos-space-mcp/codex_entry.py --space-id <位置的creation编号> --prompt-file <任务文本路径> --output-dir <本地记录目录> --subject Codex
+```
+
+任务文本可以让它进来、登记、读取/预览工作、报依据和交回。启动器限定 MCP 到本次位置，关闭 shell、应用和插件工具，不改用户设置；文件执行策略为只读，但 Cognos 的登记和交回仍通过明确列出的 MCP 工具发生。允许工具仅为 `enter_space/start_work/note_basis/check_changes/hand_back/list_work_items/get_work_item/preview_work_split`。这限制的是这次本机连接的能力，不改变账号在服务器上的基础权限。
+
+`COGNOS_MCP_STATE_DIR` 应跨进程保持，便于沿同一 run_id 和原结果取回回执。CLI 会话本身是临时会话，跨调用通过 Cognos 的运行编号和已保存输入继续，不假定模型自动保留上一段内部状态。日志含项目内容，由调用者保存到不入库的位置。超时或失败后先核对已有运行和结果，不自动重新开工。
+
+这条路径已真实跑过 Codex 与 Claude 共同工作：Codex 先登记并依据第 2 版；新增决定后 Claude 改成第 3 版；Codex 再进入、看到新决定和差异并沿原运行交回。Codex 的两段是独立 CLI 调用，不宣称两模型持续同时生成。另一个真实 Codex 进程复用成功回执，没有新运行或重复消息。
+
+### 工作读取与拆分预览
+
+`list_work_items`、`get_work_item`、`preview_work_split` 走代理 OCS 接口，只读取或预览。项目入口最多给 10 份未完工作摘要，标明总数、省略数量及正文截断；要看全部或原版本再用读取工具。预览不会拆分、复制委托或更改原作者。AI 维护工作的直接写入还需委托范围和实际作者记录，当前未把网页用户写接口代理给模型。GUI「交出去」仍是 Claude Code；本次 Codex 是独立进入路径，自动叫起 Codex 尚未接上。

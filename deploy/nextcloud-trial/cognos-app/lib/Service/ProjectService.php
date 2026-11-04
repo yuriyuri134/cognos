@@ -362,8 +362,22 @@ final class ProjectService {
                 'selection_hash' => hash('sha256', $text), 'excerpt' => mb_substr($text, 0, 4000),
                 'truncated' => count($taken) < count($messages) || mb_strlen($text) > 4000];
         }
+        $q=$this->db->getQueryBuilder();
+        $q->select('id','description','owner','deliverable','acceptance','state','revision','split_from_id','split_from_revision')->from('cognos_work_items')
+            ->where($q->expr()->eq('location_id',$q->createNamedParameter($loc['id'])))
+            ->andWhere($q->expr()->in('state',$q->createNamedParameter(['open','in_progress','blocked'],\OCP\DB\QueryBuilder\IQueryBuilder::PARAM_STR_ARRAY)))
+            ->orderBy('updated_at','DESC')->addOrderBy('id','ASC');
+        $rows=$q->executeQuery();$work=[];$total=0;
+        while ($row=$rows->fetch()) { ++$total;if (count($work)<10) { $work[]=$row; } }
+        foreach ($work as &$w) {
+            $w['text_truncated']=false;
+            foreach (['description'=>1000,'deliverable'=>500,'acceptance'=>500] as $field=>$limit) {
+                if (mb_strlen($w[$field])>$limit) { $w['text_truncated']=true;$w[$field]=mb_substr($w[$field],0,$limit); }
+            }
+        } unset($w);
         return ['project_id' => $project['id'], 'project_title' => $project['title'],
             'state' => $project['state'], 'execution_epoch' => (int)$project['execution_epoch'],
+            'work_items' => $work, 'work_items_total' => (int)$total, 'work_items_omitted' => max(0,(int)$total-count($work)),
             'location_id' => $loc['id'], 'path' => array_reverse($path), 'revision' => $loc['revision'],
             'working_content' => mb_substr($loc['content'], 0, 16000), 'editor' => $loc['editor'],
             'content_truncated' => mb_strlen($loc['content']) > 16000, 'content_hash' => hash('sha256', $loc['content']),

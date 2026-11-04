@@ -48,6 +48,7 @@ final class SpaceApiController extends OCSController {
         private ProjectService $projects,
         private DelegationService $delegations,
         private AdoptionService $adoptions,
+        private \OCA\Cognos\Service\WorkItemService $workItems,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -94,6 +95,41 @@ final class SpaceApiController extends OCSController {
         }
         $this->spaces->markSeen($spaceType, $spaceId, $subject);
         return new DataResponse(['subject' => $subject, 'text' => $text, 'entry' => $entry]);
+    }
+
+    /** Agent read/preview path: never proxy owner-attributed work mutations. */
+    private function workLocation(string $spaceType, string $spaceId): ?array {
+        $uid=$this->uid();
+        if ($uid===null || $spaceType!=='creation' || !ctype_digit($spaceId) || $this->creations->get((int)$spaceId,$uid)===null) { return null; }
+        return $this->projects->locationForCreation($uid,(int)$spaceId);
+    }
+
+    #[NoAdminRequired]
+    public function workList(string $spaceType,string $spaceId): DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);
+        if ($loc===null) { return new DataResponse(['message'=>'Project location not found'],404); }
+        $items=$this->workItems->list((string)$this->uid(),$loc['project_id'],$loc['id']);
+        $fields=array_flip(['id','description','owner','deliverable','acceptance','evidence','state','revision','split_from_id','split_from_revision','created_by','created_at']);
+        return new DataResponse(['location_id'=>$loc['id'],'items'=>array_map(static fn(array $w):array=>array_intersect_key($w,$fields),$items)]);
+    }
+
+    #[NoAdminRequired]
+    public function workDetail(string $spaceType,string $spaceId,string $workId): DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);
+        if ($loc===null) { return new DataResponse(['message'=>'Project location not found'],404); }
+        try { $w=$this->workItems->detail((string)$this->uid(),$workId); }
+        catch (\RuntimeException $e) { if ($e->getCode()===404) { return new DataResponse(['message'=>'Work not found'],404); } throw $e; }
+        if ($w['location_id']!==$loc['id']) { return new DataResponse(['message'=>'Work not found here'],404); }
+        return new DataResponse(['item'=>$w]);
+    }
+
+    #[NoAdminRequired]
+    public function workSplitPreview(string $spaceType,string $spaceId,string $workId,array $parts): DataResponse {
+        $read=$this->workDetail($spaceType,$spaceId,$workId);
+        if ($read->getStatus()!==200) { return $read; }
+        try { return new DataResponse($this->workItems->previewSplit((string)$this->uid(),$workId,$parts)); }
+        catch (\InvalidArgumentException $e) { return new DataResponse(['message'=>$e->getMessage()],422); }
+        catch (\RuntimeException $e) { if ($e->getCode()===409) { return new DataResponse(['message'=>$e->getMessage()],409); } throw $e; }
     }
 
     #[NoAdminRequired]
