@@ -29,6 +29,34 @@ final class InitiumService {
     }
 
     /** 还没成为项目位置讨论的会话，最近的在前；带第一句、促成过哪些项目、AI 是否正在做。 */
+    public function exploring(string $uid): array {
+        $q=$this->db->getQueryBuilder();
+        $rows=$q->select('id','title','root_location_id')->from('cognos_projects')
+            ->where($q->expr()->eq('user_id',$q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('state',$q->createNamedParameter('exploring')))
+            ->orderBy('created_at','DESC')->executeQuery()->fetchAll();
+        foreach ($rows as &$p) {
+            $p['locations']=$this->projects->project($uid,$p['id'])['locations'];
+            $history=$this->projects->lifecycleHistory($uid,$p['id']);
+            $p['latest']=$history[0] ?? null;
+        }
+        unset($p);
+        return $rows;
+    }
+
+    public function exploreFrom(string $uid,string $projectId,string $text,string $requestId): array {
+        $text=trim($text);
+        if ($text === '' || mb_strlen($text)>20000) { throw new \InvalidArgumentException('写下这次想探索的事，最多 2 万字'); }
+        return $this->projects->commit($uid,$requestId,['explore_from',$projectId,$text],function()use($uid,$projectId,$text):array {
+            $p=$this->projects->lockedProject($uid,$projectId);
+            if ($p['state']!=='exploring') { throw new \RuntimeException('项目已离开自由探索状态，请查看当前推进安排',409); }
+            $title=mb_substr(trim((string)strtok($text,"\n")),0,40);
+            $chat=$this->creations->create($uid,$title,$text);
+            $this->projects->newUsage($uid,$p['root_location_id'],(int)$chat['id'],'退回自由探索后另起的会话；原项目与讨论保留');
+            return ['creation_id'=>(int)$chat['id'],'from_project_id'=>$projectId];
+        });
+    }
+
     public function list(string $uid): array {
         $qb = $this->db->getQueryBuilder();
         $placeChats = array_map('intval', array_column($qb->select('l.creation_id')->from('cognos_locations', 'l')
@@ -46,6 +74,13 @@ final class InitiumService {
             $c['first'] = $first === false ? '' : mb_substr((string)$first['content'], 0, 200);
             $c['first_id'] = $first === false ? null : (int)$first['id'];
             $c['formed'] = $formed[$c['id']] ?? [];
+            $q=$this->db->getQueryBuilder();
+            $c['explored_from']=$q->select('p.id','p.title')->from('cognos_usages','u')
+                ->innerJoin('u','cognos_projects','p',$q->expr()->eq('p.root_location_id','u.location_id'))
+                ->where($q->expr()->eq('u.source_creation_id',$q->createNamedParameter($c['id'],IQueryBuilder::PARAM_INT)))
+                ->andWhere($q->expr()->eq('p.user_id',$q->createNamedParameter($uid)))
+                ->andWhere($q->expr()->eq('u.purpose',$q->createNamedParameter('退回自由探索后另起的会话；原项目与讨论保留')))
+                ->executeQuery()->fetchAll();
             $c['ai_working'] = $this->config->getAppValue('cognos', 'agent_pending_creation_' . $c['id'], '') !== '';
         }
         unset($c);

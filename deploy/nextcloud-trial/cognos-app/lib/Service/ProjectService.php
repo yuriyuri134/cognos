@@ -11,6 +11,12 @@ final class ProjectService {
     public function __construct(private IDBConnection $db, private CreationSpaceService $creations, private LifecycleService $lifecycle) {}
 
 
+    /** Owner-checked lock for business operations already inside commit(). */
+    public function lockedProject(string $uid, string $id): array {
+        $this->project($uid,$id);
+        return $this->lifecycle->lock($id);
+    }
+
     public function lifecycleHistory(string $uid, string $projectId): array {
         $this->project($uid, $projectId);
         $q = $this->db->getQueryBuilder();

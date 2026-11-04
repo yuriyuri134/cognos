@@ -88,6 +88,7 @@
             <section aria-labelledby="pw-lifecycle-title">
                 <h2 id="pw-lifecycle-title">项目状态</h2>
                 <p id="pw-lifecycle-state" role="status"></p>
+                <p id="pw-explore-entry" hidden><a href="/index.php/apps/cognos/initium">到 Initium 另起一段探索</a>，原项目和讨论保留。</p>
                 <details><summary>调整推进安排</summary>
                     <form id="pw-lifecycle-form">
                         <label for="pw-lifecycle-action">操作</label>

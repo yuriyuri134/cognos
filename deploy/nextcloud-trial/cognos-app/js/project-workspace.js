@@ -113,6 +113,7 @@
   function renderLifecycle(history) {
     const current = state.project.state || 'active';
     $('pw-lifecycle-state').textContent = lifecycleNames[current] + (current === 'active' ? '。' : '。已停止派新工作；已在执行的参与者可能仍在运行，结果可以交回。');
+    $('pw-explore-entry').hidden=current!=='exploring';
     const select = $('pw-lifecycle-action');
     if (select.dataset.current !== current) {
       select.replaceChildren();

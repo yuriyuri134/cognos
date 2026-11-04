@@ -8,6 +8,7 @@ return ['routes' => [
     ['name'=>'project#list','url'=>'/projects/data','verb'=>'GET'],
     ['name'=>'project#create','url'=>'/projects/data','verb'=>'POST'],
     ['name'=>'project#get','url'=>'/projects/{projectId}/data','verb'=>'GET'],
+    ['name'=>'project#exploreFrom','url'=>'/projects/{projectId}/explorations','verb'=>'POST'],
     ['name'=>'project#lifecycle','url'=>'/projects/{projectId}/lifecycle','verb'=>'POST'],
     ['name'=>'project#addLocation','url'=>'/projects/{projectId}/locations','verb'=>'POST'],
     ['name'=>'project#location','url'=>'/projects/locations/{locationId}/data','verb'=>'GET'],

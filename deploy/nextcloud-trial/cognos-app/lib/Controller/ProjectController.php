@@ -195,7 +195,12 @@ final class ProjectController extends Controller {
 
     #[NoAdminRequired]
     public function initium(): DataResponse {
-        return $this->respond(fn(string $uid) => ['items' => $this->initium->list($uid), 'projects' => $this->projects->projects($uid)]);
+        return $this->respond(fn(string $uid) => ['exploring' => $this->initium->exploring($uid), 'items' => $this->initium->list($uid), 'projects' => $this->projects->projects($uid)]);
+    }
+
+    #[NoAdminRequired]
+    public function exploreFrom(string $projectId, string $text, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->initium->exploreFrom($uid,$projectId,$text,$request_id));
     }
 
     #[NoAdminRequired]

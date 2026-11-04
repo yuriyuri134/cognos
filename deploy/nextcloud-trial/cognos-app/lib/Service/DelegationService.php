@@ -56,6 +56,8 @@ final class DelegationService {
         $saved = $this->projects->commit($uid, $requestId, ['delegate', $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt],
             function () use ($uid, $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt): array {
                 $loc = $this->projects->location($uid, $locationId);
+                $project = $this->projects->lockedProject($uid,$loc['project_id']);
+                if ($project['state'] !== 'active') { throw new \RuntimeException('项目已停止派新工作，请先调整推进安排',409); }
                 $now = time();
                 $returnBy = $now + $returnMinutes * 60;
                 $text = $this->message($ask, $goal, $means, $forbidden, $this->localTime($uid, $returnBy), $mayEdit, $loc['revision'], $mayAdopt);
