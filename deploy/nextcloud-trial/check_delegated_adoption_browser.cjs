@@ -81,7 +81,7 @@ async function main() {
 
   const json = async (url, method = 'GET', data, ocsApi = false) => evaluate('(async () => {const r=await fetch(' + JSON.stringify(ocsApi ? '/ocs/v2.php/apps/cognos/api/v1.0' + url + '?format=json' : '') + ' || OC.generateUrl(' + JSON.stringify('/apps/cognos' + url) + '),{method:' + JSON.stringify(method) +
     ',headers:{Accept:"application/json","Content-Type":"application/json","OCS-APIRequest":"true",requesttoken:OC.requestToken}' + (data ? ',body:' + JSON.stringify(JSON.stringify(data)) : '') + '});const b=await r.json();return b.ocs?b.ocs.data:b;})()');
-  // 入口定稿：Claude Code 依据委托采用的那条（现在被纠正，待复核），第 2 层的待复核
+  // 入口定稿：Claude Code 依据委托采用的那条（现在被纠正，待复核），第 2 层的时间相关提示
   await go(base + '/projects/locations/' + fixture.L);
   await until('document.querySelectorAll("#pw-adoption-list .pw-adoption").length > 0');
   const mine = await evaluate('[...document.querySelectorAll("#pw-adoption-list .pw-adoption")].map(li => li.textContent).join("\\n")');
@@ -89,7 +89,7 @@ async function main() {
   const imp = await evaluate('document.querySelector("#pw-impacts").textContent');
   assert(imp.includes('第 2 层') && imp.includes('版本 3'), imp);
   assert(await evaluate('document.querySelector("#pw-adoptions-ended").textContent.includes("没有采用")'), 'the declined proposal stays readable');
-  checks.push('the place shows the AI adoption with its delegation and the user\'s words, now 待复核; level-2 reviews listed; the declined proposal stays readable');
+  checks.push('the place shows the AI adoption with its delegation and the user\'s words, now 待复核; level-2 hints listed; the declined proposal stays readable');
   await shoot('dadopt-desktop.png', '#pw-adoptions-title');
 
   // 页面上接受一条新的提议
