@@ -129,7 +129,7 @@ final class ProjectController extends Controller {
 
     private function restructureParams(string $action, string $locationId, string $parentId, string $projectId, string $targetParentId, string $changeId): array {
         return match ($action) {
-            'undo_move' => ['change_id' => $changeId],
+            'undo_move', 'undo' => ['change_id' => $changeId],
             'move' => ['location_id' => $locationId, 'parent_id' => $parentId],
             'independent' => ['location_id' => $locationId],
             'merge' => ['project_id' => $projectId, 'target_parent_id' => $targetParentId],

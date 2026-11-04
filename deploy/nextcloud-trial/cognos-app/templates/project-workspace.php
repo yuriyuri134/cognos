@@ -45,14 +45,14 @@
                 <select id="pw-merge-parent"></select>
                 <button type="button" id="pw-preview-merge">预览合并</button>
             </details>
-            <div id="pw-restructure-preview" hidden>
-                <p><strong>确认前先看后果</strong></p>
-                <ul id="pw-restructure-lines" class="pw-reach"></ul>
-                <div class="pw-inline"><button type="button" id="pw-restructure-apply">确认</button><button type="button" id="pw-restructure-cancel">算了</button></div>
-            </div>
             <ul id="pw-location-history" class="pw-reach" data-location-only></ul>
         </aside>
         <div class="pw-main">
+            <section id="pw-restructure-preview" hidden tabindex="-1" aria-labelledby="pw-restructure-title">
+                <h2 id="pw-restructure-title">确认前先看后果</h2>
+                <ul id="pw-restructure-lines" class="pw-reach"></ul>
+                <div class="pw-inline"><button type="button" id="pw-restructure-apply">确认</button><button type="button" id="pw-restructure-cancel">算了</button></div>
+            </section>
             <section class="pw-decisions" aria-labelledby="pw-decisions-title">
                 <div class="pw-section-title"><h2 id="pw-decisions-title">在生效的决定</h2></div>
                 <p class="pw-hint">你本人说过、现在对这个项目里所有参与者都有效的话。每次有人进来或开始做事，入口最前面就是对那一处适用的这几条。</p>

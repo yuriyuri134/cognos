@@ -64,7 +64,7 @@ async function main() {
   await preview({action:'undo_move',change_id:first.change_id},409);
   const independent={action:'independent',location_id:x};const split=await apply(independent,(await preview(independent)).basis);
   await preview({action:'undo_move',change_id:split.change_id},409);
-  checks.push('later relocation is not overwritten; independent undo is explicitly unavailable rather than guessed');
+  checks.push('later relocation is not overwritten; legacy move-only undo rejects independent records; generic cross-project undo is checked separately');
   // Leave a separate moved item for a real click-through verification.
   const uiLoc=await add(oldParent,'页面撤回的位置');const uiParams={action:'move',location_id:uiLoc,parent_id:newParent};
   const uiChange=await apply(uiParams,(await preview(uiParams)).basis);

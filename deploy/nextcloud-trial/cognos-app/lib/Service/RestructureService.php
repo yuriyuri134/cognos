@@ -49,7 +49,7 @@ final class RestructureService {
             $this->projects->insert('cognos_restructures', ['id' => $change, 'user_id' => $uid, 'action' => $action,
                 'params' => json_encode($params, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
                 'consequences' => json_encode($plan['consequences'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE), 'created_at' => $now,
-                'reverts_change_id' => $action === 'undo_move' ? $params['change_id'] : null]);
+                'reverts_change_id' => in_array($action, ['undo_move', 'undo'], true) ? $params['change_id'] : null]);
             ($plan['do'])($change, $now);
             $after = $this->snapshot($uid, array_values(array_unique(array_merge($ids, [$plan['project_id']]))));
             $q = $this->db->getQueryBuilder();
@@ -84,8 +84,14 @@ final class RestructureService {
     private function affectedProjects(string $uid,array $params): array {
         $ids=[];
         if (!empty($params['change_id'])) {
-            $old = $this->undoMoveState($uid, (string)$params['change_id']);
-            $ids[] = $old['location']['project_id'];
+            $change = $this->undoableChange($uid, (string)$params['change_id']);
+            if ($change['action'] === 'move') {
+                $old = $this->undoMoveState($uid, $change['id']);
+                $ids[] = $old['location']['project_id'];
+            } else {
+                $old = $this->undoCrossState($uid, $change);
+                $ids = [$old['carrier']['id'], $old['destination']['id']];
+            }
         }
         if (!empty($params['project_id'])) { $ids[]=$this->projects->project($uid,(string)$params['project_id'])['id']; }
         foreach (['location_id','parent_id','target_parent_id'] as $key) {
@@ -100,6 +106,7 @@ final class RestructureService {
 
     private function plan(string $uid, string $action, array $params): array {
         return match ($action) {
+            'undo' => $this->planUndo($uid, (string)($params['change_id'] ?? '')),
             'undo_move' => $this->planUndoMove($uid, (string)($params['change_id'] ?? '')),
             'move' => $this->planMove($uid, (string)($params['location_id'] ?? ''), (string)($params['parent_id'] ?? '')),
             'independent' => $this->planIndependent($uid, (string)($params['location_id'] ?? '')),
@@ -127,19 +134,25 @@ final class RestructureService {
         return $out;
     }
 
-    private function undoMoveState(string $uid, string $changeId): array {
+    private function undoableChange(string $uid, string $changeId): array {
         $q = $this->db->getQueryBuilder();
         $change = $q->select('*')->from('cognos_restructures')
             ->where($q->expr()->eq('id', $q->createNamedParameter($changeId)))
             ->andWhere($q->expr()->eq('user_id', $q->createNamedParameter($uid)))->executeQuery()->fetch();
         if (!$change) { throw new \RuntimeException('重组记录不存在或不可访问', 404); }
-        if ($change['action'] !== 'move') {
-            throw new \RuntimeException('这条不是位置调整；独立和合并撤回尚未接入', 409);
+        if (!in_array($change['action'], ['move', 'independent', 'merge'], true)) {
+            throw new \RuntimeException('这条记录不能再次撤回；请按现状调整', 409);
         }
         $q = $this->db->getQueryBuilder();
         $reverted = $q->select('id')->from('cognos_restructures')
             ->where($q->expr()->eq('reverts_change_id', $q->createNamedParameter($changeId)))->executeQuery()->fetch();
         if ($reverted) { throw new \RuntimeException('这次调整已经撤回', 409); }
+        return $change;
+    }
+
+    private function undoMoveState(string $uid, string $changeId): array {
+        $change = $this->undoableChange($uid, $changeId);
+        if ($change['action'] !== 'move') { throw new \RuntimeException('请使用重组撤回入口', 409); }
         $q = $this->db->getQueryBuilder();
         $h = $q->select('*')->from('cognos_location_history')
             ->where($q->expr()->eq('change_id', $q->createNamedParameter($changeId)))->executeQuery()->fetch();
@@ -161,6 +174,141 @@ final class RestructureService {
         array_unshift($plan['consequences'], '以一条新变更撤回这次调整；旧经过保留，不回滚后来成果。',
             '当前稿、讨论、采用和后来展开的位置保留；当前子树随位置一起移回。');
         return $plan;
+    }
+
+    private function planUndo(string $uid, string $changeId): array {
+        $change = $this->undoableChange($uid, $changeId);
+        if ($change['action'] === 'move') { return $this->planUndoMove($uid, $changeId); }
+        $old = $this->undoCrossState($uid, $change);
+        if ($change['action'] === 'independent') {
+            // The current independent project (including new work) returns as a part.
+            $plan = $this->planMerge($uid, $old['carrier']['id'], $old['parent']['id']);
+            array_unshift($plan['consequences'], '撤回独立：以新变更把当前全部内容接回原上级，不回滚后来成果；独立项目身份保留为已归回。',
+                '独立后新增的决定保留：整个独立项目的决定只管归回的这部分，不扩大到原项目其他位置。');
+            return $plan;
+        }
+        return $this->planUndoMerge($uid, $old);
+    }
+
+    /** Cross-project undo requires the actual original scope evidence, never a guessed reconstruction. */
+    private function undoCrossState(string $uid, array $change): array {
+        $snapshot = json_decode((string)($change['undo_snapshot'] ?? ''), true);
+        if (!is_array($snapshot) || !isset($snapshot['before'], $snapshot['after'])) {
+            throw new \RuntimeException('旧重组缺少前后关系和决定范围记录，不能自动撤回；可以按现状预览独立或合并', 409);
+        }
+        $params = json_decode($change['params'], true, 512, JSON_THROW_ON_ERROR);
+        if ($change['action'] === 'independent') {
+            $rootId = $params['location_id'];
+            $before = null; $originalLocation = null;
+            foreach ($snapshot['before'] as $p) {
+                foreach ($p['locations'] as $l) {
+                    if ($l['id'] === $rootId) { $before = $p; $originalLocation = $l; }
+                }
+            }
+            if (!$before || !$originalLocation || !$originalLocation['parent_id']) {
+                throw new \RuntimeException('原上级记录不完整，不能自动撤回', 409);
+            }
+            $destination = $this->live($uid, $before['id']);
+            $parent = $this->projects->location($uid, $originalLocation['parent_id']);
+            $root = $this->projects->location($uid, $rootId);
+            $carrier = $this->live($uid, $root['project_id']);
+            $after = array_values(array_filter($snapshot['after'], static fn(array $p): bool => $p['id'] === $carrier['id']));
+            if (!$after || $carrier['root_location_id'] !== $rootId || $root['parent_id'] !== null
+                || $parent['project_id'] !== $destination['id'] || $carrier['id'] === $destination['id']) {
+                throw new \RuntimeException('独立后的归属已变化，请按现状重新组织', 409);
+            }
+            $originalIds = array_column($after[0]['locations'], 'id');
+        } else {
+            $before = array_values(array_filter($snapshot['before'], static fn(array $p): bool => $p['id'] === $params['project_id']));
+            if (!$before) { throw new \RuntimeException('缺少原项目记录，不能自动撤回', 409); }
+            $before = $before[0]; $rootId = $before['root_location_id'];
+            $destination = $this->projects->project($uid, $before['id']);
+            $root = $this->projects->location($uid, $rootId);
+            $carrier = $this->live($uid, $root['project_id']);
+            $parent = null;
+            if ($destination['merged_into'] !== $carrier['id'] || $destination['root_location_id'] !== $rootId
+                || $root['parent_id'] !== $params['target_parent_id'] || $destination['locations'] !== []) {
+                throw new \RuntimeException('合并后的归属已变化，请按现状重新组织', 409);
+            }
+            $originalIds = array_column($before['locations'], 'id');
+        }
+        $subtree = $this->subtree($carrier['locations'], $rootId);
+        if (array_diff($originalIds, $subtree) !== []) {
+            throw new \RuntimeException('原来的一部分后来已移到别处，不能替它决定归回；请先处理后续重组', 409);
+        }
+        return compact('change', 'snapshot', 'before', 'root', 'carrier', 'destination', 'parent', 'subtree');
+    }
+
+    private function planUndoMerge(string $uid, array $old): array {
+        ['snapshot' => $snapshot, 'before' => $before, 'root' => $root,
+            'carrier' => $carrier, 'destination' => $destination, 'subtree' => $subtree] = $old;
+        $original = array_column($before['decisions'], null, 'id');
+        $afterDecisions = [];
+        foreach ($snapshot['after'] as $p) {
+            foreach ($p['decisions'] as $d) { $afterDecisions[$d['id']] = $d; }
+        }
+        $current = array_column($this->decisions->forProject($uid, $carrier['id']), null, 'id');
+        $moving = [];
+        foreach ($original as $id => $d) {
+            if (!isset($current[$id], $afterDecisions[$id])
+                || $current[$id]['scope_location_ids'] !== $afterDecisions[$id]['scope_location_ids']) {
+                throw new \RuntimeException('原决定的归属或范围后来已改变，不能用旧范围覆盖；请先处理决定范围', 409);
+            }
+            // Preserve revoked/superseded status and links; only reverse the structural narrowing.
+            $moving[$id] = $d['scope_location_ids'];
+        }
+        foreach ($current as $id => $d) {
+            if (array_key_exists($id, $moving) || $d['scope_location_ids'] === []) { continue; }
+            $inside = array_intersect($d['scope_location_ids'], $subtree);
+            if ($inside !== [] && array_diff($d['scope_location_ids'], $subtree) === []) {
+                $moving[$id] = $d['scope_location_ids'];
+            } elseif ($inside !== [] && $d['status'] === 'active') {
+                throw new \RuntimeException('有生效决定同时管到归回部分和留在这里的部分，请先明确拆开它的范围', 409);
+            }
+        }
+        $lines = [sprintf('撤回合并：当前「%s」及下面共 %d 处回到原项目「%s」，恢复原项目身份；当前稿、讨论、采用和新增子项不回滚。',
+            $root['title'], count($subtree), $destination['title']),
+            '原项目的决定恢复当时的适用范围，后来撤回或被替代的仍保持该状态；后来只管归回部分的决定跟着走。',
+            '目标项目自己的全项目决定留在目标，不带走；跨两边的生效决定必须先明确范围。',
+            '恢复项目状态：'.$this->stateLabel($destination['state']).'；原项目运行资格更新，合并前后的旧运行仍可交回结果，但直接改稿或采用需重新登记。'];
+        if ($moving !== []) {
+            $lines[] = '随当前部分归回、保留现有生效状态的决定：' . $this->quoteList(array_values(array_intersect_key($current, $moving))) . '。';
+        }
+        $restoredWide = array_values(array_filter($original, static fn(array $d): bool => $d['scope_location_ids'] === []));
+        if ($restoredWide !== []) {
+            $wideQuotes = array_map(static fn(array $d): array => $current[$d['id']], $restoredWide);
+            $lines[] = '恢复为原项目全范围（不改变当前生效/撤回/替代状态）的决定：' . $this->quoteList($wideQuotes) . '。';
+        }
+        $stayingWide = array_values(array_filter($current, static fn(array $d): bool => $d['scope_location_ids'] === [] && !array_key_exists($d['id'], $moving)));
+        if ($stayingWide !== []) { $lines[] = '留在目标项目、归回部分不再沿用：' . $this->quoteList($stayingWide) . '。'; }
+        $lines = array_merge($lines, $this->workLines($uid, $subtree));
+        $parents = array_column($carrier['locations'], 'parent_id', 'id');
+        return ['consequences' => $lines, 'basis' => $this->basis($uid, [$carrier['id'], $destination['id']]),
+            'project_id' => $destination['id'], 'location_id' => $root['id'],
+            'do' => function (string $changeId, int $now) use ($uid, $carrier, $destination, $root, $subtree, $moving, $parents): void {
+                foreach ($subtree as $id) {
+                    $this->setLocation($id, ['project_id' => $destination['id']] + ($id === $root['id'] ? ['parent_id' => null] : []));
+                    $this->history($id, $changeId, 'undo_merge', $carrier['id'], $destination['id'], $parents[$id],
+                        $id === $root['id'] ? null : $parents[$id], $uid, $now);
+                }
+                foreach ($moving as $id => $scope) { $this->setDecisionProject($id, $destination['id'], $scope); }
+                $this->moveRows($subtree, $destination['id']);
+                $q = $this->db->getQueryBuilder();
+                $q->update('cognos_projects')->set('merged_into', $q->createNamedParameter(null, IQueryBuilder::PARAM_NULL))
+                    ->set('merged_at', $q->createNamedParameter(null, IQueryBuilder::PARAM_NULL))
+                    ->where($q->expr()->eq('id', $q->createNamedParameter($destination['id'])))->executeStatement();
+                $this->renewEpoch($destination['id']);
+            }];
+    }
+
+    /** A returning project identity must not reactivate any old run's write permission. */
+    private function renewEpoch(string $projectId): void {
+        $q = $this->db->getQueryBuilder();
+        $epoch = (int)$q->select('execution_epoch')->from('cognos_projects')
+            ->where($q->expr()->eq('id', $q->createNamedParameter($projectId)))->executeQuery()->fetchOne();
+        $q = $this->db->getQueryBuilder();
+        $q->update('cognos_projects')->set('execution_epoch', $q->createNamedParameter($epoch + 1, IQueryBuilder::PARAM_INT))
+            ->where($q->expr()->eq('id', $q->createNamedParameter($projectId)))->executeStatement();
     }
 
     private function planMove(string $uid, string $locationId, string $parentId): array {
@@ -236,6 +384,7 @@ final class RestructureService {
         $lines[] = '原项目状态：'.$this->stateLabel($source['state']).'；合并后这些位置遵循目标项目状态：'.$this->stateLabel($target['state']).'。原运行仍可交回结果，直接改稿或采用的资格不会迁移；需要继续工作时重新登记或委托。';
         $wide = array_values(array_filter($this->decisions->forProject($uid, $source['id']), static fn(array $d): bool => $d['status'] === 'active' && $d['scope_location_ids'] === []));
         if ($wide !== []) { $lines[] = '原项目整个项目的决定，合并后只管原来那部分：' . $this->quoteList($wide) . '。'; }
+        $lines[] = '接收项目的运行资格更新，旧运行不因位置回来而恢复权限；目标项目现有运行仍可交回结果，继续直接改稿或采用需重新登记。';
         $targetWide = array_values(array_filter($this->decisions->forProject($uid, $target['id']), static fn(array $d): bool => $d['status'] === 'active' && $d['scope_location_ids'] === []));
         if ($targetWide !== []) { $lines[] = '目标项目整个项目的决定，从此也出现在这部分的入口里：' . $this->quoteList($targetWide) . '。'; }
         $all = array_column($source['locations'], 'id');
@@ -251,6 +400,7 @@ final class RestructureService {
                     $this->setDecisionProject($d['id'], $target['id'], $d['scope_location_ids'] === [] ? [$root] : null);
                 }
                 $this->moveRows($all, $target['id']);
+                $this->renewEpoch($target['id']);
                 $qb = $this->db->getQueryBuilder();
                 $qb->update('cognos_projects')->set('merged_into', $qb->createNamedParameter($target['id']))
                     ->set('merged_at', $qb->createNamedParameter($now, IQueryBuilder::PARAM_INT))
@@ -397,10 +547,10 @@ final class RestructureService {
             try { return (string)$this->projects->location($uid, $id)['title']; } catch (\RuntimeException) { return '（不可访问的位置）'; }
         };
         $ids = array_values(array_unique(array_column($rows, 'change_id')));
-        $can = []; $reverts = [];
+        $can = []; $reverts = []; $undoActions = [];
         if ($ids !== []) {
             $q = $this->db->getQueryBuilder();
-            $changes = $q->select('id', 'action', 'reverts_change_id')->from('cognos_restructures')
+            $changes = $q->select('id', 'action', 'reverts_change_id', 'undo_snapshot')->from('cognos_restructures')
                 ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
                 ->andWhere($q->expr()->orX(
                     $q->expr()->in('id', $q->createNamedParameter($ids, IQueryBuilder::PARAM_STR_ARRAY)),
@@ -410,10 +560,13 @@ final class RestructureService {
             foreach ($changes as $c) {
                 $can[$c['id']] = $c['action'] === 'move' && !in_array($c['id'], $reverted, true);
                 $reverts[$c['id']] = $c['reverts_change_id'];
+                $undoActions[$c['id']] = !in_array($c['id'], $reverted, true) &&
+                    ($c['action'] === 'move' || (in_array($c['action'], ['independent', 'merge'], true) && $c['undo_snapshot'])) ? 'undo' : null;
             }
         }
         return array_map(static fn(array $r): array => [
             'can_undo_move' => $can[$r['change_id']] ?? false,
+            'undo_action' => $undoActions[$r['change_id']] ?? null,
             'reverts_change_id' => $reverts[$r['change_id']] ?? null,
             'location_id' => (string)$r['location_id'], 'location_title' => $locationTitle((string)$r['location_id']),
             'action' => (string)$r['action'], 'change_id' => (string)$r['change_id'],

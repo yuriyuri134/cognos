@@ -81,3 +81,6 @@
   .pw-structure { border-right: 0; border-bottom: 1px solid var(--pw-border); padding: 0 0 16px; }
   .pw-section-title { align-items: flex-start; }
 }
+
+#pw-restructure-preview { padding: 20px; border: 1px solid var(--pw-border); border-radius: 8px; background: var(--color-background-hover); }
+#pw-restructure-lines { font-size: 14px; overflow-wrap: anywhere; }

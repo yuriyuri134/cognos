@@ -504,13 +504,13 @@
       const who = here ? '这一处' : '「' + (h.location_title || '某处') + '」';
       if (h.action === 'move') li.textContent = date(h.changed_at) + ' ' + who + (h.reverts_change_id ? '撤回此前调整，' : '') + '从「' + (h.from_parent_title || '顶层') + '」下面移到「' + (h.to_parent_title || '顶层') + '」下面';
       else {
-        li.append(document.createTextNode(date(h.changed_at) + ' ' + who + (h.action === 'merge' ? '随项目合并，' : '独立出来，') + '从项目 '));
+        li.append(document.createTextNode(date(h.changed_at) + ' ' + who + (h.action === 'undo_merge' ? '撤回合并，' : h.reverts_change_id ? '撤回独立，' : h.action === 'merge' ? '随项目合并，' : '独立出来，') + '从项目 '));
         li.append(link('「' + h.from_project_title + '」', base + '/projects/' + h.from_project_id), document.createTextNode(' 到项目 '));
         li.append(link('「' + h.to_project_title + '」', base + '/projects/' + h.to_project_id));
       }
-      if (h.can_undo_move) {
-        const undo = node('button', '预览撤回这次调整'); undo.type = 'button';
-        undo.addEventListener('click', () => busy(li, () => previewRestructure({action: 'undo_move', change_id: h.change_id})));
+      if (h.undo_action || h.can_undo_move) {
+        const undo = node('button', '预览撤回这次重组'); undo.type = 'button';
+        undo.addEventListener('click', () => busy(li, () => previewRestructure({action: h.undo_action || 'undo_move', change_id: h.change_id})));
         li.append(' ', undo);
       }
       box.append(li);
@@ -546,6 +546,7 @@
     $('pw-restructure-lines').replaceChildren(...r.consequences.map(c => node('li', c)));
     $('pw-restructure-preview').hidden = false;
     $('pw-restructure-preview').scrollIntoView({block: 'nearest'});
+    $('pw-restructure-preview').focus({preventScroll: true});
   }
   function openDecisionForm(content, sourceMessageId, supersedes) {
     $('pw-decision-add').open = true;
@@ -725,7 +726,7 @@
     try {
       const r = await mutate('/projects/restructure', 'POST', state.pending);
       const action = state.pending.action; state.pending = null;
-      location.href = ['move', 'undo_move'].includes(action) ? locationUrl(r.location_id) : base + '/projects/' + r.project_id;
+      location.href = ['move', 'undo_move', 'undo'].includes(action) ? locationUrl(r.location_id) : base + '/projects/' + r.project_id;
     } catch (e) {
       if (e.status === 409) { $('pw-restructure-preview').hidden = true; state.pending = null; }
       throw e;
