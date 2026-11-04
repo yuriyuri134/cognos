@@ -42,6 +42,7 @@ final class SpaceApiController extends OCSController {
         private HermesAgentService $hermes,
         private IConfig $config,
         private RunService $runs,
+        private \OCA\Cognos\Service\FollowupService $followups,
         private DecisionService $decisions,
         private ProjectService $projects,
         private DelegationService $delegations,
@@ -226,7 +227,8 @@ final class SpaceApiController extends OCSController {
         // 回的是对话里哪一句；被反对叫回来的回答是 0（不回任何一句）
         $replyTo = isset($body['reply_to']) && $body['reply_to'] !== null ? (int)$body['reply_to'] : null;
         $missing = []; $changed = [];
-        $finalize = function (int $messageId) use ($uid, $run, $body, $spaceType, $spaceId, &$missing, &$changed): void {
+        $finalize = function (int $messageId) use ($uid, $run, $body, $spaceType, $spaceId, $resultId, &$missing, &$changed): void {
+            $this->followups->enqueue($resultId,$run,$uid);
             // 运行起步以后才有、输入里没有的适用决定：结果照收，记下来，页面上标「起步时还没有这条决定」；不自动应用到共享内容
             $drift = $this->driftSnapshot($uid, $run);
             $missing = $drift['decisions_missing'];
@@ -268,14 +270,13 @@ final class SpaceApiController extends OCSController {
         }
         $message = $this->message((int)$spaceId, $uid, $received['message_id']);
         if ($received['duplicate']) {
-            // 已经收过：不再存、不再记检查、不再叫下一件
+            // Only a still-unclaimed durable intent may be recovered by receipt retry.
+            $this->processFollowup($resultId,$uid);
+            // 已经收过：不再存、不再记检查
             return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => true], 200);
         }
-        $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
-        $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
-        // Only external dispatch remains after the committed receipt.
-        $openId = $run['target_type'] === 'open' ? (int)$run['target_id'] : null;
-        $this->callNext($spaceType, $spaceId, $uid, $openId);
+        // Claim the durable intent after commit; external work is never inside the receipt transaction.
+        $this->processFollowup($resultId,$uid);
         return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false, 'decisions_missing' => $missing,
             'basis_changed' => $changed], 201);
     }
@@ -566,6 +567,14 @@ final class SpaceApiController extends OCSController {
     }
 
     /** 这一位做完了：排着的下一件接着叫（一条反对，或者交互对象在它忙时说的一句）；都没有，就从还拉着的没完的接着走。 */
+    private function processFollowup(string $resultId,string $uid):void {
+        $this->followups->process($resultId,$uid,function(array $event)use($uid):void {
+            $this->config->deleteAppValue('cognos','agent_pending_creation_'.(int)$event['space_id']);
+            $this->config->deleteAppValue('cognos','agent_pending_who_creation_'.(int)$event['space_id']);
+            $this->callNext($event['space_type'],$event['space_id'],$uid,$event['open_id']===null?null:(int)$event['open_id']);
+        });
+    }
+
     private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan): void {
         $next = $this->pushBack->drain($spaceType, $spaceId, $uid);
         if ($next === null) {
