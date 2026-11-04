@@ -93,6 +93,7 @@
     renderDecisions(data.decisions);
     renderWho(data.activity);
     renderFollowups(data.followups || []);
+    renderDispatchQueue(data.dispatch_queue || []);
     if (state.mode === 'location') renderHistory($('pw-location-history'), data.location_history || [], true);
     if (state.mode === 'project') {
       renderStates(data.locations, data.activity.runs); renderRecent(data.activity.recent, data.decisions); renderOrigin(data.formed_from || []);
@@ -151,6 +152,29 @@
         const button=node('button',item.state==='unknown'?'已核清，关闭本次接续':'关闭本次接续');button.type='submit';form.append(label,input,button);
         form.addEventListener('submit',e=>{e.preventDefault();busy(form,async()=>{
           try{await mutate('/projects/followups/'+item.result_id+'/close','POST',{expected_state:item.state,note:input.value});input.value='';notice('本次接续已关闭，没有重放，也没有改变实际运行状态。');}
+          finally{document.activeElement?.blur();state.lastOverview='';await loadOverview();}
+        });});li.append(form);
+      }
+      list.append(li);
+    }
+  }
+  function renderDispatchQueue(items) {
+    if(document.activeElement?.closest('#pw-dispatch-queue form'))return;
+    $('pw-dispatch-section').hidden=!items.length;
+    const labels={queued:'等待派发',claimed:'已领取，尚未确认派出',sent:'已派出',unknown:'派发状态未知，请先核对',skipped:'未派发，已跳过',reconciled:'已核清并关闭',cancelled:'已取消本次排队'};
+    const runs={queued:'等待确认',running:'正在执行',unknown:'状态未知',delivered:'结果已交回',failed:'未能开始'};
+    const list=$('pw-dispatch-queue');list.replaceChildren();
+    for(const item of items){
+      const li=node('li',undefined,'pw-decision'+(item.state==='unknown'?' pw-warn':''));li.dataset.queueId=item.id;
+      li.append(node('p',(item.kind==='hit'?'反对 #':'消息 #')+item.ref_id+' · '+(labels[item.state]||item.state)+(item.run_state?' · 对应运行：'+(runs[item.run_state]||item.run_state):'')));
+      li.append(link('查看原讨论',base+'/creations/'+item.space_id));
+      if(item.note){const text=item.note.replace(/^运行 [a-f0-9]{32}：(running|delivered|failed|unknown)([^\n]*)/,(_,status,tail)=>'运行状态：'+(runs[status]||status)+tail);const note=node('p',text);note.style.whiteSpace='pre-wrap';li.append(note);}
+      if(['queued','unknown'].includes(item.state)){
+        const form=node('form');const input=node('textarea');input.required=true;input.rows=2;input.maxLength=2000;input.id='pw-queue-note-'+item.id;
+        const label=node('label','核对或取消说明');label.htmlFor=input.id;
+        const button=node('button',item.state==='unknown'?'已核清，关闭本次派发':'取消本次排队');button.type='submit';form.append(label,input,button);
+        form.addEventListener('submit',e=>{e.preventDefault();busy(form,async()=>{
+          try{await mutate('/projects/queue/'+item.id+'/close','POST',{creation_id:Number(item.space_id),expected_state:item.state,note:input.value});notice('队列记录已关闭，没有重放，也没有改变实际运行状态。');}
           finally{document.activeElement?.blur();state.lastOverview='';await loadOverview();}
         });});li.append(form);
       }

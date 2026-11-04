@@ -62,6 +62,9 @@ final class FollowupService {
   if($expected==='unknown')$this->dispatchQueue->reconcileIntent($id,$uid.'：'.$note);
   return ['result_id'=>$id,'state'=>$next];
  }
+ public function lockOwned(string $id,string $uid):void {
+  $q=$this->db->getQueryBuilder();$q->update('cognos_followups')->set('state','state')->where($q->expr()->eq('result_id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('user_id',$q->createNamedParameter($uid)))->executeStatement();
+ }
  public function pending(int $limit=10):array {
   $q=$this->db->getQueryBuilder();return $q->select('*')->from('cognos_followups')->where($q->expr()->eq('state',$q->createNamedParameter('pending')))->orderBy('updated_at','ASC')->addOrderBy('result_id','ASC')->setMaxResults($limit)->executeQuery()->fetchAll();
  }

@@ -83,6 +83,25 @@ final class DispatchQueueService {
  public function reconcileIntent(string $followupId,string $note):void {
   $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter('reconciled'))->set('note',$q->createNamedParameter('用户已核清并关闭本次接续：'.$note.'；不重放，不改变运行状态'))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('followup_id',$q->createNamedParameter($followupId)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('unknown')))->executeStatement();
  }
+
+ /** Caller must first verify ownership of the supplied conversations. */
+ public function forCreations(array $ids):array {
+  if($ids===[])return [];$scopes=[];foreach($ids as $id)$scopes[$this->scope('creation',(string)$id)]=(string)$id;
+  $read=function(bool $active)use($scopes):array{
+   $q=$this->db->getQueryBuilder();$q->select('*')->from('cognos_dispatch_queue')->where($q->expr()->in('scope_id',$q->createNamedParameter(array_keys($scopes),IQueryBuilder::PARAM_STR_ARRAY)));
+   $states=$q->createNamedParameter(['queued','claimed','unknown'],IQueryBuilder::PARAM_STR_ARRAY);$q->andWhere($active?$q->expr()->in('state',$states):$q->expr()->notIn('state',$states))->orderBy('updated_at','DESC')->addOrderBy('id','ASC');if(!$active)$q->setMaxResults(10);return $q->executeQuery()->fetchAll();
+  };
+  $rows=array_merge($read(true),$read(false));foreach($rows as &$row){$row['space_id']=$scopes[$row['scope_id']];$row['run_state']=null;if($row['run_id']!==null){$q=$this->db->getQueryBuilder();$run=$q->select('state')->from('cognos_runs')->where($q->expr()->eq('id',$q->createNamedParameter($row['run_id'])))->executeQuery()->fetch();$row['run_state']=$run['state']??null;}}unset($row);return $rows;
+ }
+ public function close(string $id,string $spaceId,string $uid,string $expected,string $note):array {
+  $item=$this->get($id);if(!$item||$item['scope_id']!==$this->scope('creation',$spaceId))throw new \RuntimeException('队列记录不存在或不可访问',404);
+  $note=trim($note);if(!in_array($expected,['queued','unknown'],true)||$note===''||mb_strlen($note)>2000)throw new \InvalidArgumentException('请写下核对或取消说明，最多 2000 字');
+  $next=$expected==='unknown'?'reconciled':'cancelled';$q=$this->db->getQueryBuilder();
+  $n=$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter($next))->set('note',$q->createNamedParameter($item['note']."\n核对记录（".$uid.'）：'.$note.'；不重放，不改变实际运行状态。'))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))
+   ->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('state',$q->createNamedParameter($expected)))->executeStatement();
+  if($n!==1)throw new \RuntimeException('队列状态已变化，请先查看最新记录',409);
+  return ['item_id'=>$id,'state'=>$next,'followup_id'=>$item['followup_id']];
+ }
  public function blocked(string $type,string $spaceId):bool {
   $q=$this->db->getQueryBuilder();return (bool)$q->select('id')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($this->scope($type,$spaceId))))->andWhere($q->expr()->in('state',$q->createNamedParameter(['claimed','unknown'],IQueryBuilder::PARAM_STR_ARRAY)))->setMaxResults(1)->executeQuery()->fetch();
  }

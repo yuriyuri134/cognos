@@ -24,6 +24,7 @@ final class ProjectController extends Controller {
         private DecisionService $decisions, private DelegationService $delegations, private InitiumService $initium,
         private AdoptionService $adoptions, private RestructureService $restructures,
         private \OCA\Cognos\Service\FollowupService $followups,
+        private \OCA\Cognos\Service\DispatchQueueService $dispatchQueue,
         private IConfig $config, private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
@@ -41,12 +42,13 @@ final class ProjectController extends Controller {
             foreach ($decisions as &$d) { $d['progress'] = $progress[$d['id']] ?? []; }
             unset($d);
             $followups = $this->followups->forCreations($uid,$activity['creation_ids']);
+            $queue=$this->dispatchQueue->forCreations($activity['creation_ids']);
             unset($activity['creation_ids']);
             $counts = $this->delegations->countsForProject($projectId);
             $reviews = $this->adoptions->reviewCounts($projectId);
             $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]) + ['review' => $reviews[$l['id']] ?? 0],
                 $this->projects->locationStates($uid, $projectId));
-            $out = ['followups' => $followups, 'project' => $this->projects->project($uid, $projectId), 'lifecycle_history' => $this->projects->lifecycleHistory($uid, $projectId), 'decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
+            $out = ['dispatch_queue'=>$queue, 'followups' => $followups, 'project' => $this->projects->project($uid, $projectId), 'lifecycle_history' => $this->projects->lifecycleHistory($uid, $projectId), 'decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
                 'formed_from' => $this->initium->forProject($uid, $projectId),
                 'history' => $this->restructures->historyForProject($uid, $projectId), 'merged_into' => $this->mergedInto($uid, $projectId)];
             if ($location_id !== '') {
@@ -234,6 +236,24 @@ final class ProjectController extends Controller {
     public function closeFollowup(string $resultId,string $expected_state,string $note,string $request_id):DataResponse {
         return $this->respond(fn(string $uid) => $this->projects->commit($uid,$request_id,['close_followup',$resultId,$expected_state,$note],
             fn()=>$this->followups->close($resultId,$uid,$expected_state,$note)));
+    }
+
+    #[NoAdminRequired]
+    public function closeQueue(string $itemId,int $creation_id,string $expected_state,string $note,string $request_id):DataResponse {
+        return $this->respond(fn(string $uid)=>$this->projects->commit($uid,$request_id,['close_queue',$itemId,$creation_id,$expected_state,$note],function()use($uid,$itemId,$creation_id,$expected_state,$note):array {
+            $loc=$this->projects->locationForCreation($uid,$creation_id);
+            if($loc===null)throw new \RuntimeException('项目讨论不存在或不可访问',404);
+            $this->projects->lockedLocation($uid,$loc['id']);
+            // Both review entry points lock intent before queue to avoid opposite lock order.
+            $peek=$this->dispatchQueue->get($itemId);
+            if($peek!==null&&$peek['followup_id']!==null)$this->followups->lockOwned($peek['followup_id'],$uid);
+            $closed=$this->dispatchQueue->close($itemId,(string)$creation_id,$uid,$expected_state,$note);
+            if($expected_state==='unknown'&&$closed['followup_id']!==null){
+                $intent=$this->followups->get($closed['followup_id']);
+                if($intent!==null&&$intent['state']==='unknown'&&$intent['user_id']===$uid)$this->followups->close($intent['result_id'],$uid,'unknown',$note);
+            }
+            return $closed;
+        }));
     }
 
     private function respond(callable $fn): DataResponse {
