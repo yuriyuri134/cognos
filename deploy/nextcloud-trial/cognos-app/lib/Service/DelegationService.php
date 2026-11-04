@@ -32,6 +32,7 @@ final class DelegationService {
         private DecisionService $decisions,
         private RunService $runs,
         private HermesAgentService $agents,
+        private WorkItemService $workItems,
     ) {
     }
 
@@ -41,7 +42,7 @@ final class DelegationService {
      * @return array{delegation_id: string, message_id: int, state: string, note: ?string}
      */
     public function delegate(string $uid, string $locationId, string $ask, string $goal, string $means, string $forbidden,
-        int $returnMinutes, bool $mayEdit, string $requestId, bool $mayAdopt = false): array {
+        int $returnMinutes, bool $mayEdit, string $requestId, bool $mayAdopt = false, string $workItemId = '', int $expectedWorkRevision = 0): array {
         $ask = trim($ask);
         if ($ask === '' || mb_strlen($ask) > self::MAX_TEXT) {
             throw new \InvalidArgumentException('要交出去的事写一句话，最多 ' . self::MAX_TEXT . ' 字');
@@ -53,9 +54,11 @@ final class DelegationService {
         if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') !== 'claude-code') {
             throw new \RuntimeException('交出去现在只接本机的 Claude Code（creation_agent 不是 claude-code）', 422);
         }
-        $saved = $this->projects->commit($uid, $requestId, ['delegate', $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt],
-            function () use ($uid, $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt): array {
-                $loc = $this->projects->location($uid, $locationId);
+        $signature = ['delegate', $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt];
+        if ($workItemId !== '' || $expectedWorkRevision !== 0) { $signature[] = $workItemId; $signature[] = $expectedWorkRevision; }
+        $saved = $this->projects->commit($uid, $requestId, $signature,
+            function () use ($uid, $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt, $workItemId, $expectedWorkRevision): array {
+                $loc = $this->projects->lockedLocation($uid, $locationId);
                 $project = $this->projects->lockedProject($uid,$loc['project_id']);
                 if ($project['state'] !== 'active') { throw new ProjectInactiveException('项目已停止派新工作，请先调整推进安排'); }
                 $now = time();
@@ -63,7 +66,9 @@ final class DelegationService {
                 $text = $this->message($ask, $goal, $means, $forbidden, $this->localTime($uid, $returnBy), $mayEdit, $loc['revision'], $mayAdopt);
                 $message = $this->creations->addMessage($loc['creation_id'], $uid, 'user', $text);
                 $id = bin2hex(random_bytes(16));
+                $workEpoch = $workItemId === '' ? null : $this->workItems->attachDelegation($uid, $workItemId, $locationId, $expectedWorkRevision, $id);
                 $this->projects->insert('cognos_delegations', [
+                    'work_item_id' => $workItemId === '' ? null : $workItemId, 'work_epoch' => $workEpoch,
                     'id' => $id, 'project_id' => $loc['project_id'], 'location_id' => $locationId, 'ask' => $ask,
                     'goal' => $goal === '' ? null : $goal, 'means' => $means === '' ? null : $means,
                     'forbidden' => $forbidden === '' ? null : $forbidden, 'return_by' => $returnBy,
@@ -93,6 +98,7 @@ final class DelegationService {
         return array_map(static function (array $r) use ($now): array {
             $int = static fn($v): ?int => $v === null ? null : (int)$v;
             return [
+                'work_item_id' => $r['work_item_id'] ?? null, 'work_epoch' => $r['work_epoch'] ?? null,
                 'id' => (string)$r['id'], 'ask' => (string)$r['ask'], 'goal' => $r['goal'], 'means' => $r['means'],
                 'forbidden' => $r['forbidden'], 'return_by' => (int)$r['return_by'], 'may_edit' => (int)$r['may_edit'] === 1,
                 'may_adopt' => (int)($r['may_adopt'] ?? 0) === 1,

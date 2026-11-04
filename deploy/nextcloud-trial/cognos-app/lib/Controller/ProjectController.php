@@ -72,9 +72,9 @@ final class ProjectController extends Controller {
     /** 从这个位置交出去一件事，交给本机 Claude Code；结果回到这个位置。 */
     #[NoAdminRequired]
     public function delegate(string $locationId, string $ask, string $request_id, string $goal = '', string $means = '',
-        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false, bool $may_adopt = false): DataResponse {
+        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false, bool $may_adopt = false, string $work_item_id = '', int $expected_work_revision = 0): DataResponse {
         return $this->respond(fn(string $uid) => $this->delegations->delegate($uid, $locationId, $ask, $goal, $means, $forbidden,
-            $return_minutes, $may_edit, $request_id, $may_adopt));
+            $return_minutes, $may_edit, $request_id, $may_adopt, $work_item_id, $expected_work_revision));
     }
 
     #[NoAdminRequired]
@@ -108,6 +108,7 @@ final class ProjectController extends Controller {
     #[NoCSRFRequired]
     public function page(string $projectId = '', string $locationId = ''): TemplateResponse {
         Util::addScript('cognos', 'project-workspace');
+        Util::addScript('cognos', 'work-items');
         Util::addStyle('cognos', 'project-workspace');
         return new TemplateResponse('cognos', 'project-workspace', ['projectId' => $projectId, 'locationId' => $locationId]);
     }

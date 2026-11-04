@@ -133,10 +133,27 @@
                 <p class="pw-hint">每次交回时做事的那位上报了依据什么；没上报就照写「未上报依据」，不等于它没有依据。</p>
                 <ul id="pw-recent" class="pw-reach"></ul>
             </section>
+            <section id="pw-work-items-section" aria-labelledby="pw-work-items-title">
+                <div class="pw-section-title"><h2 id="pw-work-items-title">执行工作</h2><button type="button" id="wi-refresh">刷新工作</button></div>
+                <p class="pw-hint">有明确交付安排时再登记；讨论和自由探索可以继续在原处。工作是否完成与 AI 是否返回分别记录。</p>
+                <p id="wi-notice" role="status" aria-live="polite"></p>
+                <details data-location-only><summary>登记一份工作</summary>
+                    <form id="wi-create">
+                        <label for="wi-description">这份工作的范围</label><textarea id="wi-description" required maxlength="4000" rows="2"></textarea>
+                        <label for="wi-owner">负责人（可以暂不指定）</label><input id="wi-owner" maxlength="200">
+                        <label for="wi-deliverable">交付什么</label><textarea id="wi-deliverable" maxlength="4000" rows="2"></textarea>
+                        <label for="wi-acceptance">怎样验收</label><textarea id="wi-acceptance" maxlength="4000" rows="2"></textarea>
+                        <button type="submit">登记工作</button>
+                    </form>
+                </details>
+                <ul id="wi-items" class="pw-decision-list"></ul>
+            </section>
             <section class="pw-delegate" data-location-only aria-labelledby="pw-delegate-title">
                 <h2 id="pw-delegate-title">交出去</h2>
                 <p class="pw-hint">把这一处的一件事交给本机的 Claude Code，你可以走开。结果回到这里的讨论；允许改当前内容时，它写的版本署它的名字，交出去以后你改过这里，就不覆盖。</p>
                 <form id="pw-delegate-form">
+                    <p id="pw-delegate-work-label" class="pw-hint"></p>
+                    <button type="button" id="pw-delegate-work-clear" hidden>不关联这份工作</button>
                     <label for="pw-delegate-ask">要做的事（一句话就行）</label>
                     <textarea id="pw-delegate-ask" rows="2" maxlength="2000" required placeholder="例如：把当前稿里两种入口方案各写三条优缺点放回当前稿"></textarea>
                     <details>

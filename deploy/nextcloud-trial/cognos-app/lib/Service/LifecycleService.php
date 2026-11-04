@@ -51,6 +51,18 @@ final class LifecycleService {
             && (int)($run['execution_epoch'] ?? 0) === (int)$p['execution_epoch'];
     }
 
+    /** Location/project lock is held by run admission or result application. */
+    public function delegationWorkEligible(string $delegationId): bool {
+        $q=$this->db->getQueryBuilder();
+        $d=$q->select('work_item_id','work_epoch','location_id')->from('cognos_delegations')
+            ->where($q->expr()->eq('id',$q->createNamedParameter($delegationId)))->executeQuery()->fetch();
+        if (!$d || empty($d['work_item_id'])) { return true; }
+        $q=$this->db->getQueryBuilder();$w=$q->select('location_id','state','execution_epoch')->from('cognos_work_items')
+            ->where($q->expr()->eq('id',$q->createNamedParameter($d['work_item_id'])))->executeQuery()->fetch();
+        return $w && $w['location_id']===$d['location_id'] && in_array($w['state'],['open','in_progress'],true)
+            && (int)$w['execution_epoch']===(int)$d['work_epoch'];
+    }
+
     public function delegationEligible(string $projectId, string $delegationId): bool {
         $q = $this->db->getQueryBuilder();
         $run = $q->select('r.*')->from('cognos_runs', 'r')
@@ -64,6 +76,6 @@ final class LifecycleService {
                 ->andWhere($q->expr()->eq('target_id', $q->createNamedParameter($delegationId)))
                 ->orderBy('created_at', 'DESC')->setMaxResults(1)->executeQuery()->fetch();
         }
-        return $run && $this->eligible($projectId, $run);
+        return $run && $this->eligible($projectId, $run) && $this->delegationWorkEligible($delegationId);
     }
 }

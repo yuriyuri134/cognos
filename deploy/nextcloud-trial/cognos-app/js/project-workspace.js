@@ -740,14 +740,28 @@
       await loadAdoptions(); notice('已在这里采用当前内容的版本 ' + state.location.revision + '。');
     });
   });
+  document.addEventListener('cognos:delegate-work', e => {
+    if (!state.location || state.mode !== 'location') return;
+    const w = e.detail; state.delegatedWork = {id: w.id, revision: w.revision};
+    $('pw-delegate-work-label').textContent = '关联工作：' + w.description + '（第 ' + w.revision + ' 版）；这次委托不会自动完成工作。';
+    $('pw-delegate-work-clear').hidden = false;
+    $('pw-delegate-ask').value = w.description; $('pw-delegate-goal').value = w.deliverable;
+    $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
+    $('pw-delegate-edit').checked = false; $('pw-delegate-adopt').checked = false;
+    $('pw-delegate-form').scrollIntoView({block: 'start'}); $('pw-delegate-ask').focus();
+  });
+  function clearDelegatedWork() { state.delegatedWork = null; $('pw-delegate-work-label').textContent = ''; $('pw-delegate-work-clear').hidden = true; }
+  $('pw-delegate-work-clear').addEventListener('click', clearDelegatedWork);
   $('pw-delegate-form').addEventListener('submit', e => {
     e.preventDefault(); busy(e.currentTarget, async () => {
       if ($('pw-delegate-edit').checked && state.dirty) { notice('当前内容有没保存的修改，先保存，再交出去。', true); return; }
       const r = await mutate('/projects/locations/' + state.location.id + '/delegations', 'POST', {
         ask: $('pw-delegate-ask').value, goal: $('pw-delegate-goal').value, means: $('pw-delegate-means').value,
         forbidden: $('pw-delegate-forbidden').value, return_minutes: Number($('pw-delegate-return').value),
-        may_edit: $('pw-delegate-edit').checked, may_adopt: $('pw-delegate-adopt').checked});
+        may_edit: $('pw-delegate-edit').checked, may_adopt: $('pw-delegate-adopt').checked,
+        work_item_id: state.delegatedWork?.id || '', expected_work_revision: state.delegatedWork?.revision || 0});
       $('pw-delegate-ask').value = ''; $('pw-delegate-goal').value = ''; $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
+      clearDelegatedWork(); document.dispatchEvent(new Event('cognos:work-updated'));
       state.lastOverview = ''; await Promise.all([loadOverview(), loadMessages()]);
       notice(r.run_state === 'unknown' ? '还不能确认对方是否已经开工，已记为状态未知；请先核对，勿重复派发。' : (r.state === 'not_taken' ? '记下了，但没交出去：' + r.note : '交出去了。可以走开，结果会回到这里。'), r.state === 'not_taken' || r.run_state === 'unknown');
     });

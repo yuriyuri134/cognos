@@ -268,7 +268,7 @@ final class AdoptionService {
                     }
                 }
                 $allowed = $delegation !== null && (int)$delegation['may_adopt'] === 1 && $delegation['location_id'] === $locationId
-                    && $this->lifecycle->eligible($loc['project_id'], $run);
+                    && $this->lifecycle->eligible($loc['project_id'], $run) && $this->lifecycle->delegationWorkEligible($delegation['id']);
                 $now = time();
                 $id = bin2hex(random_bytes(16));
                 $this->projects->insert('cognos_adoptions', [

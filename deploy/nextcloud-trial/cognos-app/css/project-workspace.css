@@ -84,3 +84,9 @@
 
 #pw-restructure-preview { padding: 20px; border: 1px solid var(--pw-border); border-radius: 8px; background: var(--color-background-hover); }
 #pw-restructure-lines { font-size: 14px; overflow-wrap: anywhere; }
+
+#wi-items p, #wi-items h3, #wi-items h4 { white-space: pre-wrap; overflow-wrap: anywhere; }
+#wi-items h3 { font-weight: 600; }
+#wi-items fieldset { min-width: 0; border: 1px solid var(--pw-border); border-radius: 6px; padding: 12px; margin: 12px 0; }
+#wi-items legend { padding: 0 6px; }
+#wi-items section { padding: 10px 0; border-bottom: 1px solid var(--pw-border); }

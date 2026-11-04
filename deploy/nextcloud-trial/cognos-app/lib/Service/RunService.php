@@ -47,6 +47,9 @@ final class RunService {
             if ($project !== null && $project['state'] !== 'active') {
                 throw new ProjectInactiveException('项目当前为 ' . $project['state'] . '，已停止派新工作；已有结果仍可交回');
             }
+            if ($targetType === 'delegation' && !$this->lifecycle->delegationWorkEligible($targetId)) {
+                throw new \RuntimeException('工作范围或安排已变化，旧委托不能启动；请查看当前工作再安排', 409);
+            }
             $id = bin2hex(random_bytes(16));
             $now = time();
             if ($queueClaim !== null) { $input['queue_claim'] = $queueClaim; }
