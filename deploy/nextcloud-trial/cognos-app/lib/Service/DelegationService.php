@@ -207,7 +207,7 @@ final class DelegationService {
                     throw $error;
                 }
                 $loc = $this->projects->location($uid, $loc['id']);
-                $reason = sprintf('保存时这一处刚被改过（现在是版本 %d）', $loc['revision']);
+                $reason = $error->getMessage();
             }
         }
         $this->update((string)$d['id'], ['held_content' => $content, 'held_base_revision' => $expected,

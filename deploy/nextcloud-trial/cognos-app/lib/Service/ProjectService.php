@@ -8,7 +8,7 @@ use OCP\IDBConnection;
 
 /** Project working content is versioned; source conversations retain their own identity. */
 final class ProjectService {
-    public function __construct(private IDBConnection $db, private CreationSpaceService $creations) {}
+    public function __construct(private IDBConnection $db, private CreationSpaceService $creations, private LifecycleService $lifecycle) {}
 
     public function projects(string $uid): array {
         $qb = $this->db->getQueryBuilder();
@@ -109,6 +109,9 @@ final class ProjectService {
     /** Write a new revision with an expected-revision check, inside the caller's commit. */
     public function saveContent(string $uid, string $id, int $expected, string $content, array $sources, string $editor, ?string $delegationId): array {
         $loc = $this->location($uid, $id);
+        if ($delegationId !== null && !$this->lifecycle->delegationEligible($loc['project_id'], $delegationId)) {
+            throw new \RuntimeException('项目已暂停、结束或这次运行属于旧的推进安排，结果留作比较', 409);
+        }
         if ($loc['revision'] !== $expected) { throw new \RuntimeException('这里已有新版本，你的文本仍保留。请比较后再保存。', 409); }
         $allowed = [$loc['creation_id']];
         foreach ($this->usages($uid, $id) as $usage) { $allowed[] = $usage['source_creation_id']; }

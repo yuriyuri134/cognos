@@ -32,6 +32,7 @@ final class RunService {
     public function __construct(
         private IDBConnection $db,
         private IConfig $config,
+        private LifecycleService $lifecycle,
     ) {
     }
 
@@ -39,35 +40,45 @@ final class RunService {
      * @param array<string, mixed> $input 实际给出去的东西（系统提示、消息……），原样存一份
      */
     public function create(string $spaceType, string $spaceId, string $targetType, string $targetId, string $purpose, string $subject, ?string $caller, array $input): array {
-        $id = bin2hex(random_bytes(16));
-        $now = time();
-        $snapshot = json_encode($input, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
-        $row = [
-            'id' => $id,
-            'space_type' => $spaceType,
-            'space_id' => $spaceId,
-            'target_type' => $targetType,
-            'target_id' => $targetId,
-            'purpose' => $purpose,
-            'subject' => mb_substr($subject, 0, 128),
-            'caller' => $caller === null ? null : mb_substr($caller, 0, 128),
-            'state' => 'queued',
-            'input_hash' => hash('sha256', $snapshot),
-            'input_snapshot' => $snapshot,
-            'lease_until' => null,
-            'error' => null,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ];
-        $ints = ['created_at', 'updated_at'];
-        $qb = $this->db->getQueryBuilder();
-        $values = [];
-        foreach ($row as $column => $value) {
-            $type = $value === null ? IQueryBuilder::PARAM_NULL : (in_array($column, $ints, true) ? IQueryBuilder::PARAM_INT : IQueryBuilder::PARAM_STR);
-            $values[$column] = $qb->createNamedParameter($value, $type);
-        }
-        $qb->insert('cognos_runs')->values($values)->executeStatement();
-        return $this->publicRow($row);
+        $this->db->beginTransaction();
+        try {
+            $project = $this->lifecycle->forSpace($spaceType, $spaceId);
+            if ($project !== null && $project['state'] !== 'active') {
+                throw new \RuntimeException('项目当前为 ' . $project['state'] . '，已停止派新工作；已有结果仍可交回', 409);
+            }
+            $id = bin2hex(random_bytes(16));
+            $now = time();
+            $snapshot = json_encode($input, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+            $row = [
+                'id' => $id,
+                'project_id' => $project['id'] ?? null,
+                'execution_epoch' => $project === null ? null : (int)$project['execution_epoch'],
+                'space_type' => $spaceType,
+                'space_id' => $spaceId,
+                'target_type' => $targetType,
+                'target_id' => $targetId,
+                'purpose' => $purpose,
+                'subject' => mb_substr($subject, 0, 128),
+                'caller' => $caller === null ? null : mb_substr($caller, 0, 128),
+                'state' => 'queued',
+                'input_hash' => hash('sha256', $snapshot),
+                'input_snapshot' => $snapshot,
+                'lease_until' => null,
+                'error' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            $ints = ['created_at', 'updated_at', 'execution_epoch'];
+            $qb = $this->db->getQueryBuilder();
+            $values = [];
+            foreach ($row as $column => $value) {
+                $type = $value === null ? IQueryBuilder::PARAM_NULL : (in_array($column, $ints, true) ? IQueryBuilder::PARAM_INT : IQueryBuilder::PARAM_STR);
+                $values[$column] = $qb->createNamedParameter($value, $type);
+            }
+            $qb->insert('cognos_runs')->values($values)->executeStatement();
+            $this->db->commit();
+            return $this->publicRow($row);
+        } catch (\Throwable $e) { $this->db->rollBack(); throw $e; }
     }
 
     /** 桥收下了：开始做，带租约。 */
@@ -271,6 +282,8 @@ final class RunService {
         }
         return [
             'id' => (string)$row['id'],
+            'project_id' => $row['project_id'] ?? null,
+            'execution_epoch' => isset($row['execution_epoch']) ? (int)$row['execution_epoch'] : null,
             'run_id' => (string)$row['run_id'],
             'message_id' => $row['message_id'] === null ? null : (int)$row['message_id'],
         ];
@@ -326,6 +339,8 @@ final class RunService {
     private function publicRow(array $row): array {
         return [
             'id' => (string)$row['id'],
+            'project_id' => $row['project_id'] ?? null,
+            'execution_epoch' => isset($row['execution_epoch']) ? (int)$row['execution_epoch'] : null,
             'space_type' => (string)$row['space_type'],
             'space_id' => (string)$row['space_id'],
             'target_type' => (string)$row['target_type'],

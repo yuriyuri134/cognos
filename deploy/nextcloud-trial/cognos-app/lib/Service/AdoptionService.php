@@ -31,6 +31,7 @@ final class AdoptionService {
         private IDBConnection $db,
         private ProjectService $projects,
         private CreationSpaceService $creations,
+        private LifecycleService $lifecycle,
     ) {
     }
 
@@ -266,7 +267,8 @@ final class AdoptionService {
                         throw new \RuntimeException('这里已经采用或提议过这一版', 409);
                     }
                 }
-                $allowed = $delegation !== null && (int)$delegation['may_adopt'] === 1 && $delegation['location_id'] === $locationId;
+                $allowed = $delegation !== null && (int)$delegation['may_adopt'] === 1 && $delegation['location_id'] === $locationId
+                    && $this->lifecycle->eligible($loc['project_id'], $run);
                 $now = time();
                 $id = bin2hex(random_bytes(16));
                 $this->projects->insert('cognos_adoptions', [
