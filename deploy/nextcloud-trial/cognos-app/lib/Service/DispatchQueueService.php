@@ -44,10 +44,10 @@ final class DispatchQueueService {
    $key=hash('sha256',json_encode([$type,$spaceId,$item],JSON_THROW_ON_ERROR));$out[]=$this->enqueue($type,$spaceId,$m[1],(int)$m[2],false,$key);
   }return $out;
  }
- public function claim(string $type,string $spaceId,string $followupId):?array {
-  $scope=$this->scope($type,$spaceId);return $this->atomic($scope,function()use($scope,$followupId):?array {
+ public function claim(string $type,string $spaceId,string $followupId, ?string $expectedItem = null):?array {
+  $scope=$this->scope($type,$spaceId);return $this->atomic($scope,function()use($scope,$followupId,$expectedItem):?array {
    $q=$this->db->getQueryBuilder();$blocked=$q->select('id')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($scope)))->andWhere($q->expr()->in('state',$q->createNamedParameter(['claimed','unknown'],IQueryBuilder::PARAM_STR_ARRAY)))->setMaxResults(1)->executeQuery()->fetch();if($blocked)return null;
-   $q=$this->db->getQueryBuilder();$row=$q->select('*')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($scope)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('queued')))->orderBy('position','ASC')->addOrderBy('id','ASC')->setMaxResults(1)->executeQuery()->fetch();if(!$row)return null;
+   $q=$this->db->getQueryBuilder();$row=$q->select('*')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($scope)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('queued')))->orderBy('position','ASC')->addOrderBy('id','ASC')->setMaxResults(1)->executeQuery()->fetch();if(!$row||($expectedItem!==null&&$row['id']!==$expectedItem))return null;
    $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter('claimed'))->set('followup_id',$q->createNamedParameter($followupId))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('id',$q->createNamedParameter($row['id'])))->executeStatement();return $this->get($row['id']);
   });
  }
@@ -77,6 +77,15 @@ final class DispatchQueueService {
   $q->where($q->expr()->eq('run_id',$q->createNamedParameter($runId)))->andWhere($q->expr()->in('state',$q->createNamedParameter(['claimed','sent','unknown'],IQueryBuilder::PARAM_STR_ARRAY)))->executeStatement();
  }
 
+ public function expireClaims(int $before):void {
+  $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter('unknown'))->set('note',$q->createNamedParameter('领取后失联，不自动重放'))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('state',$q->createNamedParameter('claimed')))->andWhere($q->expr()->lt('updated_at',$q->createNamedParameter($before,IQueryBuilder::PARAM_INT)))->executeStatement();
+ }
+ public function reconcileIntent(string $followupId,string $note):void {
+  $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter('reconciled'))->set('note',$q->createNamedParameter('用户已核清并关闭本次接续：'.$note.'；不重放，不改变运行状态'))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('followup_id',$q->createNamedParameter($followupId)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('unknown')))->executeStatement();
+ }
+ public function blocked(string $type,string $spaceId):bool {
+  $q=$this->db->getQueryBuilder();return (bool)$q->select('id')->from('cognos_dispatch_queue')->where($q->expr()->eq('scope_id',$q->createNamedParameter($this->scope($type,$spaceId))))->andWhere($q->expr()->in('state',$q->createNamedParameter(['claimed','unknown'],IQueryBuilder::PARAM_STR_ARRAY)))->setMaxResults(1)->executeQuery()->fetch();
+ }
  public function settle(string $id,string $followupId,string $state,string $note=''):bool {
   if(!in_array($state,['queued','sent','unknown','skipped'],true))throw new \InvalidArgumentException('队列状态无效');
   $q=$this->db->getQueryBuilder();return $q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter($state))->set('note',$q->createNamedParameter($note))->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT))->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('followup_id',$q->createNamedParameter($followupId)))->andWhere($q->expr()->eq('state',$q->createNamedParameter('claimed')))->andWhere($q->expr()->isNull('run_id'))->executeStatement()===1;

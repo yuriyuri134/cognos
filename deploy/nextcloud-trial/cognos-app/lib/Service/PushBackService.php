@@ -29,6 +29,7 @@ final class PushBackService {
         private SpaceEntryService $entries,
         private ClaudeBridgeService $bridge,
         private IConfig $config,
+        private DispatchQueueService $dispatchQueue,
         private LoggerInterface $logger,
     ) {
     }
@@ -55,7 +56,13 @@ final class PushBackService {
         if ($hit['source'] === 'AI' && !$this->takeAiBudget($spaceType, $spaceId)) {
             return $this->result(false, $holder, sprintf('今天 agent 之间在这里互相反对、叫回来的次数到了（%d 次），这条记下了，%s 下次进来时排在前面。', $this->aiDaily(), $holder));
         }
-        return $this->call($spaceType, $spaceId, $uid, $premise, $hit);
+        $item=$this->enqueue($spaceType,$spaceId,'hit:'.$hit['id']);
+        $owner='hit-wakeup-'.bin2hex(random_bytes(8));
+        $claim=$this->dispatchQueue->claim($spaceType,$spaceId,$owner,$item['id']);
+        if($claim===null)return $this->result(false,$holder,'这条反对已排队；已有工作或未知派发未核清，不越过队列。');
+        $result=$this->call($spaceType,$spaceId,$uid,$premise,$hit,['item_id'=>$item['id'],'followup_id'=>$owner]);
+        if($this->dispatchQueue->get($item['id'])['state']==='claimed')$this->dispatchQueue->settle($item['id'],$owner,'skipped',$result['message']);
+        return $result;
     }
 
     /**
@@ -65,30 +72,21 @@ final class PushBackService {
      *
      * @return ?array{0: string, 1: int}
      */
-    public function drain(string $spaceType, string $spaceId, string $uid): ?array {
-        $queue = $this->queue($spaceType, $spaceId);
-        while ($queue !== []) {
-            $next = array_shift($queue);
-            $this->saveQueue($spaceType, $spaceId, $queue);
-            [$what, $id] = explode(':', $next, 2) + [1 => '0'];
-            if ($what === 'msg') {
-                return ['msg', (int)$id];
-            }
-            $hitId = (int)$id;
-            $hit = $this->spaces->getTrace($spaceType, $spaceId, $hitId);
-            $premise = $hit === null ? null : $this->spaces->premiseState($spaceType, $spaceId, (int)$hit['ref_id']);
-            if ($premise === null || !$premise['standing']) {
-                continue;
-            }
-            $open = array_filter($premise['hits'], static fn(array $h): bool => $h['id'] === $hitId && $h['answer'] === null);
-            if ($open === []) {
-                continue;
-            }
-            if ($this->call($spaceType, $spaceId, $uid, $premise, $hit)['called']) {
-                return ['hit', $hitId];
-            }
+    public function drain(string $spaceType,string $spaceId,string $uid,string $followupId):?array {
+        $this->importLegacy($spaceType,$spaceId);
+        while($item=$this->dispatchQueue->claim($spaceType,$spaceId,$followupId)){
+            $claim=['item_id'=>$item['id'],'followup_id'=>$followupId];$id=(int)$item['ref_id'];
+            if($item['kind']==='msg')return ['msg',$id,$claim];
+            $hit=$this->spaces->getTrace($spaceType,$spaceId,$id);
+            $premise=$hit===null?null:$this->spaces->premiseState($spaceType,$spaceId,(int)$hit['ref_id']);
+            $open=$premise===null?[]:array_filter($premise['hits'],static fn(array $h):bool=>$h['id']===$id&&$h['answer']===null);
+            if($premise===null||!$premise['standing']||$open===[]){$this->dispatchQueue->settle($item['id'],$followupId,'skipped','原反对目标已失效或已回应');continue;}
+            $result=$this->call($spaceType,$spaceId,$uid,$premise,$hit,$claim);
+            $state=$this->dispatchQueue->get($item['id'])['state'];
+            if($state==='claimed'){$this->dispatchQueue->settle($item['id'],$followupId,'skipped',$result['message']);continue;}
+            return [$state==='queued'?'busy':($state==='unknown'?'unknown':'hit'),$id,$claim];
         }
-        return null;
+        return $this->dispatchQueue->blocked($spaceType,$spaceId)?['blocked',0,null]:null;
     }
 
     /** 桥正忙时交互对象在对话里说的一句：排着，上一位做完接着叫。 */
@@ -107,7 +105,7 @@ final class PushBackService {
         }
         $hitter = $hit['source'] === '世' ? '现实（' . $hit['author'] . ' 记下的）' : $hit['author'];
         $message = sprintf(
-            "%3$s 对你写下的 #%1$d「%2$s」提出了反对（#%4$d）：\n\n%5$s\n\n要回应的话用 answer_hit（hit_id=%6$d，act 是还成立、放下或改成新的）%7$s。",
+            "%3\$s 对你写下的 #%1\$d「%2\$s」提出了反对（#%4\$d）：\n\n%5\$s\n\n要回应的话用 answer_hit（hit_id=%6\$d，act 是还成立、放下或改成新的）%7\$s。",
             $premise['id'],
             $premise['content'],
             $hitter,
@@ -121,7 +119,7 @@ final class PushBackService {
             // reply_to=0：发回来的回答不回对话里的任何一句
             $this->bridge->send($spaceType, $spaceId, $holder, $this->entries->renderText($entry), [], $message, $hitter, ['hit_id' => $hit['id'], 'reply_to' => 0, 'decision_ids' => SpaceEntryService::decisionIds($entry), 'queue_claim' => $queueClaim]);
         } catch (\RuntimeException $error) {
-            if ($error->getCode() === ClaudeBridgeService::BUSY) {
+            if (!($error instanceof ProjectInactiveException) && $error->getCode() === ClaudeBridgeService::BUSY) {
                 $this->enqueue($spaceType, $spaceId, 'hit:' . $hit['id']);
                 return $this->result(false, $holder, sprintf('%s 正在这片空间里做上一件事，做完会接着被叫回来回应这一下。', $holder));
             }
@@ -148,35 +146,15 @@ final class PushBackService {
         return max(0, (int)$this->config->getAppValue('cognos', 'pushback_ai_daily', (string)self::AI_DAILY_DEFAULT));
     }
 
-    /** @return list<string> 一项是 hit:<id> 或 msg:<id> */
-    private function queue(string $spaceType, string $spaceId): array {
-        $raw = json_decode($this->config->getAppValue('cognos', 'pushback_queue_' . $spaceType . '_' . $spaceId, '[]'), true);
-        if (!is_array($raw)) {
-            return [];
-        }
-        // 早先排的只有反对，存的是数字
-        return array_values(array_map(static fn($item): string => is_int($item) ? 'hit:' . $item : (string)$item, $raw));
+    private function importLegacy(string $spaceType,string $spaceId):void {
+        $raw=$this->config->getAppValue('cognos','pushback_queue_'.$spaceType.'_'.$spaceId,'[]');
+        $items=json_decode($raw,true);
+        if(!is_array($items))throw new \RuntimeException('旧队列无法识别，保留原记录供核对');
+        $this->dispatchQueue->importLegacy($spaceType,$spaceId,$items);
     }
-
-    private function saveQueue(string $spaceType, string $spaceId, array $queue): void {
-        $key = 'pushback_queue_' . $spaceType . '_' . $spaceId;
-        if ($queue === []) {
-            $this->config->deleteAppValue('cognos', $key);
-            return;
-        }
-        $this->config->setAppValue('cognos', $key, json_encode(array_values($queue)));
-    }
-
-    private function enqueue(string $spaceType, string $spaceId, string $item, bool $front = false): void {
-        $queue = $this->queue($spaceType, $spaceId);
-        if (!in_array($item, $queue, true)) {
-            if ($front) {
-                array_unshift($queue, $item);
-            } else {
-                $queue[] = $item;
-            }
-        }
-        $this->saveQueue($spaceType, $spaceId, $queue);
+    private function enqueue(string $spaceType,string $spaceId,string $item,bool $front=false):array {
+        $this->importLegacy($spaceType,$spaceId);[$kind,$id]=explode(':',$item,2);
+        return $this->dispatchQueue->enqueue($spaceType,$spaceId,$kind,(int)$id,$front);
     }
 
     private function result(bool $called, ?string $holder, string $message): array {

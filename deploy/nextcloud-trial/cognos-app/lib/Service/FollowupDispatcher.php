@@ -9,8 +9,9 @@ final class FollowupDispatcher {
  public function __construct(private IDBConnection $db,private FollowupService $events,private RunService $runs,
   private LifecycleService $lifecycle,private CreationSpaceService $creations,private PushBackService $pushBack,
   private ContinuationService $continuation,private HermesAgentService $hermes,private IConfig $config,
-  private IUserSession $users,private IUserManager $userManager){}
+  private IUserSession $users,private IUserManager $userManager,private DispatchQueueService $dispatchQueue){}
  public function recover():void {
+  $this->dispatchQueue->expireClaims(time()-1800);
   $this->events->expireClaims(time()-1800);
   foreach($this->events->pending() as $event)$this->process($event['result_id'],$event['user_id']);
  }
@@ -41,33 +42,37 @@ final class FollowupDispatcher {
    $this->users->setUser($user);
    $this->config->deleteAppValue('cognos','agent_pending_creation_'.(int)$event['space_id']);
    $this->config->deleteAppValue('cognos','agent_pending_who_creation_'.(int)$event['space_id']);
-   $this->callNext($event['space_type'],$event['space_id'],$uid,$event['open_id']===null?null:(int)$event['open_id']);
+   $this->callNext($event['space_type'],$event['space_id'],$uid,$event['open_id']===null?null:(int)$event['open_id'],$id);
    $this->events->finish($id);
-  }catch(\Throwable $e){$this->events->unknown($id);}finally{$this->users->setUser($previous);}
+  }catch(\Throwable $e){if($e instanceof ProjectInactiveException)$this->events->cancelClaim($id);elseif($e instanceof \RuntimeException&&$e->getCode()===ClaudeBridgeService::BUSY)$this->events->retryClaim($id);else $this->events->unknown($id);}finally{$this->users->setUser($previous);}
   return true;
  }
-    private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan): void {
-        $next = $this->pushBack->drain($spaceType, $spaceId, $uid);
+    private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan,string $followupId): void {
+        $next = $this->pushBack->drain($spaceType, $spaceId, $uid,$followupId);
         if ($next === null) {
             $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
             return;
         }
-        [$what, $messageId] = $next;
+        [$what, $messageId,$claim] = $next;
+        if($what==='busy')throw new \RuntimeException('桥明确忙拒绝',ClaudeBridgeService::BUSY);
+        if(in_array($what,['unknown','blocked'],true))throw new \RuntimeException('队列有未核清派发，不能继续');
         if ($what !== 'msg') {
             return;
         }
         try {
-            $answer = $this->hermes->chatCreationFromMessage((int)$spaceId, $messageId);
+            $answer = $this->hermes->chatCreationFromMessage((int)$spaceId, $messageId,['queue_claim'=>$claim]);
             if ($answer !== null) {
+                $this->dispatchQueue->settle($claim['item_id'],$followupId,'sent','直调 AI 已返回回答');
                 // 叫来的是 Hermes：回答当场就有，没人占着桥，没完的接着走
                 $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $answer, $messageId);
                 $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
             }
         } catch (\Throwable $error) {
-            if ($error instanceof \RuntimeException && !($error instanceof ProjectInactiveException) && $error->getCode() === ClaudeBridgeService::BUSY) {
-                $this->pushBack->enqueueMessage($spaceType, $spaceId, $messageId, true);
-            }
-            // 别的原因叫不上：那句还在对话里、没人回，页面上能「再叫一次」
+            if($error instanceof ProjectInactiveException){$this->dispatchQueue->settle($claim['item_id'],$followupId,'queued','项目暂停，未创建运行');throw $error;}
+            if($error instanceof \RuntimeException&&$error->getCode()===ClaudeBridgeService::BUSY){$this->dispatchQueue->settle($claim['item_id'],$followupId,'queued','明确忙拒绝');throw $error;}
+            $item=$this->dispatchQueue->get($claim['item_id']);
+            if($item['state']==='skipped')return;
+            $this->dispatchQueue->settle($claim['item_id'],$followupId,'unknown','派发中断，不自动重放');throw $error;
         }
     }
 

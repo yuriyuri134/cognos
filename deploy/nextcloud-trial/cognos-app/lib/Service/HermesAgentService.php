@@ -616,6 +616,14 @@ final class HermesAgentService {
         if ($said === null || $said['role'] !== 'user') {
             throw new \InvalidArgumentException('Message not found');
         }
+        if (isset($extra['queue_claim'])) {
+            // A queued question may predate the answer to an earlier question.
+            // Include that completed answer, but never pull in later user requests.
+            $earlierUsers=array_column(array_filter($upTo,static fn(array $m):bool=>$m['role']==='user'&&(int)$m['id']<$messageId),'id');
+            foreach($context['messages'] as $item){
+                if((int)$item['id']>$messageId&&$item['role']==='assistant'&&in_array((int)($item['reply_to']??0),$earlierUsers,true))$upTo[]=$item;
+            }
+        }
         $context['messages'] = $upTo;
         return $this->chatCreation($creationId, (string)$said['content'], $context, $messageId, $extra);
     }

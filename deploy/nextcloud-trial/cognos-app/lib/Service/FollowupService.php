@@ -5,7 +5,7 @@ use OCP\IDBConnection;
 use OCP\DB\QueryBuilder\IQueryBuilder;
 /** Durable scheduling intent. Claimed work is never automatically replayed. */
 final class FollowupService {
- public function __construct(private IDBConnection $db){}
+ public function __construct(private IDBConnection $db,private DispatchQueueService $dispatchQueue){}
  /** Called inside receiveResult's transaction. */
  public function enqueue(string $resultId,array $run,string $uid):void {
   $q=$this->db->getQueryBuilder();$values=['result_id'=>$resultId,'run_id'=>$run['id'],'user_id'=>$uid,'space_type'=>$run['space_type'],'space_id'=>$run['space_id'],
@@ -59,6 +59,7 @@ final class FollowupService {
   $next=$expected==='unknown'?'reconciled':'cancelled';
   $record=$event['note']."\n核对记录（".$uid.'）：'.$note.'；关闭本次接续，不重放，不改变实际运行状态。';
   if(!$this->transition($id,$expected,$next,$record))throw new \RuntimeException('接续状态已变化，请先看最新记录',409);
+  if($expected==='unknown')$this->dispatchQueue->reconcileIntent($id,$uid.'：'.$note);
   return ['result_id'=>$id,'state'=>$next];
  }
  public function pending(int $limit=10):array {
@@ -68,6 +69,8 @@ final class FollowupService {
   $event=$this->get($id);return $event && $event['user_id']===$uid && $this->transition($id,'pending','claimed') ? $event : null;
  }
  public function defer(string $id,string $note):void {$this->transition($id,'pending','pending',$note);}
+ public function retryClaim(string $id):void {$this->transition($id,'claimed','pending','桥明确忙拒绝，原工作仍在队列等待');}
+ public function cancelClaim(string $id):void {$this->transition($id,'claimed','cancelled','领取后项目停止派新工作，不延续旧安排');}
  public function finish(string $id):void {$this->transition($id,'claimed','attempted','已执行一次接续选择；实际执行状态以关联运行为准');}
  public function cancel(string $id,string $note):void {$this->transition($id,'pending','cancelled',$note);}
  public function unknown(string $id):void {$this->transition($id,'claimed','unknown','接续处理中断，可能已派出；不能自动重复');}
