@@ -78,6 +78,8 @@ async function main() {
   await evaluate('(() => {for (const [selector,value] of ' + JSON.stringify([['#user','cognos-admin'],['#password',password]]) +
     ') {const e=document.querySelector(selector);e.value=value;e.dispatchEvent(new Event("input",{bubbles:true}));}document.querySelector("#password").closest("form").requestSubmit();})()');
   await until('!location.pathname.includes("/login") && !!document.querySelector("#app-content")');
+  // 登录后落地页先出 #app-content，Nextcloud 的 OC 稍后才有；用 OC 调接口前先等它
+  await until('typeof OC !== "undefined" && !!OC.requestToken');
 
   const json = async (url, method = 'GET', data) => evaluate('(async () => {const r=await fetch(OC.generateUrl(' + JSON.stringify('/apps/cognos' + url) + '),{method:' + JSON.stringify(method) +
     ',headers:{Accept:"application/json","Content-Type":"application/json",requesttoken:OC.requestToken}' + (data ? ',body:' + JSON.stringify(JSON.stringify(data)) : '') + '});return r.json();})()');

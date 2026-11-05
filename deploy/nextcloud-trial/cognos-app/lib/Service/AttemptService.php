@@ -75,8 +75,10 @@ final class AttemptService {
             return ['status'=>'available','label'=>$type==='message'?'原会话消息 #'.$id:'原探索记录 #'.$id];
         }
         if($type==='run'){
-            $r=$q->select('id')->from('cognos_runs')->where($q->expr()->eq('id',$q->createNamedParameter($id)))->andWhere($q->expr()->eq('caller',$q->createNamedParameter($uid)))->executeQuery()->fetch();
-            if(!$r)throw new \RuntimeException('运行来源不存在或不可访问',404);
+            // 按运行所在对话的主人判断：叫回来、接续这类运行的 caller 记的是名字（「Cognos」、叫人的那位），不是账号
+            $r=$q->select('id','space_type','space_id','caller')->from('cognos_runs')->where($q->expr()->eq('id',$q->createNamedParameter($id)))->executeQuery()->fetch();
+            $owned=$r&&($r['space_type']==='creation'?(ctype_digit((string)$r['space_id'])&&$this->creations->get((int)$r['space_id'],$uid)!==null):$r['caller']===$uid);
+            if(!$owned)throw new \RuntimeException('运行来源不存在或不可访问',404);
             return ['status'=>'available','label'=>'原运行 '.$id];
         }
         if($type==='location_content'){
