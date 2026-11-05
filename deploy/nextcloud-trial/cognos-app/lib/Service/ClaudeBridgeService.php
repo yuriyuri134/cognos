@@ -132,6 +132,11 @@ final class ClaudeBridgeService {
                 'nextcloud' => ['allow_local_address' => true],
             ]);
         } catch (\Throwable $error) {
+            if (self::neverConnected($error)) {
+                // 连都没连上（桥没起来、端口没人听）：请求没发出去，不会开工。记成没能开始，交出去的事可以再交一次。
+                $this->runs->failed($run['id'], '连不上桥，没有发出去：' . $error->getMessage());
+                throw new \RuntimeException(($codex ? 'Codex' : 'Claude Code') . ' 没接下这次：连不上桥，可能桥没起来。没有发出去，可以再交一次。');
+            }
             $this->runs->dispatchUnknown($run['id'], '桥响应丢失，不能确认是否已经开工：' . $error->getMessage());
             throw new \RuntimeException('没有收到桥的确认，工作可能已经开始；已记为状态未知，请先核对，勿重复派发。');
         }
@@ -175,5 +180,21 @@ final class ClaudeBridgeService {
         }
         $replyTo = (int)($extra['reply_to'] ?? 0);
         return ['conversation', $spaceType . ':' . $spaceId, $replyTo > 0 ? sprintf('回对话里 #%d 那一句', $replyTo) : '在对话里被叫进来'];
+    }
+
+    /**
+     * 只有 TCP 都没连上时才算「没发出去」：cURL 6（找不到主机）、7（连不上）。
+     * 连上以后超时（28）不算，那时请求可能已经到了桥，仍记成不知道。
+     */
+    private static function neverConnected(\Throwable $error): bool {
+        for ($e = $error; $e !== null; $e = $e->getPrevious()) {
+            if ($e instanceof \GuzzleHttp\Exception\ConnectException) {
+                $errno = $e->getHandlerContext()['errno'] ?? null;
+                if (in_array($errno, [6, 7], true)) { return true; }
+                if ($errno === null && preg_match('/cURL error (6|7):/', $e->getMessage())) { return true; }
+                return false;
+            }
+        }
+        return (bool)preg_match('/cURL error (6|7):/', $error->getMessage());
     }
 }

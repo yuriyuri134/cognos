@@ -23,7 +23,7 @@ use OCP\IDBConnection;
  * 设计见 docs/项目管理/Cognos项目设计/03-系统/现有代码对照.md「桥」一节、02-协作/共同工作怎样发生.md 二、三。
  */
 final class RunService {
-    public const STATES = ['queued', 'claimed', 'running', 'result_pending', 'delivered', 'failed', 'unknown'];
+    public const STATES = ['queued', 'claimed', 'running', 'result_pending', 'delivered', 'failed', 'unknown', 'closed'];
     /** 还在做的：租约过了就算 unknown */
     private const LIVE = ['claimed', 'running'];
     /** 桥一次最多做 30 分钟（COGNOS_BRIDGE_TIMEOUT），再留 10 分钟发回 */
@@ -122,6 +122,28 @@ final class RunService {
 
     public function markUnknown(string $runId, string $reason): bool {
         return $this->moveFrom($runId, self::LIVE, 'unknown', $reason, null);
+    }
+
+    /**
+     * 用户核对过一次「不知道做没做完」的运行，把它关掉：这片空间之后的接续和排队不再被它挡住。
+     * 不重跑，也不说它失败了；它的结果要是后来还是回来了，照收（receiveResult 不看状态）。
+     */
+    public function closeUnknown(string $runId, string $uid, string $note): array {
+        $note = trim($note);
+        if ($note === '' || mb_strlen($note) > 2000) {
+            throw new \InvalidArgumentException('请写下核对了什么、为什么可以关掉，最多 2000 字');
+        }
+        $run = $this->get($runId);
+        if ($run === null || $run['caller'] !== $uid) {
+            throw new \RuntimeException('找不到这次运行', 404);
+        }
+        if ($run['state'] !== 'unknown') {
+            throw new \RuntimeException('这次运行现在不是「不知道做没做完」，不用关', 409);
+        }
+        if (!$this->moveFrom($runId, ['unknown'], 'closed', $uid . ' 核对后关掉：' . $note, null)) {
+            throw new \RuntimeException('这次运行的状态刚变了，请刷新再看', 409);
+        }
+        return ['run' => $this->get($runId)];
     }
 
     public function get(string $runId): ?array {

@@ -288,6 +288,14 @@ final class AdoptionService {
         return $this->projects->commit($uid, $requestId, ['accept_proposal', $adoptionId], function () use ($uid, $adoptionId): array {
             $a = $this->own($uid, $adoptionId);
             if ($a['state'] !== 'proposed') { throw new \RuntimeException('这条不是待定的提议', 409); }
+            // 提议挂着的时候，这里可能已经采用了同一版（人直接采用，或另一条提议先被接受）：不再多出一条一样的生效采用
+            foreach ($this->rows(['location_id' => $a['location_id']]) as $other) {
+                if ($other['id'] !== $adoptionId && in_array($other['state'], ['active', 'review'], true)
+                    && $other['object_type'] === $a['object_type'] && $other['object_id'] === $a['object_id']
+                    && $other['object_version'] === $a['object_version']) {
+                    throw new \RuntimeException('这里已经采用了这一版，这条提议不用再接受；可以点「不采用」把它收起来', 409);
+                }
+            }
             $qb = $this->db->getQueryBuilder();
             $qb->update('cognos_adoptions')->set('state', $qb->createNamedParameter('active'))
                 ->set('adopted_by', $qb->createNamedParameter($uid))

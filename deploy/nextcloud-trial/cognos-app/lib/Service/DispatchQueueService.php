@@ -77,7 +77,7 @@ final class DispatchQueueService {
 
  /** Same transaction as the run outcome. A late outcome can affect only its own binding. */
  public function runOutcome(string $runId,string $outcome,bool $retryable=false):void {
-  $state=match($outcome){'running','delivered'=>'sent','unknown'=>'unknown','failed'=>$retryable?'queued':'skipped',default=>throw new \InvalidArgumentException('运行结果状态无效')};
+  $state=match($outcome){'running','delivered'=>'sent','unknown'=>'unknown','failed'=>$retryable?'queued':'skipped','closed'=>'reconciled',default=>throw new \InvalidArgumentException('运行结果状态无效')};
   $q=$this->db->getQueryBuilder();$q->update('cognos_dispatch_queue')->set('state',$q->createNamedParameter($state))
    ->set('note',$q->createNamedParameter('运行 '.$runId.'：'.$outcome.($retryable?'；明确忙拒绝，保留原工作等待重排':'')))
    ->set('updated_at',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT));
