@@ -336,7 +336,7 @@
     b.addEventListener('click', () => inlineForm(container, '哪里不对', '写下纠正；原来的不会被改掉', '提交纠正', async content => {
       const r = await mutate('/projects/corrections', 'POST', {object_type: type, object_id: id, object_version: version || '', content});
       await loadAdoptions(); state.lastOverview = ''; await loadOverview();
-      notice('纠正已记下：第 1 层 ' + r.review + ' 处待复核、' + r.hint + ' 处提示；第 2 层 ' + (r.review_depth2 || 0) + ' 处待复核；第 3 层 ' + (r.hint_depth3 || 0) + ' 处只提示，再往下不追。');
+      notice('纠正已记下：第 1 层 ' + r.review + ' 处待复核、' + r.hint + ' 处提示；第 2 层 ' + (r.hint_depth2 || 0) + ' 处可能相关提示；第 3 层 ' + (r.hint_depth3 || 0) + ' 处只提示，再往下不追。');
     }));
     return b;
   }

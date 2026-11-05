@@ -20,7 +20,7 @@ use OCP\IDBConnection;
  *   source_message_id 记用户交出去时那句话；不在委托范围内（别的位置、没给采用的权限、不是交出去的事）就只记成它的提议，
  *   等用户接受（采用者变成用户，提出者留着）或不采用。
  * - 纠正多传一层：第 1 层是直接依赖那一版的（采用它的位置、报了它作依据的运行），进待复核；第 2 层是采用了它的位置上，
- *   在采用期间交回的结果、写的当前稿，也进待复核；第 3 层（别处采用了那些当前稿版本的、报了它们作依据的运行）只提示，再往下不追。
+ *   在采用期间交回的结果、写的当前稿，只给时间相关提示；第 3 层（别处采用了那些当前稿版本的、报了它们作依据的运行）只提示，再往下不追。
  *
  * 设计见 docs/项目管理/Cognos项目设计/02-协作/判断采用与纠正.md。
  */
@@ -189,18 +189,18 @@ final class AdoptionService {
                     $hint += $this->impact('correction', $id, 'adoption', $a['id'], $a['location_id'], 'hint',
                         $what . '被纠正了；这里采用的是另一版，没有变', $now);
                 }
-                return ['correction_id' => $id, 'review' => $review, 'hint' => $hint, 'review_depth2' => $review2, 'hint_depth3' => $hint3];
+                return ['correction_id' => $id, 'review' => $review, 'hint' => $hint, 'review_depth2' => 0, 'hint_depth2' => $review2, 'hint_depth3' => $hint3];
             });
     }
 
     /**
-     * 第 2 层：采用了被纠正那一版的位置上，在采用期间交回的结果、写下的当前稿，进待复核。
+     * 第 2 层：采用了被纠正那一版的位置上，在采用期间交回的结果、写下的当前稿，只提示可能相关。
      * 第 3 层：别处采用了那些当前稿版本的、报了它们作依据的运行，只提示。再往下不追。
      *
      * @return array{0: int, 1: int}
      */
     private function further(string $uid, string $correctionId, array $direct, string $what, int $now): array {
-        $review = 0; $hint = 0;
+        $hint2 = 0; $hint = 0;
         foreach ($direct as $a) {
             $loc = $this->projects->location($uid, $a['location_id']);
             $since = (int)$a['created_at'];
@@ -212,8 +212,8 @@ final class AdoptionService {
                 ->andWhere($qb->expr()->gte('created_at', $qb->createNamedParameter($since, IQueryBuilder::PARAM_INT)))
                 ->executeQuery()->fetchAll();
             foreach ($runs as $r) {
-                $review += $this->impact('correction', $correctionId, 'run', (string)$r['id'], $loc['id'], 'review',
-                    '第 2 层：' . $r['subject'] . ' 这次交回的结果，是在这里采用' . $what . '期间做的', $now, 2);
+                $hint2 += $this->impact('correction', $correctionId, 'run', (string)$r['id'], $loc['id'], 'hint',
+                    '第 2 层（时间相关，未确认依赖）：' . $r['subject'] . ' 这次交回的结果，是在这里采用' . $what . '期间做的', $now, 2);
             }
             $qb = $this->db->getQueryBuilder();
             $later = array_map('intval', array_column($qb->select('revision')->from('cognos_location_revisions')
@@ -221,8 +221,8 @@ final class AdoptionService {
                 ->andWhere($qb->expr()->gte('created_at', $qb->createNamedParameter($since, IQueryBuilder::PARAM_INT)))
                 ->executeQuery()->fetchAll(), 'revision'));
             if ($later === []) { continue; }
-            $review += $this->impact('correction', $correctionId, 'content', $loc['id'] . ':' . max($later), $loc['id'], 'review',
-                sprintf('第 2 层：这里当前稿的版本 %s 是在采用%s之后写的', implode('、', $later), $what), $now, 2);
+            $hint2 += $this->impact('correction', $correctionId, 'content', $loc['id'] . ':' . max($later), $loc['id'], 'hint',
+                sprintf('第 2 层（时间相关，未确认依赖）：这里当前稿的版本 %s 是在采用%s之后写的', implode('、', $later), $what), $now, 2);
             // 第 3 层：只提示
             foreach ($this->sameObject('location_content', $loc['id']) as $b) {
                 if (in_array((int)$b['object_version'], $later, true) && in_array($b['state'], ['active', 'review'], true) && $b['location_id'] !== $loc['id']) {
@@ -243,7 +243,7 @@ final class AdoptionService {
                 }
             }
         }
-        return [$review, $hint];
+        return [$hint2, $hint];
     }
 
     /**

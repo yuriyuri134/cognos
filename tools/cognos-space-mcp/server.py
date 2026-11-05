@@ -16,6 +16,10 @@
 """
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import tempfile
+from pathlib import Path
 import base64
 import json
 import os
@@ -327,6 +331,90 @@ def call_api(method: str, path: str, params: dict | None = None, body: dict | No
     return payload.get("ocs", {}).get("data", payload)
 
 
+
+def _handoff_file(args):
+    identity = [BASE, USER, SUBJECT, space_path(args), str(args["run_id"])]
+    key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    root = Path(os.environ.get("COGNOS_MCP_STATE_DIR", str(Path.home() / ".local/state/cognos-mcp")))
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return root / (key + ".json")
+
+
+@contextlib.contextmanager
+def _handoff_lock(file):
+    with file.with_suffix(".lock").open("a+b") as lock:
+        if lock.tell() == 0:
+            lock.write(b"0")
+            lock.flush()
+        lock.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            lock.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _save_handoff(file, state):
+    fd, temporary = tempfile.mkstemp(dir=file.parent, prefix=".handoff-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(state, stream, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, file)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def handoff(name, args):
+    file = _handoff_file(args)
+    with _handoff_lock(file):
+        state = json.loads(file.read_text(encoding="utf-8")) if file.exists() else {}
+        if name == "hand_back" and state.get("pending"):
+            if state["pending"]["content"] != args["content"]:
+                raise RuntimeError("上次交回已有留存，请先用上次的原文重试确认，不能覆盖尚未确认的结果。")
+            if not state.get("delivered"):
+                call_api("POST", space_path(args) + "/messages", body=state["pending"])
+                state["delivered"] = True
+                _save_handoff(file, state)
+            return "已交回。"
+        run_id = urllib.parse.quote(str(args["run_id"]), safe="")
+        drift = call_api("GET", "", None, None, f"{BASE}/ocs/v2.php/apps/cognos/api/v1.0/runs/{run_id}/drift")
+        token = drift.get("drift_token")
+        lines = [f"- 新决定（起步时未进入输入）：「{d['content']}」" for d in drift["decisions_missing"]]
+        for b in drift["basis_changed"]:
+            lines.append(f"- 依据的「{b['title']}」版本 {b['version']}，现在是版本 {b['current']}（{b['editor']} 改的）")
+            lines += [f"    删了：{x}" for x in b.get("removed", [])]
+            lines += [f"    加了：{x}" for x in b.get("added", [])]
+        confirmed = bool(args.get("acknowledged") and token and state.get("shown_token") == token)
+        if name == "check_changes" or (lines and not confirmed):
+            state["shown_token"] = token
+            _save_handoff(file, state)
+            if not lines:
+                return "当前检查没有发现新决定或已上报依据的版本变化；未上报依据不在检查范围内。"
+            suffix = "" if name == "check_changes" else "\n还没交。请看这次的差异，需要时修改结果，再带 acknowledged=true 交回。"
+            return "起步以后这里变了：\n" + "\n".join(lines) + suffix
+        body = {"subject": SUBJECT, "run_id": args["run_id"], "result_id": uuid.uuid4().hex,
+                "content": args["content"], "acknowledged_drift": confirmed,
+                "drift_token": token if confirmed else None}
+        state["pending"] = body
+        _save_handoff(file, state)
+        call_api("POST", space_path(args) + "/messages", body=body)
+        state["delivered"] = True
+        _save_handoff(file, state)
+        return "已交回。"
+
+
 def space_path(args: dict) -> str:
     space_type = urllib.parse.quote(str(args.get("space_type") or "creation"), safe="")
     space_id = urllib.parse.quote(str(args["space_id"]), safe="")
@@ -389,21 +477,7 @@ def run_tool(name: str, args: dict) -> str:
         data = call_api("POST", space_path(args) + "/runs", body={"subject": SUBJECT, "purpose": args.get("purpose", "")})
         return f"已登记，run_id 是 {data['run']['id']}。做完用 hand_back 交回时带上它。"
     if name in ("check_changes", "hand_back"):
-        run_id = urllib.parse.quote(str(args["run_id"]), safe="")
-        drift = call_api("GET", "", None, None, f"{BASE}/ocs/v2.php/apps/cognos/api/v1.0/runs/{run_id}/drift")
-        lines = [f"- 新决定（你起步时还没有）：「{d['content']}」" for d in drift["decisions_missing"]]
-        for b in drift["basis_changed"]:
-            lines.append(f"- 你依据的「{b['title']}」当前内容版本 {b['version']}，现在已经是版本 {b['current']}（{b['editor']} 改的）")
-            lines += [f"    删了：{x}" for x in b.get("removed", [])[:12]]
-            lines += [f"    加了：{x}" for x in b.get("added", [])[:12]]
-        if name == "check_changes":
-            return "起步以后这里变了：\n" + "\n".join(lines) if lines else "起步以后没有新决定，你依据的内容也没被改。"
-        if lines and not args.get("acknowledged"):
-            return "还没交。起步以后这里变了：\n" + "\n".join(lines) + "\n看完（需要的话改你的结果）再调一次 hand_back，带 acknowledged=true。"
-        body = {"subject": SUBJECT, "run_id": args["run_id"], "result_id": uuid.uuid4().hex, "content": args["content"],
-                "acknowledged_drift": bool(args.get("acknowledged"))}
-        call_api("POST", space_path(args) + "/messages", body=body)
-        return "已交回。" + ("交回时记下了你看过的差异。" if lines else "")
+        return handoff(name, args)
     if name == "adopt":
         body = {k: v for k, v in args.items() if k not in ("space_id", "space_type")}
         body["subject"] = SUBJECT

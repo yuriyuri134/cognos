@@ -79,17 +79,18 @@ async function main() {
   const c = await req('/projects/corrections', 'POST', {object_type: 'location_content', object_id: L, object_version: '2',
     content: '「没有决定时照实写一句」不该写在入口规则里，那是渲染细节。', request_id: id()});
   report.correction = c;
-  assert(c.review >= 1 && c.review_depth2 >= 2 && c.hint_depth3 >= 1, JSON.stringify(c));
+  assert(c.review >= 1 && c.review_depth2 === 0 && c.hint_depth2 >= 2 && c.hint_depth3 >= 1, JSON.stringify(c));
   l = await req('/projects/locations/' + L + '/adoptions');
   assert.equal(l.adoptions.find(a => a.id === a1.id).state, 'review');
   const lv2 = l.impacts.filter(i => i.depth === 2);
+  assert(lv2.every(i => i.effect === 'hint'), 'time correlation alone must not require review');
   assert(lv2.some(i => i.target_kind === 'run' && i.target_id === r1.id), 'the result handed back here while revision 2 was adopted is level 2');
   assert(lv2.some(i => i.target_kind === 'content' && i.note.includes('版本 3')), 'revision 3, written after adopting it, is level 2');
   assert(!lv2.some(i => i.target_id === d.run_id), 'the run that did the adopting started before it and is not swept in');
   const mImp = (await req('/projects/locations/' + M + '/adoptions')).impacts;
   assert(mImp.some(i => i.depth === 3 && i.effect === 'hint' && i.target_id === prop2.adoption_id), 'the place that adopted revision 3 only gets a level-3 hint');
   assert.equal((await req('/projects/locations/' + M + '/adoptions')).adoptions.find(a => a.id === prop2.adoption_id).state, 'active', 'and its adoption is unchanged');
-  checks.push('correcting revision 2: level 1 (the adoption) and level 2 (a result handed back while it was adopted, and revision 3 written after) go to 待复核; level 3 (another place that adopted revision 3) only gets a hint and nothing further is followed');
+  checks.push('correcting revision 2: level 1 (the adoption) requires review; level 2 only hints at temporal correlation; level 3 (another place that adopted revision 3) only gets a hint and nothing further is followed');
   report.result = 'pass';
 }
 main().catch(e => {report.result = 'fail'; report.error = e.message; process.exitCode = 1;}).finally(() => {

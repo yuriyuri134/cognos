@@ -241,13 +241,16 @@ final class SpaceApiController extends OCSController {
         $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
         $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
         // 运行起步以后才有、输入里没有的适用决定：结果照收，记下来，页面上标「起步时还没有这条决定」；不自动应用到共享内容
-        $missing = $this->decisions->missingForRun($uid, $run);
+        $drift = $this->driftSnapshot($uid, $run);
+        $missing = $drift['decisions_missing'];
         if ($missing !== []) {
             $this->runs->setDecisionsMissing($run['id'], $missing);
         }
         // 它报过的依据在这期间被改了：照收，记下来；它交回前看过差异（acknowledged_drift）也记下
-        $changed = $this->basisChanged($uid, $run['id']);
-        $seen = !empty($body['acknowledged_drift']) && ($missing !== [] || $changed !== []) ? time() : null;
+        $changed = $drift['basis_changed'];
+        $seen = !empty($body['acknowledged_drift']) && is_string($body['drift_token'] ?? null)
+            && hash_equals($drift['drift_token'], $body['drift_token'])
+            && ($missing !== [] || $changed !== []) ? time() : null;
         if ($changed !== [] || $seen !== null) {
             $this->runs->setDrift($run['id'], $changed, $seen);
         }
@@ -421,8 +424,17 @@ final class SpaceApiController extends OCSController {
             return new DataResponse(['message' => 'Run not found'], 404);
         }
         $uid = (string)$this->uid();
-        return new DataResponse(['decisions_missing' => $this->decisions->missingForRun($uid, $run),
-            'basis_changed' => $this->basisChanged($uid, $runId)]);
+        return new DataResponse($this->driftSnapshot($uid, $run));
+    }
+
+    /** Fingerprint of the exact returned drift; not proof of understanding or authority. */
+    private function driftSnapshot(string $uid, array $run): array {
+        $missing = $this->decisions->missingForRun($uid, $run);
+        $changed = $this->basisChanged($uid, $run['id']);
+        usort($missing, static fn(array $a, array $b): int => strcmp($a['id'], $b['id']));
+        usort($changed, static fn(array $a, array $b): int => [$a['location_id'], $a['version']] <=> [$b['location_id'], $b['version']]);
+        $token = hash('sha256', json_encode([$run['id'], $missing, $changed], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
+        return ['decisions_missing' => $missing, 'basis_changed' => $changed, 'drift_token' => $token];
     }
 
     /** 这次运行报过「依据了某处当前内容第几版」，而那一处现在已经是更新的版本。 */
