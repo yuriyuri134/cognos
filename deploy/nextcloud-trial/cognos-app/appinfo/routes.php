@@ -2,6 +2,10 @@
 declare(strict_types=1);
 return ['routes' => [
     ['name'=>'home#index','url'=>'/','verb'=>'GET'],
+    ['name'=>'norm#page','url'=>'/norm','verb'=>'GET'],
+    ['name'=>'norm#data','url'=>'/norm/data','verb'=>'GET'],
+    ['name'=>'norm#projectPage','url'=>'/norm/projects/{projectId}','verb'=>'GET','requirements'=>['projectId'=>'[a-f0-9]{32}']],
+    ['name'=>'norm#project','url'=>'/norm/projects/{projectId}/data','verb'=>'GET','requirements'=>['projectId'=>'[a-f0-9]{32}']],
     ['name'=>'project#page','url'=>'/projects','verb'=>'GET'],
     ['name'=>'project#page','url'=>'/projects/{projectId}','verb'=>'GET','postfix'=>'project','requirements'=>['projectId'=>'[a-f0-9]{32}']],
     ['name'=>'project#page','url'=>'/projects/locations/{locationId}','verb'=>'GET','postfix'=>'location','requirements'=>['locationId'=>'[a-f0-9]{32}']],

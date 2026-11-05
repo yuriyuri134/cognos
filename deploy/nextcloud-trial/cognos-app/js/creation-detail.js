@@ -184,12 +184,23 @@
       renderCreation();
       renderMessages();
       resumePendingIfWaiting(messagesData.pending, messagesData.pending_who);
+      readWhatWasWritten();
     } catch (error) {
       console.error('Load error:', error);
       elements.chatTitle.textContent = '加载失败';
     } finally {
       state.loading = false;
     }
+  }
+
+  // 刚写下、还没叫过谁的一段：agent 自己来读，不用你点
+  let autoRead = false;
+  function readWhatWasWritten() {
+    if (autoRead || state.pending || state.sending || state.lastRun) return;
+    const last = state.messages[state.messages.length - 1];
+    if (!last || last.role !== 'user' || state.messages.some(m => m.role !== 'user')) return;
+    autoRead = true;
+    callAgent({ recall: last.id });
   }
 
   function renderCreation() {

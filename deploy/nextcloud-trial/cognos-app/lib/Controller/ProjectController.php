@@ -107,12 +107,9 @@ final class ProjectController extends Controller {
 
     #[NoAdminRequired]
     #[NoCSRFRequired]
-    public function page(string $projectId = '', string $locationId = ''): TemplateResponse {
-        Util::addScript('cognos', 'project-workspace');
-        Util::addScript('cognos', 'work-items');
-        Util::addScript('cognos', 'attempts');
-        Util::addStyle('cognos', 'project-workspace');
-        return new TemplateResponse('cognos', 'project-workspace', ['projectId' => $projectId, 'locationId' => $locationId]);
+    public function page(string $projectId = '', string $locationId = ''): \OCP\AppFramework\Http\RedirectResponse {
+        // 旧的项目页已经撤掉：项目现在在 Norm 里
+        return new \OCP\AppFramework\Http\RedirectResponse(\OC::$server->getURLGenerator()->linkToRoute('cognos.norm.page'));
     }
 
     /** 重组：先预览后果（带 basis），确认时带回 basis，状态变了就整批不做。 */
@@ -195,10 +192,9 @@ final class ProjectController extends Controller {
     /** Initium：还没成为项目的会话，和确立。 */
     #[NoAdminRequired]
     #[NoCSRFRequired]
-    public function initiumPage(): TemplateResponse {
-        Util::addScript('cognos', 'initium');
-        Util::addStyle('cognos', 'project-workspace');
-        return new TemplateResponse('cognos', 'initium', []);
+    public function initiumPage(): \OCP\AppFramework\Http\RedirectResponse {
+        // Initium 现在就是创立空间
+        return new \OCP\AppFramework\Http\RedirectResponse(\OC::$server->getURLGenerator()->linkToRoute('cognos.creationSpace.index'));
     }
 
     #[NoAdminRequired]

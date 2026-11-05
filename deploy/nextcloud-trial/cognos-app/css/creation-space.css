@@ -320,3 +320,7 @@
   outline: none;
   border-color: var(--accent);
 }
+
+.cognos-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#cognos-creation-message { width: 100%; box-sizing: border-box; }
+a.cognos-secondary { text-decoration: none; }

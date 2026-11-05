@@ -5,7 +5,7 @@
   <name>Cognos</name>
   <summary>Continue Cognos work from Nextcloud projects and tasks</summary>
   <description>Adds the Cognos Activity continuation layer to Nextcloud Deck, with source snapshots, resumable attempts, and task history.</description>
-  <version>0.35.1</version>
+  <version>0.36.0</version>
   <licence>agpl</licence>
   <author>Cognos contributors</author>
   <namespace>Cognos</namespace>
@@ -16,16 +16,12 @@
       <route>cognos.home.index</route>
       <order>20</order>
     </navigation>
-    <navigation>
-      <name>材料</name>
-      <route>cognos.notesPage.index</route>
-      <order>21</order>
-    </navigation>
   </navigations>
   <background-jobs><job>OCA\Cognos\BackgroundJob\RecoverFollowups</job></background-jobs>
   <commands>
     <command>OCA\Cognos\Command\ImportObsidian</command>
     <command>OCA\Cognos\Command\ImportSpace</command>
+    <command>OCA\Cognos\Command\NormSeed</command>
   </commands>
   <dependencies><nextcloud min-version="35" max-version="35"/></dependencies>
 </info>

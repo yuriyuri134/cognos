@@ -19,8 +19,7 @@ final class HomeController extends Controller {
     #[NoAdminRequired]
     #[NoCSRFRequired]
     public function index(): TemplateResponse {
-        Util::addScript('cognos', 'home');
-        Util::addStyle('cognos', 'home');
+        Util::addStyle('cognos', 'norm');
         return new TemplateResponse('cognos', 'home');
     }
 }

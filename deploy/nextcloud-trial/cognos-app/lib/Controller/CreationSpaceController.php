@@ -64,7 +64,10 @@ final class CreationSpaceController extends Controller {
             return new DataResponse(['message' => 'Authentication required'], 401);
         }
         try {
-            return new DataResponse(['creations' => $this->creations->list($user->getUID())]);
+            // Norm 自己的那段对话不算在 Initium 里
+            $norm = (int)$this->config->getUserValue($user->getUID(), 'cognos', 'norm_creation_id', '0');
+            $list = array_values(array_filter($this->creations->list($user->getUID()), static fn(array $c): bool => (int)$c['id'] !== $norm));
+            return new DataResponse(['creations' => $list]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch creations'], 500);
         }

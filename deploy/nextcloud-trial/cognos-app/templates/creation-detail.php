@@ -13,7 +13,7 @@
           <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
       </button>
-      <h2 class="sidebar-title">创立空间</h2>
+      <h2 class="sidebar-title"><a href="/index.php/apps/cognos/creations">Initium</a></h2>
     </div>
 
     <button class="new-creation-btn" id="new-creation-btn">
