@@ -163,13 +163,13 @@
     if(document.activeElement?.closest('#pw-dispatch-queue form'))return;
     $('pw-dispatch-section').hidden=!items.length;
     const labels={held:'已找回的旧排队，等待重新核对',queued:'等待派发',claimed:'已领取，尚未确认派出',sent:'已派出',unknown:'派发状态未知，请先核对',skipped:'未派发，已跳过',reconciled:'已核清并关闭',cancelled:'已取消本次排队'};
-    const runs={queued:'等待确认',running:'正在执行',unknown:'状态未知',delivered:'结果已交回',failed:'未能开始'};
+    const runs={queued:'等待确认',running:'正在执行',unknown:'状态未知',delivered:'结果已交回',failed:'未能开始',closed:'核对后已关掉'};
     const list=$('pw-dispatch-queue');list.replaceChildren();
     for(const item of items){
       const li=node('li',undefined,'pw-decision'+(item.state==='unknown'?' pw-warn':''));li.dataset.queueId=item.id;
       li.append(node('p',(item.kind==='hit'?'反对 #':'消息 #')+item.ref_id+' · '+(labels[item.state]||item.state)+(item.run_state?' · 对应运行：'+(runs[item.run_state]||item.run_state):'')));
       li.append(link('查看原讨论',base+'/creations/'+item.space_id));
-      if(item.note){const text=item.note.replace(/^运行 [a-f0-9]{32}：(running|delivered|failed|unknown)([^\n]*)/,(_,status,tail)=>'运行状态：'+(runs[status]||status)+tail);const note=node('p',text);note.style.whiteSpace='pre-wrap';li.append(note);}
+      if(item.note){const text=item.note.replace(/^运行 [a-f0-9]{32}：(running|delivered|failed|unknown|closed)([^\n]*)/,(_,status,tail)=>'运行状态：'+(runs[status]||status)+tail);const note=node('p',text);note.style.whiteSpace='pre-wrap';li.append(note);}
       if(['queued','unknown','held'].includes(item.state)){
         const form=node('form');const input=node('textarea');input.required=true;input.rows=2;input.maxLength=2000;input.id='pw-queue-note-'+item.id;
         const label=node('label','核对或取消说明');label.htmlFor=input.id;
@@ -232,7 +232,23 @@
     $('pw-decisions-ended').replaceChildren(...ended.map(decisionItem));
     $('pw-decisions-ended-box').hidden = !ended.length;
   }
+  // 不知道做没做完的运行会挡住这段对话后面的接续和排队；核对过（比如看了桥的日志、对方确实没在做）就关掉它
+  function closeRunForm(r) {
+    const form = node('form', undefined, 'pw-close-run');
+    const input = node('textarea'); input.required = true; input.maxLength = 2000; input.rows = 2; input.id = 'pw-close-run-' + r.run_id;
+    const label = node('label', '核对了什么，为什么可以关掉（关掉后这段对话的接续和排队不再等它；它的结果要是后来回来了，照收）');
+    label.htmlFor = input.id;
+    const button = node('button', '已核清，关掉这次运行'); button.type = 'submit';
+    form.append(label, input, button);
+    form.addEventListener('submit', e => { e.preventDefault(); busy(form, async () => {
+      try { await mutate('/projects/runs/' + r.run_id + '/close', 'POST', {note: input.value}); input.value = '';
+        notice('这次运行已关掉，没有重跑。'); }
+      finally { document.activeElement?.blur(); state.lastOverview = ''; await loadOverview(); }
+    }); });
+    return form;
+  }
   function renderWho(activity) {
+    if (document.activeElement?.closest('#pw-who form')) return; // 正在写核对说明，先不刷新
     const box = $('pw-who'); box.replaceChildren();
     const states = {queued: '等待接下', claimed: '已接下', running: '正在做', result_pending: '结果待交回', unknown: '状态未知：不知道做没做完，不会自动重做'};
     if (!activity.runs.length) box.append(node('p', '现在没有参与者在这个项目里做事。', 'pw-hint'));
@@ -240,6 +256,7 @@
       const where = r.location ? '「' + r.location.title + '」' : '某处';
       box.append(node('p', r.subject + ' 在' + where + '：' + r.purpose + ' · ' + (states[r.state] || r.state) + ' · ' + date(r.created_at),
         'pw-run' + (r.state === 'unknown' ? ' pw-error' : '')));
+      if (r.state === 'unknown') box.append(closeRunForm(r));
     }
     for (const r of activity.recent.filter(r => r.decisions_missing.length || (r.basis_changed || []).length)) {
       const where = r.location ? '「' + r.location.title + '」' : '某处';
@@ -266,7 +283,7 @@
   function renderDelegations(list) {
     const box = $('pw-delegations'); box.replaceChildren();
     const runStates = {queued: '等待接下', claimed: '已接下', running: '正在做', result_pending: '结果待交回', delivered: '已交回',
-      failed: '没能开始', unknown: '不知道做没做完（失联），不会自动重做'};
+      failed: '没能开始', unknown: '不知道做没做完（失联），不会自动重做', closed: '你核对后关掉了，没有收到结果。要的话可以再交一次'};
     for (const d of list) {
       const li = node('li', undefined, 'pw-decision pw-delegation');
       li.dataset.delegationId = d.id;
@@ -647,7 +664,7 @@
         if (!data.messages.length) list.append(node('p', '这里的当前内容和关联材料会带入下一次讨论。', 'pw-hint'));
         if (nearBottom) list.scrollTop = list.scrollHeight;
       }
-      const labels = {queued: '等待接下', claimed: '已接下', running: '正在进行', result_pending: '结果待交回', delivered: '结果已交回', failed: '未能开始', unknown: '状态未知，尚不能确认是否完成'};
+      const labels = {queued: '等待接下', claimed: '已接下', running: '正在进行', result_pending: '结果待交回', delivered: '结果已交回', failed: '未能开始', unknown: '状态未知，尚不能确认是否完成', closed: '核对后已关掉，没有收到结果'};
       const runs = $('pw-runs'); runs.replaceChildren();
       for (const run of (data.runs || []).slice(0, 5)) {
         const p = node('p', run.subject + ' · ' + (labels[run.state] || run.state) + ' · ' + date(run.created_at),

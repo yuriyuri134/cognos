@@ -6,7 +6,7 @@
   let projectId=app.dataset.projectId;
   const labels={open:'待开展',in_progress:'进行中',blocked:'等待',done:'完成',cancelled:'取消',split:'已拆分'};
   const delegationLabels={sending:'等待派发',starting:'正在交接',sent:'已交出',returned:'已交回',not_taken:'尚未接下'};
-  const runLabels={queued:'等待开始',claimed:'已领取',running:'执行中',result_pending:'等待保存',delivered:'结果已收回',failed:'明确失败',unknown:'状态未知'};
+  const runLabels={queued:'等待开始',claimed:'已领取',running:'执行中',result_pending:'等待保存',delivered:'结果已收回',failed:'明确失败',unknown:'状态未知',closed:'核对后已关掉'};
   const actions={created:'登记',updated:'修改安排',delegated:'登记委托',split:'拆分'};
   const ids=new Map(), dirtyForms=new Set();
   document.getElementById('pw-work-items-section').addEventListener('input',e=>{const f=e.target.closest('form');if(f)dirtyForms.add(f);});
