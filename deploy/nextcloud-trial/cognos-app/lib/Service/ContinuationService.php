@@ -93,7 +93,7 @@ final class ContinuationService {
             ]);
         } catch (\RuntimeException $error) {
             $this->giveBackBudget($spaceType, $spaceId);
-            if ($error->getCode() === ClaudeBridgeService::BUSY) {
+            if (ClaudeBridgeService::isBusy($error)) {
                 // 手上那件做完发回来时（SpaceApiController::addMessage）会接着叫还拉着的
                 return $this->result(false, sprintf('%s 正在做手上那件，做完会从 #%d 接着走。', $subject, $openId));
             }

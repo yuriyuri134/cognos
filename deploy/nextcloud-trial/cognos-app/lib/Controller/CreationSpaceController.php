@@ -161,7 +161,7 @@ final class CreationSpaceController extends Controller {
                 if ($error instanceof \OCA\Cognos\Service\ProjectInactiveException) {
                     return new DataResponse(['messages'=>$saved,'pending'=>false,'message'=>$error->getMessage(),'execution_blocked'=>true]);
                 }
-                if ($error->getCode() !== ClaudeBridgeService::BUSY) {
+                if (!ClaudeBridgeService::isBusy($error)) {
                     return new DataResponse(['messages' => $saved, 'message' => $error->getMessage()], 502);
                 }
                 // 桥正忙（比如写下想法的那位正被叫回来回应一条反对）：这句排着，它做完发回回答时接着叫

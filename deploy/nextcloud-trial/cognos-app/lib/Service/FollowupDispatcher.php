@@ -52,7 +52,7 @@ final class FollowupDispatcher {
    $this->config->deleteAppValue('cognos','agent_pending_who_creation_'.(int)$event['space_id']);
    $this->callNext($event['space_type'],$event['space_id'],$uid,$event['open_id']===null?null:(int)$event['open_id'],$id,$event['queue_item_id']??null);
    $this->events->finish($id);
-  }catch(\Throwable $e){if($e instanceof QueueHeldException)$this->events->retryClaim($id,'旧积压需先核对，未派发');elseif($e instanceof ProjectInactiveException)$this->events->cancelClaim($id);elseif($e instanceof \RuntimeException&&$e->getCode()===ClaudeBridgeService::BUSY)$this->events->retryClaim($id);else $this->events->unknown($id);}finally{$this->users->setUser($previous);}
+  }catch(\Throwable $e){if($e instanceof QueueHeldException)$this->events->retryClaim($id,'旧积压需先核对，未派发');elseif($e instanceof ProjectInactiveException)$this->events->cancelClaim($id);elseif(ClaudeBridgeService::isBusy($e))$this->events->retryClaim($id);else $this->events->unknown($id);}finally{$this->users->setUser($previous);}
   return true;
  }
     private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan,string $followupId,?string $selectedItem = null): void {
@@ -64,7 +64,7 @@ final class FollowupDispatcher {
         }
         [$what, $messageId,$claim] = $next;
         if($what==='held')throw new QueueHeldException('旧积压需核对');
-        if($what==='busy')throw new \RuntimeException('桥明确忙拒绝',ClaudeBridgeService::BUSY);
+        if($what==='busy')throw new BridgeBusyException('桥明确忙拒绝');
         if(in_array($what,['unknown','blocked'],true))throw new \RuntimeException('队列有未核清派发，不能继续');
         if ($what !== 'msg') {
             return;
@@ -79,7 +79,7 @@ final class FollowupDispatcher {
             }
         } catch (\Throwable $error) {
             if($error instanceof ProjectInactiveException){$this->dispatchQueue->settle($claim['item_id'],$followupId,'queued','项目暂停，未创建运行');throw $error;}
-            if($error instanceof \RuntimeException&&$error->getCode()===ClaudeBridgeService::BUSY){$this->dispatchQueue->settle($claim['item_id'],$followupId,'queued','明确忙拒绝');throw $error;}
+            if(ClaudeBridgeService::isBusy($error)){$this->dispatchQueue->settle($claim['item_id'],$followupId,'queued','明确忙拒绝');throw $error;}
             $item=$this->dispatchQueue->get($claim['item_id']);
             if($item['state']==='skipped')return;
             $this->dispatchQueue->settle($claim['item_id'],$followupId,'unknown','派发中断，不自动重放');throw $error;

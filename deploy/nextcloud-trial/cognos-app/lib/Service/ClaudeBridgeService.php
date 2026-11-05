@@ -155,7 +155,8 @@ final class ClaudeBridgeService {
         $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
         if (in_array($status, [400, 401, 403, self::BUSY, 422], true) || ($codex && $status === 404)) {
             $this->runs->failed($run['id'], '桥明确拒绝（HTTP ' . $status . '）' . ($reason !== '' ? '：' . $reason : ''), $status === self::BUSY);
-            throw new \RuntimeException(($codex ? 'Codex' : 'Claude Code') . ' 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
+            $text = ($codex ? 'Codex' : 'Claude Code') . ' 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）');
+            throw $status === self::BUSY ? new BridgeBusyException($text) : new \RuntimeException($text);
         }
         $this->runs->dispatchUnknown($run['id'], '桥返回 HTTP ' . $status . '，不能确认是否已经开工');
         throw new \RuntimeException('桥返回异常回复，工作是否开始尚不确定；请先核对，勿重复派发。');
@@ -180,6 +181,11 @@ final class ClaudeBridgeService {
         }
         $replyTo = (int)($extra['reply_to'] ?? 0);
         return ['conversation', $spaceType . ':' . $spaceId, $replyTo > 0 ? sprintf('回对话里 #%d 那一句', $replyTo) : '在对话里被叫进来'];
+    }
+
+    /** 桥明确说正忙（排着等就行）。别的 409 不算：恢复隔离、归属变了、请求编号冲突都用 409，原来会被误当成正忙去排队、重试。 */
+    public static function isBusy(\Throwable $error): bool {
+        return $error instanceof BridgeBusyException;
     }
 
     /**
