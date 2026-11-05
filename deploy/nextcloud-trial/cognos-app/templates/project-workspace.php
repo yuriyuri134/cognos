@@ -17,6 +17,17 @@
         </form>
         <ul id="pw-projects" class="pw-names"></ul>
         <p class="pw-hint"><a href="/index.php/apps/cognos/initium">Initium</a>：还没成为项目的想法和会话，在那里也可以确立项目。</p>
+        <section id="pw-unknown-section" aria-labelledby="pw-unknown-title" hidden>
+            <h2 id="pw-unknown-title">不知道做没做完的运行</h2>
+            <p class="pw-hint">这些运行发出去以后没收到结果，也不知道还在不在做。它们会挡住所在对话后面的接续和排队。核对过（比如看了桥的日志，确实没在做）就勾上关掉；关掉不会重跑，结果要是后来回来了照收。</p>
+            <form id="pw-unknown-form">
+                <label class="pw-check"><input type="checkbox" id="pw-unknown-all"> 全选</label>
+                <ul id="pw-unknown-list" class="pw-decision-list"></ul>
+                <label for="pw-unknown-note">核对了什么（每条关掉的运行都会留下这句）</label>
+                <textarea id="pw-unknown-note" rows="2" maxlength="2000" required></textarea>
+                <button type="submit">关掉勾选的</button>
+            </form>
+        </section>
     </section>
     <section id="pw-work-view" hidden>
         <aside class="pw-structure">

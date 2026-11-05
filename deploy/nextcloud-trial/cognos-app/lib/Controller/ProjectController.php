@@ -242,6 +242,33 @@ final class ProjectController extends Controller {
             fn()=>$this->followups->close($resultId,$uid,$expected_state,$note)));
     }
 
+    /** 这个账号名下所有「不知道做没做完」的运行，带它在哪个项目的哪一处（不在项目里的写对话编号）。 */
+    #[NoAdminRequired]
+    public function unknownRuns(): DataResponse {
+        return $this->respond(function (string $uid): array {
+            $out = [];
+            foreach ($this->runs->unknownFor($uid) as $r) {
+                $where = null;
+                if ($r['space_type'] === 'creation' && ctype_digit($r['space_id'])) {
+                    $loc = $this->projects->locationForCreation($uid, (int)$r['space_id']);
+                    $where = $loc === null ? ['creation_id' => (int)$r['space_id']]
+                        : ['location_id' => $loc['id'], 'location_title' => $loc['title'], 'project_id' => $loc['project_id'],
+                            'project_title' => (string)$this->projects->project($uid, $loc['project_id'])['title']];
+                }
+                $out[] = ['run_id' => $r['id'], 'subject' => $r['subject'], 'purpose' => $r['purpose'], 'created_at' => $r['created_at'],
+                    'note' => $r['error'], 'where' => $where];
+            }
+            return ['runs' => $out];
+        });
+    }
+
+    /** 一次关掉勾选的几条，每条留下同一句核对说明（RunService::closeUnknownMany）。 */
+    #[NoAdminRequired]
+    public function closeRuns(array $run_ids, string $note, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->projects->commit($uid, $request_id, ['close_runs', $run_ids, $note],
+            fn() => $this->runs->closeUnknownMany($run_ids, $uid, $note)));
+    }
+
     /** 「不知道做没做完」的运行，用户核对后关掉，之后的接续和排队不再被它挡住。 */
     #[NoAdminRequired]
     public function closeRun(string $runId,string $note,string $request_id):DataResponse {
