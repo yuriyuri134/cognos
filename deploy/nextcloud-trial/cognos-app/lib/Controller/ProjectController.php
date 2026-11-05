@@ -25,6 +25,7 @@ final class ProjectController extends Controller {
         private AdoptionService $adoptions, private RestructureService $restructures,
         private \OCA\Cognos\Service\FollowupService $followups,
         private \OCA\Cognos\Service\DispatchQueueService $dispatchQueue,
+        private \OCA\Cognos\Service\RunService $runs,
         private IConfig $config, private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
@@ -239,6 +240,13 @@ final class ProjectController extends Controller {
     public function closeFollowup(string $resultId,string $expected_state,string $note,string $request_id):DataResponse {
         return $this->respond(fn(string $uid) => $this->projects->commit($uid,$request_id,['close_followup',$resultId,$expected_state,$note],
             fn()=>$this->followups->close($resultId,$uid,$expected_state,$note)));
+    }
+
+    /** 「不知道做没做完」的运行，用户核对后关掉，之后的接续和排队不再被它挡住。 */
+    #[NoAdminRequired]
+    public function closeRun(string $runId,string $note,string $request_id):DataResponse {
+        return $this->respond(fn(string $uid) => $this->projects->commit($uid,$request_id,['close_run',$runId,$note],
+            fn()=>$this->runs->closeUnknown($runId,$uid,$note)));
     }
 
     #[NoAdminRequired]

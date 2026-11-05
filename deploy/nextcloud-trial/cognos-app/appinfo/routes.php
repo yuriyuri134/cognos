@@ -26,6 +26,7 @@ return ['routes' => [
     ['name'=>'project#resumeQueue','url'=>'/projects/queue/{itemId}/resume','verb'=>'POST'],
     ['name'=>'project#closeQueue','url'=>'/projects/queue/{itemId}/close','verb'=>'POST'],
     ['name'=>'project#closeFollowup','url'=>'/projects/followups/{resultId}/close','verb'=>'POST'],
+    ['name'=>'project#closeRun','url'=>'/projects/runs/{runId}/close','verb'=>'POST','requirements'=>['runId'=>'[a-f0-9]{32}']],
     ['name'=>'project#lifecycle','url'=>'/projects/{projectId}/lifecycle','verb'=>'POST'],
     ['name'=>'project#addLocation','url'=>'/projects/{projectId}/locations','verb'=>'POST'],
     ['name'=>'project#location','url'=>'/projects/locations/{locationId}/data','verb'=>'GET'],
