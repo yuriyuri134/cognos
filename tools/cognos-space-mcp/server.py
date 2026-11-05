@@ -313,6 +313,11 @@ TOOLS += [
 ]
 
 TOOLS += [
+    {"name":"list_attempts","description":"读取关联到这一处的尝试、当前简介及阶段记录；这些作者的总结不代表工作已完成或结果已验证。", "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE},"required":["space_id"]}},
+    {"name":"get_attempt","description":"按稳定身份读取一份尝试的简介、旧版本和历次阶段总结及覆盖范围。仅限与当前位置关联的尝试。", "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"attempt_id":{"type":"string"}},"required":["space_id","attempt_id"]}},
+]
+
+TOOLS += [
     {"name":"update_work_item","description":"按明确委托维护关联工作的完整安排或记录结果，署名为实际 AI。必须读当前版本；未获得工作维护权限时拒绝。新决定/依据变化先返回差异，确认同一差异后带 acknowledged=true 重试。",
      "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"work_id":{"type":"string"},"run_id":{"type":"string","description":"本次委托运行；经桥时自动附加"},
         "expected_revision":{"type":"integer"}, **{k:{"type":"string"} for k in ("description","owner","deliverable","acceptance","evidence","note")},
@@ -572,6 +577,10 @@ def run_tool(name: str, args: dict) -> str:
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}
         return f"已记下停在哪 #{trace['id']}（{trace['act']}）。{then.get(trace['act'], '')}。"
+    if name in ("list_attempts", "get_attempt"):
+        path=space_path(args)+"/attempts"
+        if name=="get_attempt":path+="/"+urllib.parse.quote(str(args["attempt_id"]),safe="")
+        return json.dumps(call_api("GET",path),ensure_ascii=False)
     if name in ("list_work_items", "get_work_item", "preview_work_split"):
         path = space_path(args) + "/work-items"
         if name != "list_work_items":

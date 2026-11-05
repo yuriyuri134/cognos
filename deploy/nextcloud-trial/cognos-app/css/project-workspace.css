@@ -90,3 +90,14 @@
 #wi-items fieldset { min-width: 0; border: 1px solid var(--pw-border); border-radius: 6px; padding: 12px; margin: 12px 0; }
 #wi-items legend { padding: 0 6px; }
 #wi-items section { padding: 10px 0; border-bottom: 1px solid var(--pw-border); }
+
+#at-items p, #at-items h3, #at-items h4, #at-items h5, #at-items blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
+#at-items h3, #at-items h4 { font-weight: 600; }
+#at-items section { padding: 12px 0; border-bottom: 1px solid var(--pw-border); }
+#at-items .at-summaries { list-style: none; margin: 12px 0; padding: 0; }
+#at-items .at-stage { padding: 12px; margin: 10px 0; border-left: 3px solid var(--pw-border); background: var(--color-background-hover); }
+#pw-attempts-section fieldset { min-width: 0; margin: 12px 0; padding: 8px 12px; border: 1px solid var(--pw-border); border-radius: 6px; }
+#pw-attempts-section legend { padding: 0 6px; }
+#pw-attempts-section .at-ref-list { list-style: none; padding: 0; }
+#pw-attempts-section .at-ref-list li { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
+#pw-attempts-section .at-conflict { border-left: 3px solid var(--color-warning, #b58222); padding-left: 12px; margin: 10px 0; }

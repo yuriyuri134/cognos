@@ -11,7 +11,7 @@ server=importlib.util.module_from_spec(spec);spec.loader.exec_module(server)
 class BoundEntryTests(unittest.TestCase):
     def test_other_space_cannot_be_read_or_started(self):
         with patch.object(server,'ONLY',set()),patch.object(server,'BOUND_ID','7'),patch.object(server,'BOUND_TYPE','creation'),patch.object(server,'call_api') as api:
-            for tool in ('enter_space','start_work','list_work_items','get_work_item','preview_work_split'):
+            for tool in ('enter_space','start_work','list_work_items','get_work_item','preview_work_split','list_attempts','get_attempt'):
                 with self.subTest(tool=tool),self.assertRaises(RuntimeError):
                     server.run_tool(tool,{'space_id':'8','work_id':'a'*32,'parts':[]})
             api.assert_not_called()
@@ -61,5 +61,12 @@ class BoundEntryTests(unittest.TestCase):
         with patch.object(server,'ONLY',set()),patch.object(server,'BOUND_ID',''),patch.object(server,'call_api',return_value={'basis':'b','consequences':[]}) as api:
             server.run_tool('preview_work_split',{'space_id':'7','work_id':'c'*32,'parts':[{'description':'甲'},{'description':'乙'}]})
             self.assertTrue(api.call_args.args[1].endswith('/split/preview'))
+
+    def test_attempt_tools_read_the_bound_location(self):
+        with patch.object(server,'ONLY',set()),patch.object(server,'BOUND_ID','7'),patch.object(server,'BOUND_TYPE','creation'),patch.object(server,'call_api',return_value={'items':[]}) as api:
+            server.run_tool('list_attempts',{'space_id':'7'})
+            self.assertEqual(api.call_args.args,('GET','/creation/7/attempts'))
+            server.run_tool('get_attempt',{'space_id':'7','attempt_id':'a'*32})
+            self.assertEqual(api.call_args.args,('GET','/creation/7/attempts/'+'a'*32))
 
 if __name__=='__main__':unittest.main()

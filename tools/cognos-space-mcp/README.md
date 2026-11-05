@@ -108,7 +108,7 @@ $env:COGNOS_MCP_STATE_DIR = "$env:LOCALAPPDATA/cognos-codex-handoff"
 py -3 tools/cognos-space-mcp/codex_entry.py --space-id <位置的creation编号> --prompt-file <任务文本路径> --output-dir <本地记录目录> --subject Codex
 ```
 
-任务文本可以让它进来、登记、读取/预览工作、报依据和交回。启动器限定 MCP 到本次位置，关闭 shell、应用和插件工具，不改用户设置；文件执行策略为只读，但 Cognos 的登记和交回仍通过明确列出的 MCP 工具发生。允许工具仅为 `enter_space/start_work/note_basis/check_changes/hand_back/list_work_items/get_work_item/preview_work_split`。这限制的是这次本机连接的能力，不改变账号在服务器上的基础权限。
+任务文本可以让它进来、登记、读取/预览工作、报依据和交回。启动器限定 MCP 到本次位置，关闭 shell、应用和插件工具，不改用户设置；文件执行策略为只读，但 Cognos 的登记和交回仍通过明确列出的 MCP 工具发生。允许工具仅为 `enter_space/start_work/note_basis/check_changes/hand_back/list_work_items/get_work_item/preview_work_split/list_attempts/get_attempt`。这限制的是这次本机连接的能力，不改变账号在服务器上的基础权限。
 
 `COGNOS_MCP_STATE_DIR` 应跨进程保持，便于沿同一 run_id 和原结果取回回执。CLI 会话本身是临时会话，跨调用通过 Cognos 的运行编号和已保存输入继续，不假定模型自动保留上一段内部状态。日志含项目内容，由调用者保存到不入库的位置。超时或失败后先核对已有运行和结果，不自动重新开工。
 
@@ -126,3 +126,8 @@ py -3 tools/cognos-space-mcp/codex_entry.py --space-id <位置的creation编号>
 新决定或已报依据变化时，第一次写入只展示变化。面对变化后用 `acknowledged=true` 再提交；确认绑定本机实际收到的差异指纹，期间又变化则重新展示。工作写入用确定的请求编号，网络失联后以同一意图重试取得原回执，不重复版本或子项。请求成功后请读取新版，再作不同的修改。运行、项目或工作资格失效时不能开始新操作；原成功请求仍可取回回执。
 
 仅本次行动的委托跟随自己允许的修改；其他人改范围会让旧委托失效。完成、等待、取消、拆分不续权；子项不复制委托、不自动启动。账号和 AI 作者分别保留。工作维护不自动授予改当前稿或采用权限，也不代表外部进程已经停止。当前应用密码仍是账号凭据，不把这层限定宣称为账号级强隔离。
+
+
+### 尝试与阶段历史读取（0.34.0）
+
+`list_attempts/get_attempt` 只读当前关联位置的尝试、简介原版本及各段总结；新位置没有关联时不能以同账号任意跨过空间限定读取。Codex 独立入口和 Claude 桥的列表均增加这两个只读工具。简介与总结有作者，阶段覆盖与具体来源不等同完成、采用或验证。项目入口仅给最多五份及最近阶段的有界摘要，报告省略/截断，完整旧版本按需读取。当前网页按登录账号写入，不提供冒用用户作者的代理写入口；本次工程检查未调用模型生成总结。

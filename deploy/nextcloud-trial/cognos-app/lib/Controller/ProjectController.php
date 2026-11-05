@@ -109,6 +109,7 @@ final class ProjectController extends Controller {
     public function page(string $projectId = '', string $locationId = ''): TemplateResponse {
         Util::addScript('cognos', 'project-workspace');
         Util::addScript('cognos', 'work-items');
+        Util::addScript('cognos', 'attempts');
         Util::addStyle('cognos', 'project-workspace');
         return new TemplateResponse('cognos', 'project-workspace', ['projectId' => $projectId, 'locationId' => $locationId]);
     }

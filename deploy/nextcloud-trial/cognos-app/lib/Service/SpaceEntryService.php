@@ -25,6 +25,7 @@ final class SpaceEntryService {
         private IAppManager $apps,
         private ProjectService $projects,
         private DecisionService $decisions,
+        private AttemptService $attemptRecords,
     ) {
     }
 
@@ -49,7 +50,8 @@ final class SpaceEntryService {
         }
         return ['type' => 'creation', 'id' => $spaceId, 'title' => (string)$creation['title'],
             'kind_label' => $project === null ? '创立空间' : '项目工作位置', 'project_context' => $project,
-            'decisions' => $decisions, 'working' => $working];
+            'decisions' => $decisions, 'working' => $working,
+            'attempt_records' => $project===null ? ['items'=>[],'total'=>0,'omitted'=>0] : $this->attemptRecords->entrySummary($uid,$project['location_id'])];
     }
 
     /** 这次入口里实际给出的决定（运行起步时记下）。 */
@@ -172,6 +174,18 @@ final class SpaceEntryService {
                 $lines[] = sprintf('- %s 说（%s，适用：%s）：「%s」', $d['author_name'], $when, $scope, $d['content']);
             }
             $lines[] = '';
+        }
+        $attempts=$space['attempt_records']??['items'=>[],'total'=>0,'omitted'=>0];
+        if($attempts['items']!==[]){
+            $lines[]='## 这一处的尝试（简介和阶段记录，不等于任务完成或已验证）';
+            foreach($attempts['items'] as $a){
+                $lines[]='- '.$a['title'].' [attempt '.$a['id'].'] · 简介第 '.$a['revision'].' 版 · '.$a['author'].' · '.$a['state'];
+                foreach(['introduction'=>'简介','focus'=>'关注','next_entry'=>'可从这里进入'] as $key=>$label)if($a[$key]!=='')$lines[]='  '.$label.'：'.$a[$key];
+                if($a['latest_summary']!==null){$stage=$a['latest_summary'];$lines[]='  最近阶段记录 [summary '.$stage['id'].'] 第 '.$stage['revision'].' 版 · '.$stage['author'].'：'.$stage['content'];$lines[]='  覆盖说明：'.($stage['coverage']?:'未填写').'；具体引用 '.(int)($stage['covered_refs_total']??count($stage['covered_refs'])).' 项。';}
+                if($a['text_truncated'])$lines[]='  上述内容已截短；详情可读取原版本。';
+            }
+            if($attempts['omitted']>0)$lines[]='另有 '.$attempts['omitted'].' 份尝试未列出；用 list_attempts/get_attempt 读取详情。';
+            $lines[]='';
         }
         if (($space['working'] ?? []) !== []) {
             $lines[] = '## 项目里谁在动什么';

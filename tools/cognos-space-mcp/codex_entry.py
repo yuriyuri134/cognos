@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 ENTRY_TOOLS = ("enter_space", "start_work", "note_basis", "check_changes", "hand_back",
-              "list_work_items", "get_work_item", "preview_work_split")
+              "list_work_items", "get_work_item", "preview_work_split", "list_attempts", "get_attempt")
 
 
 def command(workspace: Path, subject: str, tools: tuple[str, ...] = ENTRY_TOOLS) -> list[str]:

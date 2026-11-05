@@ -133,6 +133,13 @@
                 <p class="pw-hint">每次交回时做事的那位上报了依据什么；没上报就照写「未上报依据」，不等于它没有依据。</p>
                 <ul id="pw-recent" class="pw-reach"></ul>
             </section>
+            <section id="pw-attempts-section" aria-labelledby="pw-attempts-title">
+                <div class="pw-section-title"><h2 id="pw-attempts-title">尝试</h2><button type="button" id="at-refresh">刷新尝试</button></div>
+                <p class="pw-hint">研究、推演、试写或现实活动都可以从一句话开始。简介说明现在在做什么；阶段记录保留当时的认识，与执行工作的完成分开。</p>
+                <p id="at-notice" role="status" aria-live="polite"></p>
+                <details id="at-create-box" data-location-only><summary>留下一项尝试</summary><form id="at-create"></form></details>
+                <ul id="at-items" class="pw-decision-list"></ul>
+            </section>
             <section id="pw-work-items-section" aria-labelledby="pw-work-items-title">
                 <div class="pw-section-title"><h2 id="pw-work-items-title">执行工作</h2><button type="button" id="wi-refresh">刷新工作</button></div>
                 <p class="pw-hint">有明确交付安排时再登记；讨论和自由探索可以继续在原处。工作是否完成与 AI 是否返回分别记录。</p>

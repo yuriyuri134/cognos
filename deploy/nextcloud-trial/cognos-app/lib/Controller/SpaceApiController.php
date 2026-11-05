@@ -50,6 +50,7 @@ final class SpaceApiController extends OCSController {
         private AdoptionService $adoptions,
         private \OCA\Cognos\Service\WorkItemService $workItems,
         private \OCA\Cognos\Service\RunDriftService $runDrift,
+        private \OCA\Cognos\Service\AttemptService $attempts,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -105,6 +106,17 @@ final class SpaceApiController extends OCSController {
         return $this->projects->locationForCreation($uid,(int)$spaceId);
     }
 
+    #[NoAdminRequired]
+    public function attemptList(string $spaceType,string $spaceId):DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);if($loc===null)return new DataResponse(['message'=>'Project location not found'],404);
+        return new DataResponse(['items'=>$this->attempts->list((string)$this->uid(),$loc['project_id'],$loc['id'])]);
+    }
+    #[NoAdminRequired]
+    public function attemptDetail(string $spaceType,string $spaceId,string $attemptId):DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);if($loc===null)return new DataResponse(['message'=>'Project location not found'],404);
+        try{$item=$this->attempts->detail((string)$this->uid(),$attemptId);if(!in_array($loc['id'],$item['location_ids'],true))return new DataResponse(['message'=>'Attempt not in this location'],404);return new DataResponse(['item'=>$item]);}
+        catch(\RuntimeException $e){if($e->getCode()===404)return new DataResponse(['message'=>'Attempt not found'],404);throw $e;}
+    }
     #[NoAdminRequired]
     public function workList(string $spaceType,string $spaceId): DataResponse {
         $loc=$this->workLocation($spaceType,$spaceId);
