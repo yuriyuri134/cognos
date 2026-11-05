@@ -134,7 +134,7 @@ final class RunService {
             throw new \InvalidArgumentException('请写下核对了什么、为什么可以关掉，最多 2000 字');
         }
         $run = $this->get($runId);
-        if ($run === null || $run['caller'] !== $uid) {
+        if ($run === null || !$this->ownedBy($run, $uid)) {
             throw new \RuntimeException('找不到这次运行', 404);
         }
         if ($run['state'] !== 'unknown') {
@@ -144,6 +144,21 @@ final class RunService {
             throw new \RuntimeException('这次运行的状态刚变了，请刷新再看', 409);
         }
         return ['run' => $this->get($runId)];
+    }
+
+    /**
+     * 谁能管这次运行：它所在那段对话的主人。不按 caller 判断，因为接续、叫回来这类运行的 caller
+     * 记的是「Cognos」或叫人的那位的名字，不是账号，按 caller 判断这些运行就永远关不掉。
+     */
+    private function ownedBy(array $run, string $uid): bool {
+        if ($run['space_type'] !== 'creation') {
+            return $run['caller'] === $uid;
+        }
+        $qb = $this->db->getQueryBuilder();
+        return $qb->select('id')->from('cognos_creations')
+            ->where($qb->expr()->eq('id', $qb->createNamedParameter((int)$run['space_id'], IQueryBuilder::PARAM_INT)))
+            ->andWhere($qb->expr()->eq('user_id', $qb->createNamedParameter($uid)))
+            ->executeQuery()->fetch() !== false;
     }
 
     public function get(string $runId): ?array {

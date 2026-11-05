@@ -43,6 +43,11 @@ $resultId = bin2hex(random_bytes(16));
 $late = $runs->receiveResult($runs->get($run['id']), $resultId, '验证参与者', [],
     fn() => (int)$creations->addMessage((int)$space, $uid, 'assistant', '验证：关掉以后才回来的结果')['id']);
 check(($late['duplicate'] ?? false) === false && $runs->get($run['id'])['state'] === 'delivered', '关掉以后迟到的结果照收');
+// 接续、叫回来这类运行的 caller 不是账号（记的是「Cognos」或叫人的那位的名字），对话的主人也要能关
+$auto = $runs->create('creation', $space, 'open', '1', '验证：接续', 'Claude Code', 'Cognos', []);
+$runs->dispatchUnknown($auto['id'], '验证：接续时响应丢了');
+rejects(fn() => $runs->closeUnknown($auto['id'], 'someone-else', '别人'), 404, 'caller 是「Cognos」的运行，别的账号也关不了');
+check($runs->closeUnknown($auto['id'], $uid, '接续那次，看过桥的日志没在做')['run']['state'] === 'closed', 'caller 是「Cognos」的运行，对话的主人能关');
 
 // 2. 连不上桥 vs 连上后超时
 $never = new ReflectionMethod(ClaudeBridgeService::class, 'neverConnected'); $never->setAccessible(true);
