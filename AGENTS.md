@@ -12,6 +12,25 @@ Use the main thread as the default worker. Spawn a subagent only when an indepen
 - Batch related questions into one subagent task instead of sending several short prompts in a burst.
 - Reuse a healthy subagent for follow-up work instead of creating replacements.
 - If a subagent hits capacity, stream-disconnects, or fails to confirm the prompt, do not immediately respawn or retry several times. Continue useful main-thread work and retry later only if the independent review is still needed.
+
+## Scope and stopping
+
+Agents are welcome to look at Cognos from the outside and to change things, up to the architecture (小林, 2026-11-05). What went wrong on 11/04–05 was not the size of the changes: one session produced a single 26-commit PR, mostly hardening that nobody had asked for, and stopped at its quota with half-edited files live on 8780. So:
+
+- One block, one PR. When the block's stated goal is met and verified, stop and report instead of extending it.
+- Problems you notice along the way, however important, go into the PR's "没做到 / 看到的" list or become a separate block. Do not fold them into the current one.
+- Restructuring or re-architecting is allowed, but as its own block: first write down what changes, why the current design does not work, and what it affects; then do it. It must not grow silently inside another block.
+- Keep verification proportionate: prove the block works for real (see `cognos-live-check`), not every conceivable failure. If you want to spend most of a session on hardening you chose yourself, ask first.
+- Long work can run out of quota at any point. Commit coherent steps as you go, so an interrupted session leaves nothing half-edited live on 8780.
+
+## Fixed procedures (skills)
+
+Repeated procedures are written once in `.agents/skills/` (Claude Code loads the same ones through `.claude/skills/`). Read the matching one instead of rediscovering it:
+
+- `cognos-deploy`: version and migrations, PHP lint in the container, `occ upgrade`, restarting the app and the bridge, exactly one bridge.
+- `cognos-live-check`: real checks on 8780 with `deploy/nextcloud-trial/lib/live.cjs` (API as cognos-admin, logged-in headless browser, 390px, screenshots), and `check_smoke.cjs` after every deploy.
+- `cognos-pr`: branches, stacking when 8780 runs a newer version than master, what a PR says, how to report.
+
 ## Shared workspace and visible delivery
 
 All Hermes/Codex sessions working on Cognos use this single worktree:
