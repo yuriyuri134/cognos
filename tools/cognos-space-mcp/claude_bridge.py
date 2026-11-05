@@ -81,7 +81,7 @@ HERE = Path(__file__).resolve().parent
 SECRETS = HERE.parent.parent / "deploy" / "nextcloud-trial" / ".secrets"
 SERVER = HERE / "server.py"
 PUBLIC_STATE = SECRETS.parent / ".public-access-state.json"
-TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here", "note_basis", "write_content", "adopt"]
+TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here", "note_basis", "write_content", "adopt", "list_work_items", "get_work_item", "preview_work_split", "update_work_item", "split_work_item"]
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 
@@ -499,6 +499,9 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
                 "COGNOS_USER": COGNOS_USER,
                 "COGNOS_APP_PASSWORD": APP_PASSWORD,
                 "COGNOS_SUBJECT": subject,
+                "COGNOS_RUN_ID": str((job or {}).get("run_id") or ""),
+                "COGNOS_BOUND_SPACE_ID": str((job or {}).get("space_id") or ""),
+                "COGNOS_BOUND_SPACE_TYPE": (job or {}).get("space_type", "creation"),
                 "COGNOS_TOOLS": ",".join(TOOLS),
             },
         }}}, ensure_ascii=False), encoding="utf-8")

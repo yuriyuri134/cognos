@@ -42,6 +42,8 @@
     const li=n('li',undefined,'pw-decision');li.id='wi-'+w.id;li.dataset.workId=w.id;
     li.append(n('h3',w.description),n('p',labels[w.state]+' · '+(w.owner||'负责人未指定')+' · 第 '+w.revision+' 版','pw-hint'));
     if(!locationId){const a=n('a','所在位置：'+w.location_title);a.href=base+'/projects/locations/'+w.location_id+'#wi-'+w.id;li.append(a);}
+    if(w.events[0]?.actor_subject)li.append(n('p','最近修改：AI · '+w.events[0].actor_subject,'pw-hint'));
+    if(w.created_subject)li.append(n('p','拆出或登记者：AI · '+w.created_subject,'pw-hint'));
     if(w.deliverable)li.append(n('p','交付：'+w.deliverable));if(w.acceptance)li.append(n('p','验收：'+w.acceptance));if(w.evidence)li.append(n('p','完成依据：'+w.evidence));
     if(w.split_from_id){const a=n('a','由原工作第 '+w.split_from_revision+' 版拆出');a.href='#wi-'+w.split_from_id;li.append(a);}
     if(w.children.length){const ul=n('ul');for(const child of w.children){const a=n('a',child.description+' · '+labels[child.state]);a.href='#wi-'+child.id;const row=n('li');row.append(a);ul.append(row);}li.append(ul);}
@@ -50,7 +52,7 @@
     if(['open','in_progress','blocked'].includes(w.state))li.append(splitForm(w));
     if(locationId && ['open','in_progress'].includes(w.state))li.append(button('安排这份工作给 AI',()=>document.dispatchEvent(new CustomEvent('cognos:delegate-work',{detail:w}))));
     const history=n('details'),summary=n('summary','查看安排经过与原版本');history.append(summary);
-    for(const e of w.events){const row=n('section');row.append(n('h4','第 '+e.revision+' 版 · '+(actions[e.action]||e.action)+' · '+e.actor+' · '+new Date(Number(e.created_at)*1000).toLocaleString()));
+    for(const e of w.events){const row=n('section');row.append(n('h4','第 '+e.revision+' 版 · '+(actions[e.action]||e.action)+' · '+(e.actor_subject?'AI · '+e.actor_subject:e.actor)+' · '+new Date(Number(e.created_at)*1000).toLocaleString()));
       const s=e.snapshot;for(const [key,label] of [['description','范围'],['owner','负责人'],['deliverable','交付'],['acceptance','验收'],['evidence','完成依据']])if(s[key])row.append(n('p',label+'：'+s[key]));
       if(e.action==='split')row.append(n('p','原工作保留；子项有各自来源记录，旧委托没有复制。'));else if(e.action==='delegated')row.append(n('p','委托已登记，原始交接记录保留；实际返回与工作完成分别记录。','pw-hint'));else if(e.note)row.append(n('p',e.note,'pw-hint'));history.append(row);}
     li.append(history);return li;

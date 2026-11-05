@@ -312,9 +312,28 @@ TOOLS += [
              k: {"type": "string"} for k in ("description", "owner", "deliverable", "acceptance")}, "required": ["description"]}}}, "required": ["space_id", "work_id", "parts"]}},
 ]
 
+TOOLS += [
+    {"name":"update_work_item","description":"按明确委托维护关联工作的完整安排或记录结果，署名为实际 AI。必须读当前版本；未获得工作维护权限时拒绝。新决定/依据变化先返回差异，确认同一差异后带 acknowledged=true 重试。",
+     "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"work_id":{"type":"string"},"run_id":{"type":"string","description":"本次委托运行；经桥时自动附加"},
+        "expected_revision":{"type":"integer"}, **{k:{"type":"string"} for k in ("description","owner","deliverable","acceptance","evidence","note")},
+        "state":{"type":"string","enum":["open","in_progress","blocked","done","cancelled"]},"acknowledged":{"type":"boolean"}},
+        "required":["space_id","work_id","expected_revision","description","owner","deliverable","acceptance","state"]}},
+    {"name":"split_work_item","description":"在明确允许维护这份工作的委托内，按 preview_work_split 的 basis 确认拆分。保留原工作、旧委托与结果；子项不继承授权或自动执行，拆分后本委托不再维护原工作。",
+     "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"work_id":{"type":"string"},"run_id":{"type":"string"},"basis":{"type":"string"},
+        "parts":{"type":"array","minItems":2,"maxItems":12,"items":{"type":"object","properties":{k:{"type":"string"} for k in ("description","owner","deliverable","acceptance")},"required":["description"]}},
+        "acknowledged":{"type":"boolean"}},"required":["space_id","work_id","parts","basis"]}},
+]
+
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
 if ONLY:
     TOOLS = [t for t in TOOLS if t["name"] in ONLY]
+
+
+class CognosAPIError(RuntimeError):
+    def __init__(self,status,data,message):
+        self.status=status
+        self.data=data
+        super().__init__(f"Cognos 返回 {status}：{message}")
 
 
 def call_api(method: str, path: str, params: dict | None = None, body: dict | None = None, url: str | None = None):
@@ -337,10 +356,12 @@ def call_api(method: str, path: str, params: dict | None = None, body: dict | No
     except urllib.error.HTTPError as error:
         text = error.read().decode("utf-8", "replace")
         try:
-            message = json.loads(text)["ocs"]["data"].get("message", text)
+            parsed = json.loads(text)
+            data = parsed.get("ocs", {}).get("data", parsed)
+            message = data.get("message", text[:500])
         except (ValueError, KeyError, TypeError, AttributeError):
-            message = text[:500]
-        raise RuntimeError(f"Cognos 返回 {error.code}：{message}") from None
+            data, message = {}, text[:500]
+        raise CognosAPIError(error.code, data, message) from None
     return payload.get("ocs", {}).get("data", payload)
 
 
@@ -428,6 +449,35 @@ def handoff(name, args):
         return "已交回。"
 
 
+def write_work(name,args):
+    path=space_path(args)+"/work-items/"+urllib.parse.quote(str(args["work_id"]),safe="")
+    excluded={"space_id","space_type","work_id","acknowledged"}
+    body={k:v for k,v in args.items() if k not in excluded}
+    body["subject"]=SUBJECT
+    identity=[BASE,USER,SUBJECT,name,space_path(args),str(args["work_id"]),body]
+    body["request_id"]="wm-"+hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:60]
+    file=_handoff_file(args)
+    with _handoff_lock(file):
+        state=json.loads(file.read_text(encoding="utf-8")) if file.exists() else {}
+        body["acknowledged"]=bool(args.get("acknowledged") and state.get("shown_token"))
+        body["drift_token"]=state.get("shown_token") if body["acknowledged"] else None
+        try:
+            data=call_api("PUT" if name=="update_work_item" else "POST",path+("/split" if name=="split_work_item" else ""),body=body)
+        except CognosAPIError as error:
+            drift=error.data.get("drift") if isinstance(error.data,dict) else None
+            if error.status!=409 or not isinstance(drift,dict):raise
+            state["shown_token"]=drift["drift_token"]
+            _save_handoff(file,state)
+            lines=["本次没有修改工作。起步以后有变化："]
+            lines += ["- 新决定：「"+d["content"]+"」" for d in drift["decisions_missing"]]
+            for b in drift["basis_changed"]:
+                lines.append(f"- 依据的「{b['title']}」由版本 {b['version']} 变为 {b['current']}")
+                lines += ["  删了："+line for line in b.get("removed",[])]
+                lines += ["  加了："+line for line in b.get("added",[])]
+            return "\n".join(lines)+"\n请面对这些变化，需要时修改安排，再带 acknowledged=true 提交。"
+    return json.dumps({**data,"request_id":body["request_id"]},ensure_ascii=False)
+
+
 def space_path(args: dict) -> str:
     if BOUND_ID and (str(args.get("space_type") or "creation") != BOUND_TYPE or str(args["space_id"]) != BOUND_ID):
         raise RuntimeError("这次连接只接入指定的项目位置，不能改用另一片空间。")
@@ -439,9 +489,12 @@ def space_path(args: dict) -> str:
 def run_tool(name: str, args: dict) -> str:
     if ONLY and name not in ONLY:
         raise RuntimeError(f"这里没开这个工具：{name}")
+    if name in ("update_work_item","split_work_item"):
+        args={**args,"run_id":args.get("run_id") or os.environ.get("COGNOS_RUN_ID","")}
+        if not args["run_id"]:raise RuntimeError("需要实际委托的 run_id；不能用新登记的自由运行代替维护授权")
     if BOUND_ID and "space_id" in args:
         space_path(args)  # Reject a mismatched space before any network disclosure.
-    if BOUND_ID and name in ("check_changes", "hand_back"):
+    if BOUND_ID and name in ("check_changes", "hand_back", "update_work_item", "split_work_item"):
         args = {**args, "space_id": BOUND_ID, "space_type": BOUND_TYPE}
         if name == "hand_back":
             # A confirmed local receipt must remain usable when the server is temporarily offline.
@@ -461,6 +514,13 @@ def run_tool(name: str, args: dict) -> str:
         if run["subject"] != SUBJECT:
             raise RuntimeError("这次运行不属于当前主体。")
         args = {**args, "space_id": str(run["space_id"]), "space_type": run["space_type"]}
+    if not BOUND_ID and name in ("update_work_item","split_work_item"):
+        run_id=urllib.parse.quote(str(args["run_id"]),safe="")
+        run=call_api("GET","",url=f"{BASE}/ocs/v2.php/apps/cognos/api/v1.0/runs/{run_id}")["run"]
+        if run["subject"]!=SUBJECT or str(run["space_id"])!=str(args["space_id"]) or run["space_type"]!=(args.get("space_type") or "creation"):
+            raise RuntimeError("运行不属于当前主体和位置")
+    if name in ("update_work_item","split_work_item"):
+        return write_work(name,args)
     if name == "list_spaces":
         spaces = call_api("GET", "")["spaces"]
         if BOUND_ID:

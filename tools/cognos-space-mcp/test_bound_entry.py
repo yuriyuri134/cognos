@@ -51,10 +51,13 @@ class BoundEntryTests(unittest.TestCase):
                 text=server.run_tool('check_changes',{'run_id':'a'*32})
                 self.assertIn('没有发现新决定',text)
 
-    def test_only_preview_is_exposed_for_split(self):
+    def test_default_codex_entry_exposes_only_work_reads_and_preview(self):
         names={t['name'] for t in server.TOOLS}
         self.assertTrue({'list_work_items','get_work_item','preview_work_split'}<=names)
-        self.assertNotIn('split_work_item',names)
+        entry_spec=importlib.util.spec_from_file_location('codex_entry',Path(__file__).with_name('codex_entry.py'))
+        entry=importlib.util.module_from_spec(entry_spec);entry_spec.loader.exec_module(entry)
+        self.assertNotIn('split_work_item',entry.ENTRY_TOOLS)
+        self.assertNotIn('update_work_item',entry.ENTRY_TOOLS)
         with patch.object(server,'ONLY',set()),patch.object(server,'BOUND_ID',''),patch.object(server,'call_api',return_value={'basis':'b','consequences':[]}) as api:
             server.run_tool('preview_work_split',{'space_id':'7','work_id':'c'*32,'parts':[{'description':'甲'},{'description':'乙'}]})
             self.assertTrue(api.call_args.args[1].endswith('/split/preview'))

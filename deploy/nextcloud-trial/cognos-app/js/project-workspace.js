@@ -272,8 +272,9 @@
       li.dataset.delegationId = d.id;
       li.append(node('blockquote', d.ask));
       const meta = ['交出去 ' + date(d.created_at), '约定 ' + date(d.return_by) + ' 前回来',
-        d.may_edit ? '可以改当前内容（起步时版本 ' + d.base_revision + '）' : '只要回答'];
+        d.may_edit ? '可以改当前内容（起步时版本 ' + d.base_revision + '）' : (d.may_manage_work ? '不能改当前内容' : '只要回答')];
       if (d.may_adopt) meta.push('可以在这里采用');
+      if (d.may_manage_work) meta.push('可以维护关联工作安排，子项另行授权');
       for (const [label, value] of [['要做成', d.goal], ['用', d.means], ['不要碰', d.forbidden]]) if (value) meta.push(label + '：' + value);
       li.append(node('p', meta.join(' · '), 'pw-hint'));
       let status;
@@ -744,13 +745,13 @@
     if (!state.location || state.mode !== 'location') return;
     const w = e.detail; state.delegatedWork = {id: w.id, revision: w.revision};
     $('pw-delegate-work-label').textContent = '关联工作：' + w.description + '（第 ' + w.revision + ' 版）；这次委托不会自动完成工作。';
-    $('pw-delegate-work-clear').hidden = false;
+    $('pw-delegate-work-clear').hidden = false; $('pw-delegate-manage-work').disabled = false; $('pw-delegate-manage-work').checked = false;
     $('pw-delegate-ask').value = w.description; $('pw-delegate-goal').value = w.deliverable;
     $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
     $('pw-delegate-edit').checked = false; $('pw-delegate-adopt').checked = false;
     $('pw-delegate-form').scrollIntoView({block: 'start'}); $('pw-delegate-ask').focus();
   });
-  function clearDelegatedWork() { state.delegatedWork = null; $('pw-delegate-work-label').textContent = ''; $('pw-delegate-work-clear').hidden = true; }
+  function clearDelegatedWork() { state.delegatedWork = null; $('pw-delegate-manage-work').checked = false; $('pw-delegate-manage-work').disabled = true; $('pw-delegate-work-label').textContent = ''; $('pw-delegate-work-clear').hidden = true; }
   $('pw-delegate-work-clear').addEventListener('click', clearDelegatedWork);
   $('pw-delegate-form').addEventListener('submit', e => {
     e.preventDefault(); busy(e.currentTarget, async () => {
@@ -759,7 +760,8 @@
         ask: $('pw-delegate-ask').value, goal: $('pw-delegate-goal').value, means: $('pw-delegate-means').value,
         forbidden: $('pw-delegate-forbidden').value, return_minutes: Number($('pw-delegate-return').value),
         may_edit: $('pw-delegate-edit').checked, may_adopt: $('pw-delegate-adopt').checked,
-        work_item_id: state.delegatedWork?.id || '', expected_work_revision: state.delegatedWork?.revision || 0});
+        work_item_id: state.delegatedWork?.id || '', expected_work_revision: state.delegatedWork?.revision || 0,
+        may_manage_work: $('pw-delegate-manage-work').checked});
       $('pw-delegate-ask').value = ''; $('pw-delegate-goal').value = ''; $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
       clearDelegatedWork(); document.dispatchEvent(new Event('cognos:work-updated'));
       state.lastOverview = ''; await Promise.all([loadOverview(), loadMessages()]);

@@ -72,9 +72,9 @@ final class ProjectController extends Controller {
     /** 从这个位置交出去一件事，交给本机 Claude Code；结果回到这个位置。 */
     #[NoAdminRequired]
     public function delegate(string $locationId, string $ask, string $request_id, string $goal = '', string $means = '',
-        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false, bool $may_adopt = false, string $work_item_id = '', int $expected_work_revision = 0): DataResponse {
+        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false, bool $may_adopt = false, string $work_item_id = '', int $expected_work_revision = 0, bool $may_manage_work = false): DataResponse {
         return $this->respond(fn(string $uid) => $this->delegations->delegate($uid, $locationId, $ask, $goal, $means, $forbidden,
-            $return_minutes, $may_edit, $request_id, $may_adopt, $work_item_id, $expected_work_revision));
+            $return_minutes, $may_edit, $request_id, $may_adopt, $work_item_id, $expected_work_revision, $may_manage_work));
     }
 
     #[NoAdminRequired]

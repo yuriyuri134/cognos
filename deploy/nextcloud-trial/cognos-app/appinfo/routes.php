@@ -100,6 +100,8 @@ return ['routes' => [
     ['name'=>'assignment#unassign','url'=>'/api/v1.0/cards/{cardId}/unassign','verb'=>'PUT'],
     ['name' => 'task#create', 'url' => '/api/v1.0/cards', 'verb' => 'POST'],
     // 外面的 agent 走进一片空间（见 tools/cognos-space-mcp）
+    ['name'=>'spaceApi#workUpdate','url'=>'/api/v1.0/spaces/{spaceType}/{spaceId}/work-items/{workId}','verb'=>'PUT'],
+    ['name'=>'spaceApi#workSplit','url'=>'/api/v1.0/spaces/{spaceType}/{spaceId}/work-items/{workId}/split','verb'=>'POST'],
     ['name'=>'spaceApi#workList','url'=>'/api/v1.0/spaces/{spaceType}/{spaceId}/work-items','verb'=>'GET'],
     ['name'=>'spaceApi#workDetail','url'=>'/api/v1.0/spaces/{spaceType}/{spaceId}/work-items/{workId}','verb'=>'GET'],
     ['name'=>'spaceApi#workSplitPreview','url'=>'/api/v1.0/spaces/{spaceType}/{spaceId}/work-items/{workId}/split/preview','verb'=>'POST'],

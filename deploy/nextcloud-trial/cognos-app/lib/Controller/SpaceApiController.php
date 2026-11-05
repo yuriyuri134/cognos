@@ -49,6 +49,7 @@ final class SpaceApiController extends OCSController {
         private DelegationService $delegations,
         private AdoptionService $adoptions,
         private \OCA\Cognos\Service\WorkItemService $workItems,
+        private \OCA\Cognos\Service\RunDriftService $runDrift,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -109,7 +110,7 @@ final class SpaceApiController extends OCSController {
         $loc=$this->workLocation($spaceType,$spaceId);
         if ($loc===null) { return new DataResponse(['message'=>'Project location not found'],404); }
         $items=$this->workItems->list((string)$this->uid(),$loc['project_id'],$loc['id']);
-        $fields=array_flip(['id','description','owner','deliverable','acceptance','evidence','state','revision','split_from_id','split_from_revision','created_by','created_at']);
+        $fields=array_flip(['id','description','owner','deliverable','acceptance','evidence','state','revision','split_from_id','split_from_revision','created_by','created_subject','created_at']);
         return new DataResponse(['location_id'=>$loc['id'],'items'=>array_map(static fn(array $w):array=>array_intersect_key($w,$fields),$items)]);
     }
 
@@ -130,6 +131,36 @@ final class SpaceApiController extends OCSController {
         try { return new DataResponse($this->workItems->previewSplit((string)$this->uid(),$workId,$parts)); }
         catch (\InvalidArgumentException $e) { return new DataResponse(['message'=>$e->getMessage()],422); }
         catch (\RuntimeException $e) { if ($e->getCode()===409) { return new DataResponse(['message'=>$e->getMessage()],409); } throw $e; }
+    }
+
+    #[NoAdminRequired]
+    public function workUpdate(string $spaceType,string $spaceId,string $workId):DataResponse {
+        return $this->manageWork($spaceType,$spaceId,$workId,false);
+    }
+    #[NoAdminRequired]
+    public function workSplit(string $spaceType,string $spaceId,string $workId):DataResponse {
+        return $this->manageWork($spaceType,$spaceId,$workId,true);
+    }
+    private function manageWork(string $spaceType,string $spaceId,string $workId,bool $split):DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);
+        if($loc===null)return new DataResponse(['message'=>'Project location not found'],404);
+        $body=$this->body();$uid=(string)$this->uid();
+        $authority=['subject'=>$this->subject((string)($body['subject']??'')),'run_id'=>(string)($body['run_id']??''),
+            'location_id'=>$loc['id'],'acknowledged'=>!empty($body['acknowledged']),'drift_token'=>(string)($body['drift_token']??'')];
+        try {
+            if($split){
+                if(!is_array($body['parts']??null))throw new \InvalidArgumentException('parts is required');
+                $result=$this->workItems->split($uid,$workId,$body['parts'],(string)($body['basis']??''),(string)($body['request_id']??''),$authority);
+            }else{
+                $data=array_intersect_key($body,array_flip(['description','owner','deliverable','acceptance']));
+                $result=$this->workItems->update($uid,$workId,(int)($body['expected_revision']??0),$data,(string)($body['state']??''),
+                    (string)($body['evidence']??''),(string)($body['note']??''),(string)($body['request_id']??''),$authority);
+            }
+            return new DataResponse($result);
+        }catch(\OCA\Cognos\Service\WorkDriftException $e){return new DataResponse(['message'=>$e->getMessage(),'drift'=>$e->drift],409);}
+        catch(\DomainException $e){return new DataResponse(['message'=>$e->getMessage()],403);}
+        catch(\InvalidArgumentException $e){return new DataResponse(['message'=>$e->getMessage()],422);}
+        catch(\RuntimeException $e){if(in_array($e->getCode(),[404,409],true))return new DataResponse(['message'=>$e->getMessage()],$e->getCode());throw $e;}
     }
 
     #[NoAdminRequired]
@@ -475,42 +506,7 @@ final class SpaceApiController extends OCSController {
         return new DataResponse($this->driftSnapshot($uid, $run));
     }
 
-    /** Fingerprint of the exact returned drift; not proof of understanding or authority. */
-    private function driftSnapshot(string $uid, array $run): array {
-        $missing = $this->decisions->missingForRun($uid, $run);
-        $changed = $this->basisChanged($uid, $run['id']);
-        usort($missing, static fn(array $a, array $b): int => strcmp($a['id'], $b['id']));
-        usort($changed, static fn(array $a, array $b): int => [$a['location_id'], $a['version']] <=> [$b['location_id'], $b['version']]);
-        $token = hash('sha256', json_encode([$run['id'], $missing, $changed], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
-        return ['decisions_missing' => $missing, 'basis_changed' => $changed, 'drift_token' => $token];
-    }
-
-    /** 这次运行报过「依据了某处当前内容第几版」，而那一处现在已经是更新的版本。 */
-    private function basisChanged(string $uid, string $runId): array {
-        $out = [];
-        foreach ($this->runs->dependencies($runId) as $dep) {
-            if ($dep['type'] !== 'location_content' || $dep['version'] === null) {
-                continue;
-            }
-            try {
-                $loc = $this->projects->location($uid, $dep['id']);
-            } catch (\RuntimeException) {
-                continue;
-            }
-            if ($loc['revision'] > (int)$dep['version']) {
-                // 改了哪些行：只在一边有的行（不标行内改动）
-                $old = explode("
-", (string)$this->projects->revision($uid, $loc['id'], (int)$dep['version'])['content']);
-                $new = explode("
-", (string)$loc['content']);
-                $out[] = ['location_id' => $loc['id'], 'title' => $loc['title'], 'version' => (int)$dep['version'],
-                    'current' => $loc['revision'], 'editor' => $loc['editor'],
-                    'removed' => array_values(array_filter(array_diff($old, $new), 'strlen')),
-                    'added' => array_values(array_filter(array_diff($new, $old), 'strlen'))];
-            }
-        }
-        return $out;
-    }
+    private function driftSnapshot(string $uid,array $run):array { return $this->runDrift->snapshot($uid,$run); }
 
     /**
      * 正在这里做事的 agent 采用一样东西的一版。在交给它、写明允许在这里采用的事里，直接采用（采用者是它，依据是那次委托）；

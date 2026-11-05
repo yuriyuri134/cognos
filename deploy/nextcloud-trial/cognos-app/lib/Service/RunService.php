@@ -191,6 +191,8 @@ final class RunService {
             throw new \InvalidArgumentException('this run already has a different result');
         }
         try {
+            // Serialize result completion with work/grant changes; late results are still accepted.
+            $this->lifecycle->forSpace($run['space_type'], $run['space_id']);
             $messageId = $store();
             $qb = $this->db->getQueryBuilder();
             $qb->update('cognos_run_results')

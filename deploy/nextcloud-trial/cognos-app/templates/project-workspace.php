@@ -175,6 +175,7 @@
                         </select>
                     </details>
                     <label class="pw-check"><input type="checkbox" id="pw-delegate-edit"> 可以改这一处的当前内容</label>
+                    <label class="pw-check"><input type="checkbox" id="pw-delegate-manage-work" disabled> 可以维护关联工作的安排（改范围、记录结果、拆分；子项另行授权）</label>
                     <label class="pw-check"><input type="checkbox" id="pw-delegate-adopt"> 可以在这一处采用（回答或当前内容的某一版）</label>
                     <button type="submit">交出去</button>
                 </form>
