@@ -38,6 +38,8 @@ final class HermesAgentService {
     private ?VectorStoreService $vectorStore = null;
     private bool $ragEnabled = false;
 
+    private RestoreGuardService $restoreGuard;
+
     public function __construct(
         private IDBConnection $db,
         private IUserSession $users,
@@ -51,7 +53,9 @@ final class HermesAgentService {
         private LifecycleService $lifecycle,
         private IConfig $config,
         private LoggerInterface $logger,
+        ?RestoreGuardService $restoreGuard = null,
     ) {
+        $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
         $this->initializeTools();
         $this->initializeRAG();
     }
@@ -1122,6 +1126,7 @@ final class HermesAgentService {
     }
 
     private function callHermes(string $sessionId, array $messages, ?string $model, ?string $participantId = null, array $tools = []): array {
+        $this->restoreGuard->assertExecutionAllowed();
         $url = getenv('HERMES_API_URL') ?: 'http://host.docker.internal:8642/v1/chat/completions';
         $keyFile = getenv('HERMES_API_KEY_FILE') ?: '/run/secrets/hermes_api_key';
         $key = is_readable($keyFile)

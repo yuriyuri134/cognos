@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\Cognos\Service\RAG;
 
+use OCA\Cognos\Service\RestoreGuardService;
 use OCP\Http\Client\IClientService;
 use OCP\IConfig;
 use Psr\Log\LoggerInterface;
@@ -29,6 +30,7 @@ class EmbeddingService {
         self::PROVIDER_OPENAI => 'text-embedding-3-small',
     ];
 
+    private RestoreGuardService $restoreGuard;
     private IClientService $httpClient;
     private IConfig $config;
     private LoggerInterface $logger;
@@ -38,8 +40,10 @@ class EmbeddingService {
     public function __construct(
         IClientService $httpClient,
         IConfig $config,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        ?RestoreGuardService $restoreGuard = null
     ) {
+        $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
         $this->httpClient = $httpClient;
         $this->config = $config;
         $this->logger = $logger;
@@ -111,6 +115,7 @@ class EmbeddingService {
      * @throws \RuntimeException
      */
     private function callEmbeddingAPI(array $texts): array {
+        $this->restoreGuard->assertExecutionAllowed();
         $client = $this->httpClient->newClient();
         $endpoint = self::API_ENDPOINTS[$this->provider] ?? null;
         $model = self::MODELS[$this->provider] ?? null;

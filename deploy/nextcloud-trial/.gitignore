@@ -4,3 +4,7 @@ evidence/
 .cognos-state/
 .cognos-vault/
 .public-access-state.json
+
+# Local complete backups and isolated drill metadata contain account data and credentials.
+.backups/
+.restore-drills/

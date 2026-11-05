@@ -29,18 +29,23 @@ final class RunService {
     /** 桥一次最多做 30 分钟（COGNOS_BRIDGE_TIMEOUT），再留 10 分钟发回 */
     private const LEASE_DEFAULT = 2400;
 
+    private RestoreGuardService $restoreGuard;
+
     public function __construct(
         private IDBConnection $db,
         private IConfig $config,
         private LifecycleService $lifecycle,
         private DispatchQueueService $dispatchQueue,
+        ?RestoreGuardService $restoreGuard = null,
     ) {
+        $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
     }
 
     /**
      * @param array<string, mixed> $input 实际给出去的东西（系统提示、消息……），原样存一份
      */
     public function create(string $spaceType, string $spaceId, string $targetType, string $targetId, string $purpose, string $subject, ?string $caller, array $input, ?array $queueClaim = null): array {
+        $this->restoreGuard->assertExecutionAllowed();
         $this->db->beginTransaction();
         try {
             $project = $this->lifecycle->forSpace($spaceType, $spaceId);
@@ -309,6 +314,7 @@ final class RunService {
 
     /** 租约过了还没回来的：标成 unknown。只改仍在 claimed/running 的，不和同时到的结果抢。 */
     private function expireLeases(): void {
+        if ($this->restoreGuard->isQuarantined()) { return; }
         $q=$this->db->getQueryBuilder();
         $expired=$q->select('id')->from('cognos_runs')
             ->where($q->expr()->in('state',$q->createNamedParameter(self::LIVE,IQueryBuilder::PARAM_STR_ARRAY)))

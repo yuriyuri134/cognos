@@ -6,17 +6,20 @@ use OCP\IUserSession;
 use OCP\IUserManager;
 use OCP\IConfig;
 final class FollowupDispatcher {
+ private RestoreGuardService $restoreGuard;
  public function __construct(private IDBConnection $db,private FollowupService $events,private RunService $runs,
   private LifecycleService $lifecycle,private CreationSpaceService $creations,private PushBackService $pushBack,
   private ContinuationService $continuation,private HermesAgentService $hermes,private IConfig $config,
-  private IUserSession $users,private IUserManager $userManager,private DispatchQueueService $dispatchQueue,private LegacyQueueImportService $legacyImports){}
+  private IUserSession $users,private IUserManager $userManager,private DispatchQueueService $dispatchQueue,private LegacyQueueImportService $legacyImports,?RestoreGuardService $restoreGuard=null){$this->restoreGuard=$restoreGuard??new RestoreGuardService($config);}
  public function recover():void {
+  if($this->restoreGuard->isQuarantined())return;
   $this->legacyImports->scan();
   $this->dispatchQueue->expireClaims(time()-1800);
   $this->events->expireClaims(time()-1800);
   foreach($this->events->pending() as $event)$this->process($event['result_id'],$event['user_id']);
  }
  public function process(string $id,string $uid):bool {
+  if($this->restoreGuard->isQuarantined())return false;
   $event=$this->events->get($id);
   if(!$event||$event['state']!=='pending'||$event['user_id']!==$uid)return false;
   $user=$this->userManager->get($uid);

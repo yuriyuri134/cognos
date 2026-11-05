@@ -21,12 +21,16 @@ final class ClaudeBridgeService {
     /** 桥正忙（同一片空间同时只做一件事）时抛出的异常码 */
     public const BUSY = 409;
 
+    private RestoreGuardService $restoreGuard;
+
     public function __construct(
         private IClientService $http,
         private IConfig $config,
         private RunService $runs,
         private DecisionService $decisions,
+        ?RestoreGuardService $restoreGuard = null,
     ) {
+        $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
     }
 
     public function configured(): bool {
@@ -72,6 +76,7 @@ final class ClaudeBridgeService {
      * @throws \RuntimeException 没接下；桥正忙时异常码是 self::BUSY
      */
     public function send(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller, array $extra = []): string {
+        $this->restoreGuard->assertExecutionAllowed();
         $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
         $token = $this->config->getAppValue('cognos', 'claude_bridge_token', '');
         if ($token === '') {
