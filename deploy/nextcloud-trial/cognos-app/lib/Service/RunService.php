@@ -146,6 +146,46 @@ final class RunService {
         return ['run' => $this->get($runId)];
     }
 
+    /** 这个账号名下所有「不知道做没做完」的运行（它的对话里的，和它自己发起的别处的），新的在前。 */
+    public function unknownFor(string $uid): array {
+        $this->expireLeases();
+        $qb = $this->db->getQueryBuilder();
+        $rows = $qb->select('*')->from('cognos_runs')->where($qb->expr()->eq('state', $qb->createNamedParameter('unknown')))
+            ->orderBy('created_at', 'DESC')->addOrderBy('id', 'DESC')->executeQuery()->fetchAll();
+        return array_values(array_filter(array_map(fn(array $r): array => $this->publicRow($r), $rows), fn(array $r): bool => $this->ownedBy($r, $uid)));
+    }
+
+    /**
+     * 一次关掉几条「不知道」的运行，每条都留下同一句核对说明。先逐条核对是不是这个账号的，有一条不是就一条都不关；
+     * 核对通过后逐条调 closeUnknown，其中已经不是「不知道」的（刚交回了、别处关掉了）跳过并说明，不算失败。
+     *
+     * @param list<string> $runIds
+     * @return array{closed: list<string>, skipped: list<array{run_id: string, reason: string}>}
+     */
+    public function closeUnknownMany(array $runIds, string $uid, string $note): array {
+        $runIds = array_values(array_unique(array_map('strval', $runIds)));
+        if ($runIds === [] || count($runIds) > 500) {
+            throw new \InvalidArgumentException('勾选要关掉的运行（一次最多 500 条）');
+        }
+        foreach ($runIds as $runId) {
+            $run = $this->get($runId);
+            if ($run === null || !$this->ownedBy($run, $uid)) {
+                throw new \RuntimeException('有一条运行找不到或不是你的，这次一条都没关', 404);
+            }
+        }
+        $closed = []; $skipped = [];
+        foreach ($runIds as $runId) {
+            try {
+                $this->closeUnknown($runId, $uid, $note);
+                $closed[] = $runId;
+            } catch (\RuntimeException $e) {
+                if ($e->getCode() !== 409) { throw $e; }
+                $skipped[] = ['run_id' => $runId, 'reason' => $e->getMessage()];
+            }
+        }
+        return ['closed' => $closed, 'skipped' => $skipped];
+    }
+
     /**
      * 谁能管这次运行：它所在那段对话的主人。不按 caller 判断，因为接续、叫回来这类运行的 caller
      * 记的是「Cognos」或叫人的那位的名字，不是账号，按 caller 判断这些运行就永远关不掉。

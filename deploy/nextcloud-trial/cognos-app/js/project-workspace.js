@@ -52,6 +52,7 @@
         return li;
       }));
       if (!data.projects.length) $('pw-projects').append(node('li', '还没有项目。可以先在创立空间开始讨论，也可以在这里直接确立。', 'pw-hint'));
+      await loadUnknownRuns();
       return;
     }
     let id = app.dataset.locationId;
@@ -80,6 +81,26 @@
     $('pw-original-chat').href = base + '/creations/' + state.location.creation_id;
     renderTree(); renderUsages(data.usages); showSources(); fillMoveParents();
     await Promise.all([loadMessages(), loadSourceChoices(), loadOverview(), loadAdoptions()]);
+  }
+  // 不知道做没做完的运行：列出来，核对后勾选、一次关掉
+  async function loadUnknownRuns() {
+    const data = await api('/projects/runs/unknown');
+    $('pw-unknown-section').hidden = !data.runs.length;
+    const list = $('pw-unknown-list'); list.replaceChildren();
+    for (const r of data.runs) {
+      const li = node('li', undefined, 'pw-decision pw-unknown-run');
+      const label = node('label', undefined, 'pw-check');
+      const box = node('input'); box.type = 'checkbox'; box.value = r.run_id;
+      label.append(box, document.createTextNode(r.subject + ' · ' + date(r.created_at) + ' · ' + r.purpose));
+      li.append(label);
+      const where = node('p', undefined, 'pw-hint');
+      if (r.where && r.where.location_id) where.append(document.createTextNode('在 '), link('「' + r.where.project_title + '」' + (r.where.location_title === r.where.project_title ? '' : '的「' + r.where.location_title + '」'), locationUrl(r.where.location_id)));
+      else if (r.where && r.where.creation_id) where.append(document.createTextNode('在 '), link('对话 #' + r.where.creation_id, base + '/creations/' + r.where.creation_id));
+      li.append(where);
+      if (r.note) li.append(node('p', r.note, 'pw-hint'));
+      list.append(li);
+    }
+    $('pw-unknown-all').checked = false;
   }
   function day(t) { return t ? new Date(t * 1000).toLocaleDateString() : ''; }
   // 在生效的决定、谁在动什么：只显示有证据的，没有证据就照实说「尚无证据」
@@ -674,6 +695,19 @@
       $('pw-send').textContent = data.pending ? '发送（等当前回复后接着处理）' : '发送';
     } finally { state.loadingMessages = false; }
   }
+  $('pw-unknown-all').addEventListener('change', e => {
+    for (const box of document.querySelectorAll('#pw-unknown-list input[type=checkbox]')) box.checked = e.target.checked;
+  });
+  $('pw-unknown-form').addEventListener('submit', e => {
+    e.preventDefault(); busy(e.currentTarget, async () => {
+      const ids = [...document.querySelectorAll('#pw-unknown-list input:checked')].map(b => b.value);
+      if (!ids.length) throw new Error('先勾选要关掉的运行。');
+      const r = await mutate('/projects/runs/close', 'POST', {run_ids: ids, note: $('pw-unknown-note').value});
+      $('pw-unknown-note').value = '';
+      await loadUnknownRuns();
+      notice('关掉了 ' + r.closed.length + ' 条' + (r.skipped.length ? '；' + r.skipped.length + ' 条已经不是「不知道」了，跳过' : '') + '。没有重跑。');
+    });
+  });
   $('pw-create-form').addEventListener('submit', e => {
     e.preventDefault(); busy(e.currentTarget, async () => {
       const r = await mutate('/projects/data', 'POST', {title: $('pw-project-name').value});
