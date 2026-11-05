@@ -131,6 +131,7 @@
                         </select>
                     </details>
                     <label class="pw-check"><input type="checkbox" id="pw-delegate-edit"> 可以改这一处的当前内容</label>
+                    <label class="pw-check"><input type="checkbox" id="pw-delegate-adopt"> 可以在这一处采用（回答或当前内容的某一版）</label>
                     <button type="submit">交出去</button>
                 </form>
                 <ul id="pw-delegations" class="pw-decision-list" aria-live="polite"></ul>
@@ -155,6 +156,11 @@
                 <h2 id="pw-adoptions-title">在这里采用的</h2>
                 <p class="pw-hint">这一处正式采用了哪一样东西的哪一版。只管这一处：在这里撤回，别处的采用不变。被纠正时，采用了那一版的进待复核，只是相关的只提示。</p>
                 <ul id="pw-impacts" class="pw-reach" aria-live="polite"></ul>
+                <div id="pw-proposals-box" hidden>
+                    <h3>AI 提议采用的</h3>
+                    <p class="pw-hint">它没有在这里采用的权限，只能提出；采用不采用由你定。</p>
+                    <ul id="pw-proposals" class="pw-decision-list"></ul>
+                </div>
                 <ul id="pw-adoption-list" class="pw-decision-list"></ul>
                 <details id="pw-adoptions-ended-box" hidden>
                     <summary>已撤回、被替代的</summary>

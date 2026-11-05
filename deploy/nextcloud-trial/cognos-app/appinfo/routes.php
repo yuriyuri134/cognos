@@ -23,6 +23,8 @@ return ['routes' => [
     // 采用和纠正（见 AdoptionService）
     ['name'=>'project#adoptions','url'=>'/projects/locations/{locationId}/adoptions','verb'=>'GET'],
     ['name'=>'project#adopt','url'=>'/projects/locations/{locationId}/adoptions','verb'=>'POST'],
+    ['name'=>'project#acceptProposal','url'=>'/projects/adoptions/{adoptionId}/accept','verb'=>'POST','requirements'=>['adoptionId'=>'[a-f0-9]{32}']],
+    ['name'=>'project#declineProposal','url'=>'/projects/adoptions/{adoptionId}/decline','verb'=>'POST','requirements'=>['adoptionId'=>'[a-f0-9]{32}']],
     ['name'=>'project#withdrawAdoption','url'=>'/projects/adoptions/{adoptionId}/withdraw','verb'=>'POST','requirements'=>['adoptionId'=>'[a-f0-9]{32}']],
     ['name'=>'project#reaffirmAdoption','url'=>'/projects/adoptions/{adoptionId}/reaffirm','verb'=>'POST','requirements'=>['adoptionId'=>'[a-f0-9]{32}']],
     ['name'=>'project#correct','url'=>'/projects/corrections','verb'=>'POST'],
@@ -106,5 +108,7 @@ return ['routes' => [
     // agent 在交给它的事里交回当前内容（只在委托允许改内容时收）
     // agent 报这次依据了哪条决定 / 当前内容的哪一版（可以不报）
     ['name' => 'spaceApi#addBasis', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/basis', 'verb' => 'POST'],
+    // agent 采用：委托允许就采用，否则记成提议
+    ['name' => 'spaceApi#agentAdopt', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/adoptions', 'verb' => 'POST'],
     ['name' => 'spaceApi#writeContent', 'url' => '/api/v1.0/spaces/{spaceType}/{spaceId}/content', 'verb' => 'POST'],
 ]];

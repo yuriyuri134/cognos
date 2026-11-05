@@ -198,6 +198,7 @@
       li.append(node('blockquote', d.ask));
       const meta = ['交出去 ' + date(d.created_at), '约定 ' + date(d.return_by) + ' 前回来',
         d.may_edit ? '可以改当前内容（起步时版本 ' + d.base_revision + '）' : '只要回答'];
+      if (d.may_adopt) meta.push('可以在这里采用');
       for (const [label, value] of [['要做成', d.goal], ['用', d.means], ['不要碰', d.forbidden]]) if (value) meta.push(label + '：' + value);
       li.append(node('p', meta.join(' · '), 'pw-hint'));
       let status;
@@ -335,7 +336,7 @@
     b.addEventListener('click', () => inlineForm(container, '哪里不对', '写下纠正；原来的不会被改掉', '提交纠正', async content => {
       const r = await mutate('/projects/corrections', 'POST', {object_type: type, object_id: id, object_version: version || '', content});
       await loadAdoptions(); state.lastOverview = ''; await loadOverview();
-      notice('纠正已记下：' + r.review + ' 处依赖它的进了待复核，' + r.hint + ' 处只提示。');
+      notice('纠正已记下：第 1 层 ' + r.review + ' 处待复核、' + r.hint + ' 处提示；第 2 层 ' + (r.review_depth2 || 0) + ' 处待复核；第 3 层 ' + (r.hint_depth3 || 0) + ' 处只提示，再往下不追。');
     }));
     return b;
   }
@@ -347,7 +348,10 @@
       : '「' + (a.preview.location_title || '') + '」当前内容的版本 ' + a.object_version;
     li.append(node('p', what, 'pw-hint'));
     li.append(node('blockquote', a.preview.text));
-    const meta = [a.adopted_by + ' 采用于 ' + date(a.created_at)];
+    const meta = [(a.state === 'proposed' ? a.proposed_by + ' 提议于 ' : a.adopted_by + ' 采用于 ') + date(a.created_at)];
+    if (a.authority) meta.push('依据交出去的那件事' + (a.source_message_id ? '（你的原话 #' + a.source_message_id + '）' : ''));
+    if (a.proposed_by && a.state !== 'proposed') meta.push('由 ' + a.proposed_by + ' 提议');
+    if (a.state === 'declined') meta.push('没有采用 ' + date(a.ended_at));
     if (a.basis) meta.push('依据：' + a.basis);
     if (a.state === 'withdrawn') meta.push('已撤回 ' + date(a.ended_at));
     if (a.state === 'superseded') meta.push('已被改采用的一版替代 ' + date(a.ended_at));
@@ -356,6 +360,15 @@
       li.append(node('p', '纠正' + (c.version ? '（针对版本 ' + c.version + '）' : '') + '：' + c.content + ' — ' + c.author + ' · ' + date(c.created_at), 'pw-correction'));
     }
     if (a.response) li.append(node('p', '仍然采用：' + a.response, 'pw-run'));
+    if (a.state === 'proposed') {
+      const row = node('div', undefined, 'pw-inline');
+      const yes = node('button', '采用'); yes.type = 'button';
+      yes.addEventListener('click', () => busy(row, async () => { await mutate('/projects/adoptions/' + a.id + '/accept', 'POST', {}); await loadAdoptions(); notice('已采用。采用者是你，提议者留着。'); }));
+      const no = node('button', '不采用'); no.type = 'button';
+      no.addEventListener('click', () => busy(row, async () => { await mutate('/projects/adoptions/' + a.id + '/decline', 'POST', {}); await loadAdoptions(); }));
+      row.append(yes, no); li.append(row);
+      return li;
+    }
     if (a.state !== 'active' && a.state !== 'review') return li;
     if (a.state === 'review') li.append(node('p', '待复核：它被纠正了。仍然采用、撤回，或改采用别的一版。', 'pw-run pw-warn'));
     const actions = node('div', undefined, 'pw-inline');
@@ -389,14 +402,18 @@
     if (state.mode !== 'location') return;
     const data = await api('/projects/locations/' + state.location.id + '/adoptions');
     const live = data.adoptions.filter(a => a.state === 'active' || a.state === 'review');
-    const ended = data.adoptions.filter(a => a.state !== 'active' && a.state !== 'review');
+    const proposed = data.adoptions.filter(a => a.state === 'proposed');
+    const ended = data.adoptions.filter(a => !['active', 'review', 'proposed'].includes(a.state));
+    $('pw-proposals').replaceChildren(...proposed.map(adoptionItem));
+    $('pw-proposals-box').hidden = !proposed.length;
     $('pw-adoption-list').replaceChildren(...live.map(adoptionItem));
     if (!live.length) $('pw-adoption-list').append(node('li', '这里还没有正式采用什么。讨论里的回答、材料里的话、当前内容的某一版，都可以在这里采用。', 'pw-hint'));
     $('pw-adoptions-ended').replaceChildren(...ended.map(adoptionItem));
     $('pw-adoptions-ended-box').hidden = !ended.length;
     const box = $('pw-impacts'); box.replaceChildren();
     for (const i of data.impacts.filter(i => !(i.target_kind === 'adoption' && i.effect === 'review'))) {
-      const li = node('li', (i.effect === 'review' ? '待复核：' : '提示：') + i.note + (i.correction ? '。纠正：「' + i.correction.content + '」' : ''),
+      const li = node('li', (i.effect === 'review' ? '待复核：' : '提示：') + i.note + (i.correction ? '。纠正：「' + i.correction.content + '」' : '')
+        + (i.depth >= 3 ? '（纠正传到这里为止，再往下不追）' : ''),
         'pw-run' + (i.effect === 'review' ? ' pw-warn' : ''));
       li.dataset.impactId = i.id;
       const ok = node('button', i.effect === 'review' ? '看过了' : '知道了'); ok.type = 'button';
@@ -648,7 +665,7 @@
       const r = await mutate('/projects/locations/' + state.location.id + '/delegations', 'POST', {
         ask: $('pw-delegate-ask').value, goal: $('pw-delegate-goal').value, means: $('pw-delegate-means').value,
         forbidden: $('pw-delegate-forbidden').value, return_minutes: Number($('pw-delegate-return').value),
-        may_edit: $('pw-delegate-edit').checked});
+        may_edit: $('pw-delegate-edit').checked, may_adopt: $('pw-delegate-adopt').checked});
       $('pw-delegate-ask').value = ''; $('pw-delegate-goal').value = ''; $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
       state.lastOverview = ''; await Promise.all([loadOverview(), loadMessages()]);
       notice(r.state === 'not_taken' ? '记下了，但没交出去：' + r.note : '交出去了。可以走开，结果会回到这里。', r.state === 'not_taken');

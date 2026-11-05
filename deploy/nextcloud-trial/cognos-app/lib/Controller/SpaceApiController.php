@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\Cognos\Controller;
 
+use OCA\Cognos\Service\AdoptionService;
 use OCA\Cognos\Service\ClaudeBridgeService;
 use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
@@ -44,6 +45,7 @@ final class SpaceApiController extends OCSController {
         private DecisionService $decisions,
         private ProjectService $projects,
         private DelegationService $delegations,
+        private AdoptionService $adoptions,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -448,6 +450,42 @@ final class SpaceApiController extends OCSController {
             }
         }
         return $out;
+    }
+
+    /**
+     * 正在这里做事的 agent 采用一样东西的一版。在交给它、写明允许在这里采用的事里，直接采用（采用者是它，依据是那次委托）；
+     * 否则记成它的提议（201，state = proposed），等用户在页面上定。
+     */
+    #[NoAdminRequired]
+    public function agentAdopt(string $spaceType, string $spaceId): DataResponse {
+        $uid = $this->uid();
+        if ($uid === null || $spaceType !== 'creation' || !ctype_digit($spaceId) || $this->creations->get((int)$spaceId, $uid) === null) {
+            return new DataResponse(['message' => 'Space not found'], 404);
+        }
+        $body = $this->body();
+        $subject = $this->subject((string)($body['subject'] ?? ''));
+        $run = null;
+        foreach ($this->runs->activeForSpace($spaceType, $spaceId) as $candidate) {
+            if ($candidate['subject'] === $subject && in_array($candidate['state'], ['queued', 'claimed', 'running'], true)) { $run = $candidate; break; }
+        }
+        if ($run === null) {
+            return new DataResponse(['message' => '这里没有正由你在做的运行；采用要在做事的时候'], 409);
+        }
+        $location = $this->projects->locationForCreation($uid, (int)$spaceId);
+        if ($location === null) {
+            return new DataResponse(['message' => '这片空间不是项目里的位置'], 422);
+        }
+        $version = isset($body['object_version']) && $body['object_version'] !== '' ? (string)$body['object_version'] : null;
+        try {
+            $r = $this->adoptions->agentAdopt($uid, $location['id'], $run, $this->delegations->forRun($run['id']),
+                (string)($body['object_type'] ?? ''), (string)($body['object_id'] ?? ''), $version, (string)($body['basis'] ?? ''));
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        } catch (\RuntimeException $error) {
+            return new DataResponse(['message' => $error->getMessage()], in_array($error->getCode(), [404, 409], true) ? $error->getCode() : 500);
+        }
+        $r['message'] = $r['state'] === 'active' ? '已在这一处采用，依据是交给你的这件事。' : '这次没有交给你在这里采用的权限，记成了你的提议，等用户定。';
+        return new DataResponse($r, 201);
     }
 
     /** 这片空间最近的运行：谁在做什么、做到哪个状态。 */
