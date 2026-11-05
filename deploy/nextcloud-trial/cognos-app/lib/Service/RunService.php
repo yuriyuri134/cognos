@@ -86,6 +86,15 @@ final class RunService {
                 $values[$column] = $qb->createNamedParameter($value, $type);
             }
             $qb->insert('cognos_runs')->values($values)->executeStatement();
+            if ($targetType === 'delegation' && ($input['extra']['delegation_id'] ?? null) === $targetId) {
+                // The worker may use its authority before the bridge acknowledgement reaches PHP.
+                $qb = $this->db->getQueryBuilder();
+                $bound = $qb->update('cognos_delegations')->set('run_id', $qb->createNamedParameter($id))
+                    ->where($qb->expr()->eq('id', $qb->createNamedParameter($targetId)))
+                    ->andWhere($qb->expr()->eq('state', $qb->createNamedParameter('starting')))
+                    ->andWhere($qb->expr()->isNull('run_id'))->executeStatement();
+                if ($bound !== 1) { throw new \RuntimeException('委托已绑定运行或不能开始', 409); }
+            }
             if ($queueClaim !== null) {
                 $this->dispatchQueue->bindRun((string)($queueClaim['item_id'] ?? ''),(string)($queueClaim['followup_id'] ?? ''),
                     $spaceType,$spaceId,$id,$targetType,$targetId,$input);
@@ -163,15 +172,15 @@ final class RunService {
         if (!preg_match('/^[a-f0-9]{32}$/', $resultId)) {
             throw new \InvalidArgumentException('result_id must be 32 hex chars');
         }
+        if ($subject !== $run['subject']) {
+            throw new \DomainException(sprintf('这次运行登记的参与者是 %s，不收 %s 署名的结果', $run['subject'], $subject === '' ? '（没署名）' : $subject));
+        }
         $existing = $this->result($resultId);
         if ($existing !== null) {
             if ($existing['run_id'] !== $run['id']) {
                 throw new \InvalidArgumentException('result_id already belongs to another run');
             }
             return ['duplicate' => true, 'message_id' => $existing['message_id'], 'run' => $this->get($run['id']) ?? $run];
-        }
-        if ($subject !== $run['subject']) {
-            throw new \DomainException(sprintf('这次运行登记的参与者是 %s，不收 %s 署名的结果', $run['subject'], $subject === '' ? '（没署名）' : $subject));
         }
         $deps = $this->normalizeDependencies($dependsOn);
 

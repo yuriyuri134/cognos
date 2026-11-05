@@ -547,19 +547,25 @@ final class HermesAgentService {
         $this->lifecycle->assertCanStart('creation',(string)$creationId);
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
-        if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
+        $delegatedExecutor = !empty($extra['delegation_id']) ? ($extra['executor'] ?? null) : null;
+        if ($delegatedExecutor === 'codex' || $delegatedExecutor === 'claude-code'
+            || $this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
             // 在 Cognos 自己的空间里，被叫来的是替 Cognos 说话的那位
-            $subject = $this->bridge->subjectFor('creation', (string)$creationId);
+            $subject = $delegatedExecutor === 'codex' ? 'Codex' : $this->bridge->subjectFor('creation', (string)$creationId);
+            $abilities = $delegatedExecutor === 'codex' ? [
+                '可以读取这一处的入口、尝试和工作，使用 note_basis 记录这次真正依赖的依据。',
+                '用 check_changes 查看运行期间变化。最终回答由桥交回这次运行。',
+            ] : $this->bridge->canDo('creation', (string)$creationId);
             $entry = $this->entries->entry(
                 $space,
                 $subject,
                 ['caller' => $caller, 'message' => $message],
                 // 不在项目里的空间没有决定和当前内容可依据，不给 note_basis
-                array_merge(array_values(array_filter($this->bridge->canDo('creation', (string)$creationId),
+                array_merge(array_values(array_filter($abilities,
                     static fn(string $line): bool => !empty($space['project_context']) || (!str_starts_with($line, 'note_basis') && !str_starts_with($line, 'adopt')))), $canDo),
             );
             $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller,
-                array_merge($extra, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry)]));
+                array_merge($extra, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry), 'caller_uid' => $user->getUID()]));
             $this->spaces->markSeen('creation', (string)$creationId, $subject);
             return null;
         }

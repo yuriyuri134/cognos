@@ -78,6 +78,14 @@ final class ClaudeBridgeService {
     public function send(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller, array $extra = []): string {
         $this->restoreGuard->assertExecutionAllowed();
         $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
+        $codex = ($extra['executor'] ?? null) === 'codex';
+        if ($codex) {
+            $default = str_ends_with($url, '/chat') ? substr($url, 0, -5) . '/codex' : '';
+            $url = $this->config->getAppValue('cognos', 'codex_bridge_url', $default);
+            if (!str_ends_with($url, '/codex') || $subject !== 'Codex' || empty($extra['delegation_id']) || empty($extra['caller_uid'])) {
+                throw new \RuntimeException('Codex 委托需要有效的本机入口和账号', 422);
+            }
+        }
         $token = $this->config->getAppValue('cognos', 'claude_bridge_token', '');
         if ($token === '') {
             throw new \RuntimeException('Claude Code 桥没有配置口令（occ config:app:set cognos claude_bridge_token）');
@@ -89,7 +97,7 @@ final class ClaudeBridgeService {
         unset($extra['queue_claim']);
         unset($extra['decision_ids']);
         [$targetType, $targetId, $purpose] = $this->target($spaceType, $spaceId, $extra);
-        $run = $this->runs->create($spaceType, $spaceId, $targetType, $targetId, $purpose, $subject, $caller, [
+        $run = $this->runs->create($spaceType, $spaceId, $targetType, $targetId, $purpose, $subject, (string)($extra['caller_uid'] ?? $caller), [
             'system' => $system,
             'history' => $history,
             'message' => $message,
@@ -116,7 +124,7 @@ final class ClaudeBridgeService {
                     'message' => $message,
                     'caller' => $caller,
                     // Cognos 自己的空间：桥在仓库副本的新分支上做
-                    'repo' => $this->isSelf($spaceType, $spaceId),
+                    'repo' => !$codex && $this->isSelf($spaceType, $spaceId),
                 ]), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
                 'timeout' => 30,
                 'http_errors' => false,
@@ -140,9 +148,9 @@ final class ClaudeBridgeService {
         }
         $body = json_decode((string)$response->getBody(), true);
         $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
-        if (in_array($status, [400, 401, 403, self::BUSY, 422], true)) {
+        if (in_array($status, [400, 401, 403, self::BUSY, 422], true) || ($codex && $status === 404)) {
             $this->runs->failed($run['id'], '桥明确拒绝（HTTP ' . $status . '）' . ($reason !== '' ? '：' . $reason : ''), $status === self::BUSY);
-            throw new \RuntimeException('Claude Code 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
+            throw new \RuntimeException(($codex ? 'Codex' : 'Claude Code') . ' 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
         }
         $this->runs->dispatchUnknown($run['id'], '桥返回 HTTP ' . $status . '，不能确认是否已经开工');
         throw new \RuntimeException('桥返回异常回复，工作是否开始尚不确定；请先核对，勿重复派发。');

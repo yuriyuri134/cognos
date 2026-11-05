@@ -414,7 +414,7 @@ final class SpaceApiController extends OCSController {
             return new DataResponse(['message' => 'content is required'], 422);
         }
         try {
-            return new DataResponse($this->delegations->writeContent($uid, (int)$spaceId, $this->subject((string)($body['subject'] ?? '')), $body['content']));
+            return new DataResponse($this->delegations->writeContent($uid, (int)$spaceId, $this->subject((string)($body['subject'] ?? '')), $body['content'], (string)($body['run_id'] ?? '')));
         } catch (\DomainException $error) {
             return new DataResponse(['message' => $error->getMessage()], 403);
         } catch (\InvalidArgumentException $error) {
@@ -435,13 +435,7 @@ final class SpaceApiController extends OCSController {
         }
         $body = $this->body();
         $subject = $this->subject((string)($body['subject'] ?? ''));
-        $run = null;
-        foreach ($this->runs->activeForSpace($spaceType, $spaceId) as $candidate) {
-            if ($candidate['subject'] === $subject && in_array($candidate['state'], ['queued', 'claimed', 'running'], true)) {
-                $run = $candidate;
-                break;
-            }
-        }
+        $run = $this->activeSubjectRun($uid, $spaceType, $spaceId, $subject, (string)($body['run_id'] ?? ''));
         if ($run === null) {
             return new DataResponse(['message' => '这里没有正由你在做的运行；依据要在做的时候报'], 409);
         }
@@ -532,10 +526,7 @@ final class SpaceApiController extends OCSController {
         }
         $body = $this->body();
         $subject = $this->subject((string)($body['subject'] ?? ''));
-        $run = null;
-        foreach ($this->runs->activeForSpace($spaceType, $spaceId) as $candidate) {
-            if ($candidate['subject'] === $subject && in_array($candidate['state'], ['queued', 'claimed', 'running'], true)) { $run = $candidate; break; }
-        }
+        $run = $this->activeSubjectRun($uid, $spaceType, $spaceId, $subject, (string)($body['run_id'] ?? ''));
         if ($run === null) {
             return new DataResponse(['message' => '这里没有正由你在做的运行；采用要在做事的时候'], 409);
         }
@@ -614,6 +605,18 @@ final class SpaceApiController extends OCSController {
     /** 这一位做完了：排着的下一件接着叫（一条反对，或者交互对象在它忙时说的一句）；都没有，就从还拉着的没完的接着走。 */
     private function processFollowup(string $resultId,string $uid):void {
         $this->followupDispatcher->process($resultId,$uid);
+    }
+
+    private function activeSubjectRun(string $uid, string $spaceType, string $spaceId, string $subject, string $requested): ?array {
+        foreach ($this->runs->activeForSpace($spaceType, $spaceId) as $candidate) {
+            if ($candidate['subject'] !== $subject || !in_array($candidate['state'], ['queued', 'claimed', 'running'], true)) {
+                continue;
+            }
+            if ($requested === '' || ($candidate['id'] === $requested && $candidate['caller'] === $uid)) {
+                return $candidate;
+            }
+        }
+        return null;
     }
 
     private function uid(): ?string {

@@ -33,6 +33,7 @@ final class DelegationService {
         private RunService $runs,
         private HermesAgentService $agents,
         private WorkItemService $workItems,
+        private RestoreGuardService $restoreGuard,
     ) {
     }
 
@@ -42,7 +43,8 @@ final class DelegationService {
      * @return array{delegation_id: string, message_id: int, state: string, note: ?string}
      */
     public function delegate(string $uid, string $locationId, string $ask, string $goal, string $means, string $forbidden,
-        int $returnMinutes, bool $mayEdit, string $requestId, bool $mayAdopt = false, string $workItemId = '', int $expectedWorkRevision = 0, bool $mayManageWork = false): array {
+        int $returnMinutes, bool $mayEdit, string $requestId, bool $mayAdopt = false, string $workItemId = '', int $expectedWorkRevision = 0, bool $mayManageWork = false, string $executor = ''): array {
+        $this->restoreGuard->assertExecutionAllowed();
         $ask = trim($ask);
         if ($ask === '' || mb_strlen($ask) > self::MAX_TEXT) {
             throw new \InvalidArgumentException('要交出去的事写一句话，最多 ' . self::MAX_TEXT . ' 字');
@@ -51,15 +53,22 @@ final class DelegationService {
         if (!in_array($returnMinutes, self::RETURN_MINUTES, true)) {
             $returnMinutes = 30;
         }
-        if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') !== 'claude-code') {
-            throw new \RuntimeException('交出去现在只接本机的 Claude Code（creation_agent 不是 claude-code）', 422);
+        if ($executor === '') {
+            if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') !== 'claude-code') {
+                throw new \RuntimeException('请明确选择一个本机参与者', 422);
+            }
+            $executor = 'claude-code';
+        }
+        if (!in_array($executor, ['claude-code', 'codex'], true)) {
+            throw new \InvalidArgumentException('无法识别选择的参与者');
         }
         if ($mayManageWork && $workItemId === '') { throw new \InvalidArgumentException('维护工作安排需要先关联具体工作'); }
         $signature = ['delegate', $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt];
         if ($workItemId !== '' || $expectedWorkRevision !== 0) { $signature[] = $workItemId; $signature[] = $expectedWorkRevision; }
         if ($mayManageWork) { $signature[] = ['may_manage_work' => true]; }
+        if ($executor === 'codex') { $signature[] = ['executor' => $executor]; }
         $saved = $this->projects->commit($uid, $requestId, $signature,
-            function () use ($uid, $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt, $workItemId, $expectedWorkRevision, $mayManageWork): array {
+            function () use ($uid, $locationId, $ask, $goal, $means, $forbidden, $returnMinutes, $mayEdit, $mayAdopt, $workItemId, $expectedWorkRevision, $mayManageWork, $executor): array {
                 $loc = $this->projects->lockedLocation($uid, $locationId);
                 $project = $this->projects->lockedProject($uid,$loc['project_id']);
                 if ($project['state'] !== 'active') { throw new ProjectInactiveException('项目已停止派新工作，请先调整推进安排'); }
@@ -67,10 +76,12 @@ final class DelegationService {
                 $returnBy = $now + $returnMinutes * 60;
                 $text = $this->message($ask, $goal, $means, $forbidden, $this->localTime($uid, $returnBy), $mayEdit, $loc['revision'], $mayAdopt);
                 if ($mayManageWork) { $text .= PHP_EOL . '允许维护关联工作「' . $workItemId . '」的安排（改范围、记录结果、拆分）；子项另行授权，原委托不复制。'; }
+                if ($executor === 'codex') { $text .= PHP_EOL . '交给本机 Codex。'; }
                 $message = $this->creations->addMessage($loc['creation_id'], $uid, 'user', $text);
                 $id = bin2hex(random_bytes(16));
                 $workEpoch = $workItemId === '' ? null : $this->workItems->attachDelegation($uid, $workItemId, $locationId, $expectedWorkRevision, $id);
                 $this->projects->insert('cognos_delegations', [
+                    'executor' => $executor,
                     'work_item_id' => $workItemId === '' ? null : $workItemId, 'work_epoch' => $workEpoch, 'may_manage_work' => $mayManageWork ? 1 : 0,
                     'id' => $id, 'project_id' => $loc['project_id'], 'location_id' => $locationId, 'ask' => $ask,
                     'goal' => $goal === '' ? null : $goal, 'means' => $means === '' ? null : $means,
@@ -85,7 +96,7 @@ final class DelegationService {
         $this->send($uid, $saved['delegation_id']);
         $d = $this->get($saved['delegation_id']);
         $run = empty($d['run_id']) ? null : $this->runs->get((string)$d['run_id']);
-        return $saved + ['run_state' => $run['state'] ?? null, 'state' => (string)$d['state'], 'note' => $d['note'] === null ? null : (string)$d['note']];
+        return $saved + ['executor' => $d['executor'], 'run_id' => $d['run_id'], 'run_state' => $run['state'] ?? null, 'state' => (string)$d['state'], 'note' => $d['note'] === null ? null : (string)$d['note']];
     }
 
     /** 这个位置交出去过的事，最近的在前，带运行状态、是否过了约定时间。 */
@@ -101,6 +112,7 @@ final class DelegationService {
         return array_map(static function (array $r) use ($now): array {
             $int = static fn($v): ?int => $v === null ? null : (int)$v;
             return [
+                'executor' => (string)$r['executor'],
                 'work_item_id' => $r['work_item_id'] ?? null, 'work_epoch' => $r['work_epoch'] ?? null,
                 'id' => (string)$r['id'], 'ask' => (string)$r['ask'], 'goal' => $r['goal'], 'means' => $r['means'],
                 'forbidden' => $r['forbidden'], 'return_by' => (int)$r['return_by'], 'may_edit' => (int)$r['may_edit'] === 1,
@@ -182,7 +194,7 @@ final class DelegationService {
      * @return array{applied: bool, revision: ?int, current_revision: int, message: string}
      * @throws \DomainException 没有允许它改内容的委托
      */
-    public function writeContent(string $uid, int $creationId, string $subject, string $content): array {
+    public function writeContent(string $uid, int $creationId, string $subject, string $content, string $requestedRun = ''): array {
         if (mb_strlen($content) > 100000) {
             throw new \InvalidArgumentException('内容超过 10 万字');
         }
@@ -191,15 +203,22 @@ final class DelegationService {
             throw new \DomainException('这片空间不是项目里的位置，没有当前内容可改');
         }
         $qb = $this->db->getQueryBuilder();
-        $d = $qb->select('*')->from('cognos_delegations')
+        $qb->select('*')->from('cognos_delegations')
             ->where($qb->expr()->eq('location_id', $qb->createNamedParameter($loc['id'])))
-            ->andWhere($qb->expr()->in('state', $qb->createNamedParameter(['starting', 'sent'], IQueryBuilder::PARAM_STR_ARRAY)))
-            ->orderBy('created_at', 'DESC')->setMaxResults(1)->executeQuery()->fetch();
+            ->andWhere($qb->expr()->in('state', $qb->createNamedParameter(['starting', 'sent'], IQueryBuilder::PARAM_STR_ARRAY)));
+        if ($requestedRun !== '') {
+            $qb->andWhere($qb->expr()->eq('run_id', $qb->createNamedParameter($requestedRun)));
+        }
+        $d = $qb->orderBy('created_at', 'DESC')->setMaxResults(1)->executeQuery()->fetch();
         // 桥刚接下时委托可能还没记上运行（starting），按挂在它上面的运行找
         $runId = $d === false ? null : ($d['run_id'] ?? $this->runFor((string)$d['id']));
         $run = $runId === null ? null : $this->runs->get((string)$runId);
         if ($run === null || !in_array($run['state'], ['queued', 'claimed', 'running'], true) || $run['subject'] !== $subject) {
             throw new \DomainException('这里没有正交给你在做的委托；你的结果只作为回答');
+        }
+        if ($requestedRun !== '' && ($run['caller'] !== $uid || $run['space_type'] !== 'creation'
+            || $run['space_id'] !== (string)$creationId || $run['target_type'] !== 'delegation' || $run['target_id'] !== $d['id'])) {
+            throw new \DomainException('运行与当前账号、位置或委托不匹配');
         }
         if ((int)$d['may_edit'] !== 1) {
             throw new \DomainException('这次交给你的事没有给改当前内容的权限；你的结果只作为回答');
@@ -253,7 +272,14 @@ final class DelegationService {
         }
         try {
             $this->agents->chatCreation($loc['creation_id'], $message, $context, (int)$d['message_id'],
-                ['delegation_id' => $id, 'delegation_ask' => (string)$d['ask']], $this->canDoLines($id));
+                [
+                    'delegation_id' => $id,
+                    'delegation_ask' => (string)$d['ask'],
+                    'executor' => (string)$d['executor'],
+                    'may_edit' => (bool)$d['may_edit'],
+                    'may_adopt' => (bool)$d['may_adopt'],
+                    'may_manage_work' => (bool)$d['may_manage_work'],
+                ], $this->canDoLines($id));
         } catch (\Throwable $error) {
             $runId = $this->runFor($id);
             $run = $runId === null ? null : $this->runs->get($runId);

@@ -271,7 +271,8 @@
       const li = node('li', undefined, 'pw-decision pw-delegation');
       li.dataset.delegationId = d.id;
       li.append(node('blockquote', d.ask));
-      const meta = ['交出去 ' + date(d.created_at), '约定 ' + date(d.return_by) + ' 前回来',
+      const executor = d.executor === 'codex' ? 'Codex' : 'Claude Code';
+      const meta = ['交给 ' + executor, '交出去 ' + date(d.created_at), '约定 ' + date(d.return_by) + ' 前回来',
         d.may_edit ? '可以改当前内容（起步时版本 ' + d.base_revision + '）' : (d.may_manage_work ? '不能改当前内容' : '只要回答')];
       if (d.may_adopt) meta.push('可以在这里采用');
       if (d.may_manage_work) meta.push('可以维护关联工作安排，子项另行授权');
@@ -280,7 +281,7 @@
       let status;
       if (d.state === 'not_taken') status = '没交出去：' + (d.note || '桥没接下') + '。可以再交一次。';
       else if (d.state === 'returned') status = (d.subject || 'AI') + ' 交回了结果。';
-      else status = (d.subject || 'Claude Code') + '：' + (runStates[d.run_state] || '正在交出去');
+      else status = (d.subject || executor) + '：' + (runStates[d.run_state] || '正在交出去');
       if (d.overdue) status += ' 已过了约定的时间，还没回来。';
       li.append(node('p', status, 'pw-run pw-delegation-status' + (d.state === 'not_taken' || d.overdue || d.run_state === 'unknown' ? ' pw-warn' : '')));
       if (d.result_message_id) {
@@ -757,6 +758,7 @@
     e.preventDefault(); busy(e.currentTarget, async () => {
       if ($('pw-delegate-edit').checked && state.dirty) { notice('当前内容有没保存的修改，先保存，再交出去。', true); return; }
       const r = await mutate('/projects/locations/' + state.location.id + '/delegations', 'POST', {
+        executor: $('pw-delegate-executor').value,
         ask: $('pw-delegate-ask').value, goal: $('pw-delegate-goal').value, means: $('pw-delegate-means').value,
         forbidden: $('pw-delegate-forbidden').value, return_minutes: Number($('pw-delegate-return').value),
         may_edit: $('pw-delegate-edit').checked, may_adopt: $('pw-delegate-adopt').checked,

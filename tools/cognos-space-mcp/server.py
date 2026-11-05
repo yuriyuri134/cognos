@@ -23,6 +23,7 @@ from pathlib import Path
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -35,6 +36,8 @@ PASSWORD = os.environ.get("COGNOS_APP_PASSWORD", "")
 SUBJECT = os.environ.get("COGNOS_SUBJECT", "Claude Code")
 BOUND_ID = os.environ.get("COGNOS_BOUND_SPACE_ID", "")
 BOUND_TYPE = os.environ.get("COGNOS_BOUND_SPACE_TYPE", "creation")
+BOUND_RUN_ID = os.environ.get("COGNOS_BOUND_RUN_ID", "")
+RUN_BOUND_TOOLS = {"check_changes", "note_basis", "write_content", "adopt", "update_work_item", "split_work_item"}
 API = BASE + "/ocs/v2.php/apps/cognos/api/v1.0/spaces"
 
 SPACE_ID = {"type": "string", "description": "空间 id（list_spaces 里的 id）"}
@@ -257,6 +260,7 @@ TOOLS += [
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
+                "run_id": {"type": "string", "description": "本次实际委托的运行编号，自动委托已绑定"},
                 "object_type": {"type": "string", "enum": ["message", "location_content"]},
                 "object_id": {"type": "string"},
                 "object_version": {"type": "string", "description": "location_content 的版本号"},
@@ -276,6 +280,7 @@ TOOLS += [
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
+                "run_id": {"type": "string", "description": "本次实际委托的运行编号，自动委托已绑定"},
                 "decision_quote": {"type": "string", "description": "那条决定原话里的一段，照抄"},
                 "revision": {"type": "integer", "description": "这一处当前内容的版本号"},
                 "note": {"type": "string", "description": "怎么依据的（可不填）"},
@@ -294,6 +299,7 @@ TOOLS += [
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
+                "run_id": {"type": "string", "description": "本次实际委托的运行编号，自动委托已绑定"},
                 "content": {"type": "string", "description": "改好的当前内容全文（不是改动说明）"},
             },
             "required": ["space_id", "content"],
@@ -332,6 +338,12 @@ TOOLS += [
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
 if ONLY:
     TOOLS = [t for t in TOOLS if t["name"] in ONLY]
+if BOUND_RUN_ID:
+    fixed_fields = {"space_id", "space_type", "run_id"}
+    for tool in TOOLS:
+        schema = tool["inputSchema"]
+        schema["properties"] = {key: value for key, value in schema.get("properties", {}).items() if key not in fixed_fields}
+        schema["required"] = [key for key in schema.get("required", []) if key not in fixed_fields]
 
 
 class CognosAPIError(RuntimeError):
@@ -494,6 +506,16 @@ def space_path(args: dict) -> str:
 def run_tool(name: str, args: dict) -> str:
     if ONLY and name not in ONLY:
         raise RuntimeError(f"这里没开这个工具：{name}")
+    if BOUND_RUN_ID:
+        if not BOUND_ID or BOUND_TYPE != "creation" or not re.fullmatch(r"[a-f0-9]{32}", BOUND_RUN_ID):
+            raise RuntimeError("自动委托的运行或位置绑定无效。")
+        if name in ("start_work", "hand_back"):
+            raise RuntimeError("这次运行已登记，由桥统一交回。")
+        if "run_id" in args and args["run_id"] != BOUND_RUN_ID:
+            raise RuntimeError("这次连接只允许实际委托绑定的运行。")
+        args = {"space_id": BOUND_ID, "space_type": BOUND_TYPE, **args}
+        if name in RUN_BOUND_TOOLS:
+            args = {**args, "run_id": BOUND_RUN_ID}
     if name in ("update_work_item","split_work_item"):
         args={**args,"run_id":args.get("run_id") or os.environ.get("COGNOS_RUN_ID","")}
         if not args["run_id"]:raise RuntimeError("需要实际委托的 run_id；不能用新登记的自由运行代替维护授权")
@@ -604,7 +626,10 @@ def run_tool(name: str, args: dict) -> str:
         body["subject"] = SUBJECT
         return call_api("POST", space_path(args) + "/basis", body=body)["message"]
     if name == "write_content":
-        data = call_api("POST", space_path(args) + "/content", body={"subject": SUBJECT, "content": args.get("content", "")})
+        body = {"subject": SUBJECT, "content": args.get("content", "")}
+        if args.get("run_id"):
+            body["run_id"] = args["run_id"]
+        data = call_api("POST", space_path(args) + "/content", body=body)
         return data["message"]
     if name == "search_traces":
         traces = call_api("GET", space_path(args) + "/traces", {"q": args.get("query", ""), "limit": args.get("limit", 20)})["traces"]

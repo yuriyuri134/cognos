@@ -157,10 +157,15 @@
             </section>
             <section class="pw-delegate" data-location-only aria-labelledby="pw-delegate-title">
                 <h2 id="pw-delegate-title">交出去</h2>
-                <p class="pw-hint">把这一处的一件事交给本机的 Claude Code，你可以走开。结果回到这里的讨论；允许改当前内容时，它写的版本署它的名字，交出去以后你改过这里，就不覆盖。</p>
+                <p class="pw-hint">把这一处的一件事交给本机参与者，你可以走开。结果回到这里的讨论；允许改当前内容时，它写的版本署它的名字，交出去以后你改过这里，就不覆盖。</p>
                 <form id="pw-delegate-form">
                     <p id="pw-delegate-work-label" class="pw-hint"></p>
                     <button type="button" id="pw-delegate-work-clear" hidden>不关联这份工作</button>
+                    <label for="pw-delegate-executor">交给谁</label>
+                    <select id="pw-delegate-executor">
+                        <option value="claude-code">Claude Code</option>
+                        <option value="codex">Codex</option>
+                    </select>
                     <label for="pw-delegate-ask">要做的事（一句话就行）</label>
                     <textarea id="pw-delegate-ask" rows="2" maxlength="2000" required placeholder="例如：把当前稿里两种入口方案各写三条优缺点放回当前稿"></textarea>
                     <details>
