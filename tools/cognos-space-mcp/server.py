@@ -23,6 +23,7 @@ from pathlib import Path
 import base64
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -33,6 +34,10 @@ BASE = os.environ.get("COGNOS_URL", "http://127.0.0.1:8780").rstrip("/")
 USER = os.environ.get("COGNOS_USER", "cognos-admin")
 PASSWORD = os.environ.get("COGNOS_APP_PASSWORD", "")
 SUBJECT = os.environ.get("COGNOS_SUBJECT", "Claude Code")
+BOUND_ID = os.environ.get("COGNOS_BOUND_SPACE_ID", "")
+BOUND_TYPE = os.environ.get("COGNOS_BOUND_SPACE_TYPE", "creation")
+BOUND_RUN_ID = os.environ.get("COGNOS_BOUND_RUN_ID", "")
+RUN_BOUND_TOOLS = {"check_changes", "note_basis", "write_content", "adopt", "update_work_item", "split_work_item"}
 API = BASE + "/ocs/v2.php/apps/cognos/api/v1.0/spaces"
 
 SPACE_ID = {"type": "string", "description": "空间 id（list_spaces 里的 id）"}
@@ -255,6 +260,7 @@ TOOLS += [
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
+                "run_id": {"type": "string", "description": "本次实际委托的运行编号，自动委托已绑定"},
                 "object_type": {"type": "string", "enum": ["message", "location_content"]},
                 "object_id": {"type": "string"},
                 "object_version": {"type": "string", "description": "location_content 的版本号"},
@@ -274,6 +280,7 @@ TOOLS += [
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
+                "run_id": {"type": "string", "description": "本次实际委托的运行编号，自动委托已绑定"},
                 "decision_quote": {"type": "string", "description": "那条决定原话里的一段，照抄"},
                 "revision": {"type": "integer", "description": "这一处当前内容的版本号"},
                 "note": {"type": "string", "description": "怎么依据的（可不填）"},
@@ -292,6 +299,7 @@ TOOLS += [
             "properties": {
                 "space_id": SPACE_ID,
                 "space_type": SPACE_TYPE,
+                "run_id": {"type": "string", "description": "本次实际委托的运行编号，自动委托已绑定"},
                 "content": {"type": "string", "description": "改好的当前内容全文（不是改动说明）"},
             },
             "required": ["space_id", "content"],
@@ -299,9 +307,50 @@ TOOLS += [
     },
 ]
 
+TOOLS += [
+    {"name": "list_work_items", "description": "读取这一处明确登记的工作：范围、负责人、交付、验收、状态和拆分来源。运行返回不等于工作完成。",
+     "inputSchema": {"type": "object", "properties": {"space_id": SPACE_ID, "space_type": SPACE_TYPE}, "required": ["space_id"]}},
+    {"name": "get_work_item", "description": "读取一份工作的原版本、拆分来路、子项、原委托与结果。只读，不代用户改变工作安排。",
+     "inputSchema": {"type": "object", "properties": {"space_id": SPACE_ID, "space_type": SPACE_TYPE, "work_id": {"type": "string"}}, "required": ["space_id", "work_id"]}},
+    {"name": "preview_work_split", "description": "按各子项的范围、负责人、交付、验收预览工作拆分的具体后果；只预览，不提交、不复制或启动委托。",
+     "inputSchema": {"type": "object", "properties": {"space_id": SPACE_ID, "space_type": SPACE_TYPE, "work_id": {"type": "string"},
+         "parts": {"type": "array", "minItems": 2, "maxItems": 12, "items": {"type": "object", "properties": {
+             k: {"type": "string"} for k in ("description", "owner", "deliverable", "acceptance")}, "required": ["description"]}}}, "required": ["space_id", "work_id", "parts"]}},
+]
+
+TOOLS += [
+    {"name":"list_attempts","description":"读取关联到这一处的尝试、当前简介及阶段记录；这些作者的总结不代表工作已完成或结果已验证。", "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE},"required":["space_id"]}},
+    {"name":"get_attempt","description":"按稳定身份读取一份尝试的简介、旧版本和历次阶段总结及覆盖范围。仅限与当前位置关联的尝试。", "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"attempt_id":{"type":"string"}},"required":["space_id","attempt_id"]}},
+]
+
+TOOLS += [
+    {"name":"update_work_item","description":"按明确委托维护关联工作的完整安排或记录结果，署名为实际 AI。必须读当前版本；未获得工作维护权限时拒绝。新决定/依据变化先返回差异，确认同一差异后带 acknowledged=true 重试。",
+     "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"work_id":{"type":"string"},"run_id":{"type":"string","description":"本次委托运行；经桥时自动附加"},
+        "expected_revision":{"type":"integer"}, **{k:{"type":"string"} for k in ("description","owner","deliverable","acceptance","evidence","note")},
+        "state":{"type":"string","enum":["open","in_progress","blocked","done","cancelled"]},"acknowledged":{"type":"boolean"}},
+        "required":["space_id","work_id","expected_revision","description","owner","deliverable","acceptance","state"]}},
+    {"name":"split_work_item","description":"在明确允许维护这份工作的委托内，按 preview_work_split 的 basis 确认拆分。保留原工作、旧委托与结果；子项不继承授权或自动执行，拆分后本委托不再维护原工作。",
+     "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"work_id":{"type":"string"},"run_id":{"type":"string"},"basis":{"type":"string"},
+        "parts":{"type":"array","minItems":2,"maxItems":12,"items":{"type":"object","properties":{k:{"type":"string"} for k in ("description","owner","deliverable","acceptance")},"required":["description"]}},
+        "acknowledged":{"type":"boolean"}},"required":["space_id","work_id","parts","basis"]}},
+]
+
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
 if ONLY:
     TOOLS = [t for t in TOOLS if t["name"] in ONLY]
+if BOUND_RUN_ID:
+    fixed_fields = {"space_id", "space_type", "run_id"}
+    for tool in TOOLS:
+        schema = tool["inputSchema"]
+        schema["properties"] = {key: value for key, value in schema.get("properties", {}).items() if key not in fixed_fields}
+        schema["required"] = [key for key in schema.get("required", []) if key not in fixed_fields]
+
+
+class CognosAPIError(RuntimeError):
+    def __init__(self,status,data,message):
+        self.status=status
+        self.data=data
+        super().__init__(f"Cognos 返回 {status}：{message}")
 
 
 def call_api(method: str, path: str, params: dict | None = None, body: dict | None = None, url: str | None = None):
@@ -324,10 +373,12 @@ def call_api(method: str, path: str, params: dict | None = None, body: dict | No
     except urllib.error.HTTPError as error:
         text = error.read().decode("utf-8", "replace")
         try:
-            message = json.loads(text)["ocs"]["data"].get("message", text)
+            parsed = json.loads(text)
+            data = parsed.get("ocs", {}).get("data", parsed)
+            message = data.get("message", text[:500])
         except (ValueError, KeyError, TypeError, AttributeError):
-            message = text[:500]
-        raise RuntimeError(f"Cognos 返回 {error.code}：{message}") from None
+            data, message = {}, text[:500]
+        raise CognosAPIError(error.code, data, message) from None
     return payload.get("ocs", {}).get("data", payload)
 
 
@@ -415,7 +466,38 @@ def handoff(name, args):
         return "已交回。"
 
 
+def write_work(name,args):
+    path=space_path(args)+"/work-items/"+urllib.parse.quote(str(args["work_id"]),safe="")
+    excluded={"space_id","space_type","work_id","acknowledged"}
+    body={k:v for k,v in args.items() if k not in excluded}
+    body["subject"]=SUBJECT
+    identity=[BASE,USER,SUBJECT,name,space_path(args),str(args["work_id"]),body]
+    body["request_id"]="wm-"+hashlib.sha256(json.dumps(identity,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:60]
+    file=_handoff_file(args)
+    with _handoff_lock(file):
+        state=json.loads(file.read_text(encoding="utf-8")) if file.exists() else {}
+        body["acknowledged"]=bool(args.get("acknowledged") and state.get("shown_token"))
+        body["drift_token"]=state.get("shown_token") if body["acknowledged"] else None
+        try:
+            data=call_api("PUT" if name=="update_work_item" else "POST",path+("/split" if name=="split_work_item" else ""),body=body)
+        except CognosAPIError as error:
+            drift=error.data.get("drift") if isinstance(error.data,dict) else None
+            if error.status!=409 or not isinstance(drift,dict):raise
+            state["shown_token"]=drift["drift_token"]
+            _save_handoff(file,state)
+            lines=["本次没有修改工作。起步以后有变化："]
+            lines += ["- 新决定：「"+d["content"]+"」" for d in drift["decisions_missing"]]
+            for b in drift["basis_changed"]:
+                lines.append(f"- 依据的「{b['title']}」由版本 {b['version']} 变为 {b['current']}")
+                lines += ["  删了："+line for line in b.get("removed",[])]
+                lines += ["  加了："+line for line in b.get("added",[])]
+            return "\n".join(lines)+"\n请面对这些变化，需要时修改安排，再带 acknowledged=true 提交。"
+    return json.dumps({**data,"request_id":body["request_id"]},ensure_ascii=False)
+
+
 def space_path(args: dict) -> str:
+    if BOUND_ID and (str(args.get("space_type") or "creation") != BOUND_TYPE or str(args["space_id"]) != BOUND_ID):
+        raise RuntimeError("这次连接只接入指定的项目位置，不能改用另一片空间。")
     space_type = urllib.parse.quote(str(args.get("space_type") or "creation"), safe="")
     space_id = urllib.parse.quote(str(args["space_id"]), safe="")
     return f"/{space_type}/{space_id}"
@@ -424,8 +506,52 @@ def space_path(args: dict) -> str:
 def run_tool(name: str, args: dict) -> str:
     if ONLY and name not in ONLY:
         raise RuntimeError(f"这里没开这个工具：{name}")
+    if BOUND_RUN_ID:
+        if not BOUND_ID or BOUND_TYPE != "creation" or not re.fullmatch(r"[a-f0-9]{32}", BOUND_RUN_ID):
+            raise RuntimeError("自动委托的运行或位置绑定无效。")
+        if name in ("start_work", "hand_back"):
+            raise RuntimeError("这次运行已登记，由桥统一交回。")
+        if "run_id" in args and args["run_id"] != BOUND_RUN_ID:
+            raise RuntimeError("这次连接只允许实际委托绑定的运行。")
+        args = {"space_id": BOUND_ID, "space_type": BOUND_TYPE, **args}
+        if name in RUN_BOUND_TOOLS:
+            args = {**args, "run_id": BOUND_RUN_ID}
+    if name in ("update_work_item","split_work_item"):
+        args={**args,"run_id":args.get("run_id") or os.environ.get("COGNOS_RUN_ID","")}
+        if not args["run_id"]:raise RuntimeError("需要实际委托的 run_id；不能用新登记的自由运行代替维护授权")
+    if BOUND_ID and "space_id" in args:
+        space_path(args)  # Reject a mismatched space before any network disclosure.
+    if BOUND_ID and name in ("check_changes", "hand_back", "update_work_item", "split_work_item"):
+        args = {**args, "space_id": BOUND_ID, "space_type": BOUND_TYPE}
+        if name == "hand_back":
+            # A confirmed local receipt must remain usable when the server is temporarily offline.
+            file = _handoff_file(args)
+            with _handoff_lock(file):
+                cached = json.loads(file.read_text(encoding="utf-8")) if file.exists() else {}
+            pending = cached.get("pending", {})
+            if cached.get("delivered") and pending.get("run_id") == args["run_id"] and pending.get("subject") == SUBJECT:
+                return handoff(name, args)
+        run_id = urllib.parse.quote(str(args["run_id"]), safe="")
+        run = call_api("GET", "", url=f"{BASE}/ocs/v2.php/apps/cognos/api/v1.0/runs/{run_id}")["run"]
+        if run["space_type"] != BOUND_TYPE or str(run["space_id"]) != BOUND_ID or run["subject"] != SUBJECT:
+            raise RuntimeError("这次运行不属于当前指定位置和主体，不能读取或交回它。")
+    if not BOUND_ID and name == "check_changes" and "space_id" not in args:
+        run_id = urllib.parse.quote(str(args["run_id"]), safe="")
+        run = call_api("GET", "", url=f"{BASE}/ocs/v2.php/apps/cognos/api/v1.0/runs/{run_id}")["run"]
+        if run["subject"] != SUBJECT:
+            raise RuntimeError("这次运行不属于当前主体。")
+        args = {**args, "space_id": str(run["space_id"]), "space_type": run["space_type"]}
+    if not BOUND_ID and name in ("update_work_item","split_work_item"):
+        run_id=urllib.parse.quote(str(args["run_id"]),safe="")
+        run=call_api("GET","",url=f"{BASE}/ocs/v2.php/apps/cognos/api/v1.0/runs/{run_id}")["run"]
+        if run["subject"]!=SUBJECT or str(run["space_id"])!=str(args["space_id"]) or run["space_type"]!=(args.get("space_type") or "creation"):
+            raise RuntimeError("运行不属于当前主体和位置")
+    if name in ("update_work_item","split_work_item"):
+        return write_work(name,args)
     if name == "list_spaces":
         spaces = call_api("GET", "")["spaces"]
+        if BOUND_ID:
+            spaces = [s for s in spaces if s["type"] == BOUND_TYPE and str(s["id"]) == BOUND_ID]
         if not spaces:
             return "还没有空间。"
         return "\n".join(f"- {s['type']} {s['id']}：{s['title']}" for s in spaces)
@@ -473,6 +599,19 @@ def run_tool(name: str, args: dict) -> str:
         trace = call_api("POST", space_path(args) + "/traces", body=body)["trace"]
         then = {"接着": "Cognos 会从这个口子叫下一次", "卡住": "这一件停下，等能给的那一件", "完了": "这一件停下，收不收由交互对象定"}
         return f"已记下停在哪 #{trace['id']}（{trace['act']}）。{then.get(trace['act'], '')}。"
+    if name in ("list_attempts", "get_attempt"):
+        path=space_path(args)+"/attempts"
+        if name=="get_attempt":path+="/"+urllib.parse.quote(str(args["attempt_id"]),safe="")
+        return json.dumps(call_api("GET",path),ensure_ascii=False)
+    if name in ("list_work_items", "get_work_item", "preview_work_split"):
+        path = space_path(args) + "/work-items"
+        if name != "list_work_items":
+            path += "/" + urllib.parse.quote(str(args["work_id"]), safe="")
+        if name == "preview_work_split":
+            data = call_api("POST", path + "/split/preview", body={"parts": args["parts"]})
+        else:
+            data = call_api("GET", path)
+        return json.dumps(data, ensure_ascii=False, indent=1)
     if name == "start_work":
         data = call_api("POST", space_path(args) + "/runs", body={"subject": SUBJECT, "purpose": args.get("purpose", "")})
         return f"已登记，run_id 是 {data['run']['id']}。做完用 hand_back 交回时带上它。"
@@ -487,7 +626,10 @@ def run_tool(name: str, args: dict) -> str:
         body["subject"] = SUBJECT
         return call_api("POST", space_path(args) + "/basis", body=body)["message"]
     if name == "write_content":
-        data = call_api("POST", space_path(args) + "/content", body={"subject": SUBJECT, "content": args.get("content", "")})
+        body = {"subject": SUBJECT, "content": args.get("content", "")}
+        if args.get("run_id"):
+            body["run_id"] = args["run_id"]
+        data = call_api("POST", space_path(args) + "/content", body=body)
         return data["message"]
     if name == "search_traces":
         traces = call_api("GET", space_path(args) + "/traces", {"q": args.get("query", ""), "limit": args.get("limit", 20)})["traces"]

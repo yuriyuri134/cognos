@@ -1,0 +1,4 @@
+const fs=require('node:fs'),path=require('node:path'),{execFileSync}=require('node:child_process');
+const p=path.join(__dirname,'evidence/queue-live.json');const fixture=JSON.parse(fs.readFileSync(p,'utf8'));
+const report=JSON.parse(execFileSync('docker',['exec','-u','www-data','-w','/var/www/html','cognos-nextcloud-trial-app-1','php','/tmp/check_queue_live_binding.php',String(fixture.queued_message_id),Buffer.from(fixture.answers[0].content).toString('base64')],{encoding:'utf8'}));
+fs.writeFileSync(path.join(__dirname,'evidence/queue-live-binding.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));

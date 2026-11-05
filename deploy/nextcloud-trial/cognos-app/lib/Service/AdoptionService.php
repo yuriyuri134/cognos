@@ -31,6 +31,7 @@ final class AdoptionService {
         private IDBConnection $db,
         private ProjectService $projects,
         private CreationSpaceService $creations,
+        private LifecycleService $lifecycle,
     ) {
     }
 
@@ -258,7 +259,7 @@ final class AdoptionService {
         $requestId = 'agt-' . substr(hash('sha256', json_encode([$run['id'], $locationId, $type, $objectId, $version], JSON_THROW_ON_ERROR)), 0, 60);
         return $this->projects->commit($uid, $requestId, ['agent_adopt', $run['id'], $locationId, $type, $objectId, $version],
             function () use ($uid, $locationId, $run, $delegation, $type, $objectId, $version, $basis): array {
-                $loc = $this->projects->location($uid, $locationId);
+                $loc = $this->projects->lockedLocation($uid, $locationId);
                 [$objectId, $version] = $this->resolve($uid, $type, $objectId, $version, $loc);
                 foreach ($this->rows(['location_id' => $locationId]) as $a) {
                     if (in_array($a['state'], ['active', 'review', 'proposed'], true) && $a['object_type'] === $type
@@ -266,7 +267,8 @@ final class AdoptionService {
                         throw new \RuntimeException('这里已经采用或提议过这一版', 409);
                     }
                 }
-                $allowed = $delegation !== null && (int)$delegation['may_adopt'] === 1 && $delegation['location_id'] === $locationId;
+                $allowed = $delegation !== null && (int)$delegation['may_adopt'] === 1 && $delegation['location_id'] === $locationId
+                    && $this->lifecycle->eligible($loc['project_id'], $run) && $this->lifecycle->delegationWorkEligible($delegation['id']);
                 $now = time();
                 $id = bin2hex(random_bytes(16));
                 $this->projects->insert('cognos_adoptions', [

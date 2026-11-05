@@ -19,6 +19,11 @@
             <button type="submit">留下</button>
         </form>
     </section>
+    <section id="in-exploring-section" aria-labelledby="in-exploring-title" hidden>
+        <h2 id="in-exploring-title">退回自由探索的项目</h2>
+        <p class="pw-hint">原项目、讨论和经过还在。另起的探索是一段新会话，不带入旧委托；需要时再明确恢复项目。</p>
+        <ul id="in-exploring" class="pw-decision-list"></ul>
+    </section>
     <section aria-labelledby="in-list-title">
         <h2 id="in-list-title">还没成为项目的</h2>
         <p class="pw-hint">每段会话都还能接着聊。确立以后，它作为项目的来路留在原处，不会搬走。</p>

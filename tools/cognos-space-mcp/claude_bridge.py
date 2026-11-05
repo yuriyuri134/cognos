@@ -64,6 +64,7 @@ import ast
 import hmac
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -81,7 +82,7 @@ HERE = Path(__file__).resolve().parent
 SECRETS = HERE.parent.parent / "deploy" / "nextcloud-trial" / ".secrets"
 SERVER = HERE / "server.py"
 PUBLIC_STATE = SECRETS.parent / ".public-access-state.json"
-TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here", "note_basis", "write_content", "adopt"]
+TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here", "note_basis", "write_content", "adopt", "list_work_items", "get_work_item", "preview_work_split", "update_work_item", "split_work_item", "list_attempts", "get_attempt"]
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 
@@ -96,6 +97,8 @@ def secret(env: str, filename: str) -> str:
 
 TOKEN = secret("COGNOS_BRIDGE_TOKEN", "claude-bridge-token")
 APP_PASSWORD = secret("COGNOS_APP_PASSWORD", "claude-code-app-password")
+CODEX_APP_PASSWORD = secret("COGNOS_CODEX_APP_PASSWORD", "codex-app-password")
+CODEX_MODEL = os.environ.get("COGNOS_CODEX_MODEL", "")
 COGNOS_URL = os.environ.get("COGNOS_URL", "http://127.0.0.1:8780")
 COGNOS_USER = os.environ.get("COGNOS_USER", "cognos-admin")
 HOST = os.environ.get("COGNOS_BRIDGE_HOST", "127.0.0.1")
@@ -499,6 +502,10 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
                 "COGNOS_USER": COGNOS_USER,
                 "COGNOS_APP_PASSWORD": APP_PASSWORD,
                 "COGNOS_SUBJECT": subject,
+                "COGNOS_RUN_ID": str((job or {}).get("run_id") or ""),
+                "COGNOS_BOUND_RUN_ID": "",
+                "COGNOS_BOUND_SPACE_ID": str((job or {}).get("space_id") or ""),
+                "COGNOS_BOUND_SPACE_TYPE": (job or {}).get("space_type", "creation"),
                 "COGNOS_TOOLS": ",".join(TOOLS),
             },
         }}}, ensure_ascii=False), encoding="utf-8")
@@ -555,10 +562,52 @@ def answer_from(stdout: str, stderr: str = "") -> str:
     return answer
 
 
-def cognos_post(path: str, body: dict) -> None:
+def codex_configured() -> bool:
+    return bool(CODEX_APP_PASSWORD and shutil.which("codex"))
+
+
+def codex_job(body: dict, job: dict) -> dict:
+    if body.get("executor") != "codex" or body.get("subject") != "Codex" or body.get("space_type") != "creation":
+        raise ValueError("Codex 只接收在项目位置登记的 Codex 委托")
+    if not re.fullmatch(r"[1-9][0-9]*", job["space_id"]):
+        raise ValueError("项目位置会话编号无效")
+    for key in ("run_id", "delegation_id"):
+        if not isinstance(body.get(key), str) or not re.fullmatch(r"[a-f0-9]{32}", body[key]):
+            raise ValueError(f"{key} 无效")
+    if body.get("caller_uid") != COGNOS_USER:
+        raise ValueError("委托账号与本机 Codex 应用凭据账号不一致")
+    if any(body.get(key) for key in ("repo", "open_id", "hit_id", "base_branch")):
+        raise ValueError("Codex 委托不能启动仓库副本、反对回应或自动续跑")
+    flags = ("may_edit", "may_adopt", "may_manage_work")
+    if any(key in body and type(body[key]) is not bool for key in flags):
+        raise ValueError("委托权限必须明确为布尔值")
+    return {**job, "executor": "codex", "caller_uid": body["caller_uid"], "delegation_id": body["delegation_id"],
+            **{key: body.get(key, False) for key in flags}}
+
+
+def run_codex(job: dict) -> str:
+    from codex_entry import delegation_tools, run
+
+    tools = delegation_tools(may_edit=job["may_edit"], may_adopt=job["may_adopt"], may_manage_work=job["may_manage_work"])
+    prompt = ("你在 Cognos 中收到一份已登记的委托。只处理当前委托与实际授予的范围。"
+              "需要时用 Cognos 工具读取当前信息，写出最终答复，桥会交回。\n"
+              f"工具绑定的实际运行编号：{job['run_id']}，位置会话编号：{job['space_id']}。\n\n"
+              + job["system"] + "\n\n" + job["prompt"])
+    output = RUN_LOG_DIR / ("codex-" + job["run_id"])
+    result = run(job["space_id"], prompt, output, subject="Codex", model=CODEX_MODEL or None,
+                 timeout=TIMEOUT, run_id=job["run_id"], tools=tools,
+                 environment={"COGNOS_URL": COGNOS_URL, "COGNOS_USER": job["caller_uid"],
+                              "COGNOS_APP_PASSWORD": CODEX_APP_PASSWORD})
+    return result["content"]
+
+
+def cognos_post(path: str, body: dict, *, executor: str = "claude") -> None:
     """POST 到 Cognos 的 OCS 接口（/ocs/v2.php/apps/cognos/api/v1.0/<path>）。失败抛 URLError / HTTPError。"""
     url = COGNOS_URL.rstrip("/") + "/ocs/v2.php/apps/cognos/api/v1.0/" + path
-    token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
+    credential = CODEX_APP_PASSWORD if executor == "codex" else APP_PASSWORD
+    if not credential:
+        raise urllib.error.URLError("本机应用凭据未配置，结果保留待发送")
+    token = base64.b64encode(f"{COGNOS_USER}:{credential}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(url, method="POST", data=json.dumps(body, ensure_ascii=False).encode("utf-8"), headers={
         "Authorization": "Basic " + token,
         "OCS-APIRequest": "true",
@@ -577,7 +626,13 @@ def post_back(result: dict) -> None:
     """
     path = ("spaces/" + urllib.parse.quote(str(result["space_type"]), safe="") + "/"
             + urllib.parse.quote(str(result["space_id"]), safe="") + "/messages")
-    cognos_post(path, {k: v for k, v in result.items() if k not in ("space_type", "space_id")})
+    body = {k: v for k, v in result.items() if k not in ("space_type", "space_id", "executor", "caller_uid")}
+    if result.get("executor") == "codex":
+        if result.get("caller_uid") != COGNOS_USER:
+            raise urllib.error.URLError("待发送结果绑定的委托账号与当前桥不一致")
+        cognos_post(path, body, executor="codex")
+    else:
+        cognos_post(path, body)
 
 
 def outbox(sub: str) -> Path:
@@ -598,6 +653,7 @@ def mark_inflight(job: dict) -> None:
     write_json(outbox("inflight") / f"{job['run_id']}.json", {
         "run_id": job["run_id"], "space_type": job["space_type"], "space_id": job["space_id"],
         "subject": job["subject"], "accepted_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "pid": os.getpid(),
+        **({"executor": "codex", "caller_uid": job["caller_uid"]} if job.get("executor") == "codex" else {}),
     })
 
 
@@ -683,7 +739,14 @@ def report_unknown(run_ids: set[str]) -> None:
     for run_id in sorted(run_ids):
         path = outbox("inflight") / f"{run_id}.json"
         try:
-            cognos_post(f"runs/{run_id}/unknown", {"reason": "桥重启时发现这一件做到一半桥就没了：不知道做没做完，没有重跑。"})
+            record = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+            body = {"reason": "桥重启时发现这一件做到一半桥就没了：不知道做没做完，没有重跑。"}
+            if record.get("executor") == "codex":
+                if record.get("caller_uid") != COGNOS_USER:
+                    raise urllib.error.URLError("运行绑定的委托账号与当前桥不一致")
+                cognos_post(f"runs/{run_id}/unknown", body, executor="codex")
+            else:
+                cognos_post(f"runs/{run_id}/unknown", body)
         except urllib.error.HTTPError as error:
             if error.code != 404:
                 sys.stderr.write(f"[claude-bridge] 报告运行 {run_id} 做到一半没了，Cognos 回 HTTP {error.code}，过会儿再报\n")
@@ -718,15 +781,22 @@ def work(job: dict) -> None:
         back = {"open_id": job["open_id"], "run_started": job.get("run_started"), "branch": job.get("base_branch")}
     try:
         try:
-            if job.get("repo"):
-                wt = open_worktree(space_type, space_id, job.get("hit_id"), job.get("base_branch"), job.get("open_id"))
-            workdir = wt["path"] if wt else workdir_for(space_type, space_id)
-            content = run_claude(subject, job["system"], job["prompt"], workdir, wt, job)
+            if job.get("executor") == "codex":
+                content = run_codex(job)
+            else:
+                if job.get("repo"):
+                    wt = open_worktree(space_type, space_id, job.get("hit_id"), job.get("base_branch"), job.get("open_id"))
+                workdir = wt["path"] if wt else workdir_for(space_type, space_id)
+                content = run_claude(subject, job["system"], job["prompt"], workdir, wt, job)
         except subprocess.TimeoutExpired:
             content = f"（{subject} 做了 {TIMEOUT // 60} 分钟还没做完，被停下了。做到哪里，看侧栏里它留下的发生和工作目录。）"
             back["timed_out"] = True
         except Exception as error:  # 出错也要让交互对象在对话里看到
-            content = f"（{subject} 这次没做完：{error}）"
+            if job.get("executor") == "codex":
+                sys.stderr.write(f"[claude-bridge] Codex 运行 {job['run_id']} 未完成（{type(error).__name__}），请核对本机运行日志。\n")
+                content = "（Codex 这次没做完。请核对本机运行记录及已保存的变更，再决定如何继续。）"
+            else:
+                content = f"（{subject} 这次没做完：{error}）"
         new_bridge = False
         if wt is not None:
             try:
@@ -749,6 +819,7 @@ def work(job: dict) -> None:
             "content": content,
             "reply_to": job.get("reply_to"),
             "hit_id": job.get("hit_id"),
+            **({"executor": "codex", "caller_uid": job["caller_uid"]} if job.get("executor") == "codex" else {}),
             **back,
         }
         # 先存下来再发：发不回去（Cognos 停着、网断了、桥这时没了）结果还在 pending 里，之后会重发
@@ -789,12 +860,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self.send_json(200, {"ok": True, "claude": bool(shutil.which("claude.cmd") or shutil.which("claude")),
                                  "commands": commands_allowed(), "busy": sorted(BUSY),
+                                 "codex_supported": True, "codex_configured": codex_configured(),
                                  "pending": len(list(outbox("pending").glob("*.json")))})
         else:
             self.send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/chat":
+        if self.path not in ("/chat", "/codex"):
             self.send_json(404, {"error": "not found"})
             return
         if not hmac.compare_digest(self.headers.get("X-Cognos-Bridge-Token", ""), TOKEN):
@@ -803,12 +875,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(body, dict):
+                raise ValueError("请求必须是 JSON 对象")
+            history = body.get("history") or []
+            if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
+                raise ValueError("对话历史必须是消息列表")
             job = {
                 "space_type": str(body.get("space_type") or "creation"),
                 "space_id": str(body["space_id"]),
                 "subject": str(body.get("subject") or "Claude Code"),
                 "system": str(body["system"]),
-                "prompt": prompt_from(body.get("history") or [], str(body["message"]), str(body.get("caller") or "交互对象")),
+                "prompt": prompt_from(history, str(body["message"]), str(body.get("caller") or "交互对象")),
                 "caller": str(body.get("caller") or "交互对象"),
                 "repo": bool(body.get("repo")),
                 "hit_id": body.get("hit_id"),
@@ -821,8 +898,15 @@ class Handler(BaseHTTPRequestHandler):
             job["run_id"] = str(body["run_id"])
             if not job["run_id"].isalnum() or len(job["run_id"]) != 32:
                 raise ValueError("run_id 不对")
-        except (KeyError, ValueError) as error:
+            if self.path == "/codex":
+                job = codex_job(body, job)
+            elif body.get("executor") == "codex":
+                raise ValueError("Codex 委托须使用专用 /codex 入口")
+        except (KeyError, TypeError, ValueError) as error:
             self.send_json(400, {"error": f"请求不完整：{error}"})
+            return
+        if self.path == "/codex" and not codex_configured():
+            self.send_json(422, {"error": "本机 Codex CLI 或 Cognos 应用凭据尚未配置"})
             return
         key = f"{job['space_type']}/{job['space_id']}"
         with BUSY_LOCK:
@@ -857,7 +941,7 @@ def main() -> None:
     # 开始接新的之前先看：上一次做到一半没了的、没发出去的结果
     stale = stale_inflight()
     threading.Thread(target=outbox_loop, args=(stale,), daemon=True).start()
-    print(f"Claude Code 桥在 http://{HOST}:{PORT}（/chat，/health）；工作目录 {SPACES_DIR}；"
+    print(f"Claude Code 桥在 http://{HOST}:{PORT}（/chat，/codex，/health）；工作目录 {SPACES_DIR}；"
           f"命令{'开' if commands_allowed() else '关'}；长进身体{'开' if SELF_MERGE else '关'}；"
           f"待发送 {len(list(outbox('pending').glob('*.json')))} 个，做到一半没了的 {len(stale)} 个", flush=True)
     HTTPD.serve_forever()

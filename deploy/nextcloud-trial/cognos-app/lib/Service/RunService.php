@@ -29,45 +29,79 @@ final class RunService {
     /** 桥一次最多做 30 分钟（COGNOS_BRIDGE_TIMEOUT），再留 10 分钟发回 */
     private const LEASE_DEFAULT = 2400;
 
+    private RestoreGuardService $restoreGuard;
+
     public function __construct(
         private IDBConnection $db,
         private IConfig $config,
+        private LifecycleService $lifecycle,
+        private DispatchQueueService $dispatchQueue,
+        ?RestoreGuardService $restoreGuard = null,
     ) {
+        $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
     }
 
     /**
      * @param array<string, mixed> $input 实际给出去的东西（系统提示、消息……），原样存一份
      */
-    public function create(string $spaceType, string $spaceId, string $targetType, string $targetId, string $purpose, string $subject, ?string $caller, array $input): array {
-        $id = bin2hex(random_bytes(16));
-        $now = time();
-        $snapshot = json_encode($input, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
-        $row = [
-            'id' => $id,
-            'space_type' => $spaceType,
-            'space_id' => $spaceId,
-            'target_type' => $targetType,
-            'target_id' => $targetId,
-            'purpose' => $purpose,
-            'subject' => mb_substr($subject, 0, 128),
-            'caller' => $caller === null ? null : mb_substr($caller, 0, 128),
-            'state' => 'queued',
-            'input_hash' => hash('sha256', $snapshot),
-            'input_snapshot' => $snapshot,
-            'lease_until' => null,
-            'error' => null,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ];
-        $ints = ['created_at', 'updated_at'];
-        $qb = $this->db->getQueryBuilder();
-        $values = [];
-        foreach ($row as $column => $value) {
-            $type = $value === null ? IQueryBuilder::PARAM_NULL : (in_array($column, $ints, true) ? IQueryBuilder::PARAM_INT : IQueryBuilder::PARAM_STR);
-            $values[$column] = $qb->createNamedParameter($value, $type);
-        }
-        $qb->insert('cognos_runs')->values($values)->executeStatement();
-        return $this->publicRow($row);
+    public function create(string $spaceType, string $spaceId, string $targetType, string $targetId, string $purpose, string $subject, ?string $caller, array $input, ?array $queueClaim = null): array {
+        $this->restoreGuard->assertExecutionAllowed();
+        $this->db->beginTransaction();
+        try {
+            $project = $this->lifecycle->forSpace($spaceType, $spaceId);
+            if ($project !== null && $project['state'] !== 'active') {
+                throw new ProjectInactiveException('项目当前为 ' . $project['state'] . '，已停止派新工作；已有结果仍可交回');
+            }
+            if ($targetType === 'delegation' && !$this->lifecycle->delegationWorkEligible($targetId)) {
+                throw new \RuntimeException('工作范围或安排已变化，旧委托不能启动；请查看当前工作再安排', 409);
+            }
+            $id = bin2hex(random_bytes(16));
+            $now = time();
+            if ($queueClaim !== null) { $input['queue_claim'] = $queueClaim; }
+            $snapshot = json_encode($input, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+            $row = [
+                'id' => $id,
+                'project_id' => $project['id'] ?? null,
+                'execution_epoch' => $project === null ? null : (int)$project['execution_epoch'],
+                'space_type' => $spaceType,
+                'space_id' => $spaceId,
+                'target_type' => $targetType,
+                'target_id' => $targetId,
+                'purpose' => $purpose,
+                'subject' => mb_substr($subject, 0, 128),
+                'caller' => $caller === null ? null : mb_substr($caller, 0, 128),
+                'state' => 'queued',
+                'input_hash' => hash('sha256', $snapshot),
+                'input_snapshot' => $snapshot,
+                'lease_until' => null,
+                'error' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            $ints = ['created_at', 'updated_at', 'execution_epoch'];
+            $qb = $this->db->getQueryBuilder();
+            $values = [];
+            foreach ($row as $column => $value) {
+                $type = $value === null ? IQueryBuilder::PARAM_NULL : (in_array($column, $ints, true) ? IQueryBuilder::PARAM_INT : IQueryBuilder::PARAM_STR);
+                $values[$column] = $qb->createNamedParameter($value, $type);
+            }
+            $qb->insert('cognos_runs')->values($values)->executeStatement();
+            if ($targetType === 'delegation' && ($input['extra']['delegation_id'] ?? null) === $targetId) {
+                // The worker may use its authority before the bridge acknowledgement reaches PHP.
+                $qb = $this->db->getQueryBuilder();
+                $bound = $qb->update('cognos_delegations')->set('run_id', $qb->createNamedParameter($id))
+                    ->where($qb->expr()->eq('id', $qb->createNamedParameter($targetId)))
+                    ->andWhere($qb->expr()->eq('state', $qb->createNamedParameter('starting')))
+                    ->andWhere($qb->expr()->isNull('run_id'))->executeStatement();
+                if ($bound !== 1) { throw new \RuntimeException('委托已绑定运行或不能开始', 409); }
+            }
+            if ($queueClaim !== null) {
+                $this->dispatchQueue->bindRun((string)($queueClaim['item_id'] ?? ''),(string)($queueClaim['followup_id'] ?? ''),
+                    $spaceType,$spaceId,$id,$targetType,$targetId,$input);
+            }
+            $this->db->commit();
+            return $this->publicRow($row);
+        } catch (\Throwable $e) { $this->db->rollBack(); throw $e; }
     }
 
     /** 桥收下了：开始做，带租约。 */
@@ -76,12 +110,16 @@ final class RunService {
         $this->moveFrom($runId, ['queued'], 'running', null, time() + max(1, $lease));
     }
 
-    /** 没送出去（桥没起来、正忙）：桥那边什么都没做。 */
-    public function failed(string $runId, string $error): void {
-        $this->moveFrom($runId, ['queued'], 'failed', $error, null);
+    /** 明确未开始；只有可靠的忙拒绝可重排。连接异常应走 unknown。 */
+    public function failed(string $runId, string $error, bool $retryable = false): void {
+        $this->moveFrom($runId, ['queued'], 'failed', $error, null, $retryable);
     }
 
     /** 桥重启时发现这一件做到一半没了：不知道做没做完。 */
+    public function dispatchUnknown(string $runId, string $reason): bool {
+        return $this->moveFrom($runId, ['queued'], 'unknown', $reason, null);
+    }
+
     public function markUnknown(string $runId, string $reason): bool {
         return $this->moveFrom($runId, self::LIVE, 'unknown', $reason, null);
     }
@@ -130,9 +168,12 @@ final class RunService {
      * @return array{duplicate: bool, message_id: ?int, run: array}
      * @throws \InvalidArgumentException 不是这次运行登记的参与者、这次运行已经收过另一个结果、或依据写得不对
      */
-    public function receiveResult(array $run, string $resultId, string $subject, array $dependsOn, callable $store): array {
+    public function receiveResult(array $run, string $resultId, string $subject, array $dependsOn, callable $store, ?callable $finalize = null): array {
         if (!preg_match('/^[a-f0-9]{32}$/', $resultId)) {
             throw new \InvalidArgumentException('result_id must be 32 hex chars');
+        }
+        if ($subject !== $run['subject']) {
+            throw new \DomainException(sprintf('这次运行登记的参与者是 %s，不收 %s 署名的结果', $run['subject'], $subject === '' ? '（没署名）' : $subject));
         }
         $existing = $this->result($resultId);
         if ($existing !== null) {
@@ -140,9 +181,6 @@ final class RunService {
                 throw new \InvalidArgumentException('result_id already belongs to another run');
             }
             return ['duplicate' => true, 'message_id' => $existing['message_id'], 'run' => $this->get($run['id']) ?? $run];
-        }
-        if ($subject !== $run['subject']) {
-            throw new \DomainException(sprintf('这次运行登记的参与者是 %s，不收 %s 署名的结果', $run['subject'], $subject === '' ? '（没署名）' : $subject));
         }
         $deps = $this->normalizeDependencies($dependsOn);
 
@@ -167,6 +205,8 @@ final class RunService {
             throw new \InvalidArgumentException('this run already has a different result');
         }
         try {
+            // Serialize result completion with work/grant changes; late results are still accepted.
+            $this->lifecycle->forSpace($run['space_type'], $run['space_id']);
             $messageId = $store();
             $qb = $this->db->getQueryBuilder();
             $qb->update('cognos_run_results')
@@ -190,6 +230,9 @@ final class RunService {
                 ->set('updated_at', $qb->createNamedParameter(time(), IQueryBuilder::PARAM_INT))
                 ->where($qb->expr()->eq('id', $qb->createNamedParameter($run['id'])))
                 ->executeStatement();
+            $this->dispatchQueue->runOutcome($run['id'],'delivered');
+            // Database-only completion belongs to the same receipt transaction. Never dispatch external work here.
+            if ($finalize !== null) { $finalize($messageId); }
             $this->db->commit();
         } catch (\Throwable $error) {
             $this->db->rollBack();
@@ -271,6 +314,8 @@ final class RunService {
         }
         return [
             'id' => (string)$row['id'],
+            'project_id' => $row['project_id'] ?? null,
+            'execution_epoch' => isset($row['execution_epoch']) ? (int)$row['execution_epoch'] : null,
             'run_id' => (string)$row['run_id'],
             'message_id' => $row['message_id'] === null ? null : (int)$row['message_id'],
         ];
@@ -278,19 +323,18 @@ final class RunService {
 
     /** 租约过了还没回来的：标成 unknown。只改仍在 claimed/running 的，不和同时到的结果抢。 */
     private function expireLeases(): void {
-        $now = time();
-        $qb = $this->db->getQueryBuilder();
-        $qb->update('cognos_runs')
-            ->set('state', $qb->createNamedParameter('unknown'))
-            ->set('error', $qb->createNamedParameter('租约到了还没收到结果：不知道做没做完。'))
-            ->set('updated_at', $qb->createNamedParameter($now, IQueryBuilder::PARAM_INT))
-            ->where($qb->expr()->in('state', $qb->createNamedParameter(self::LIVE, IQueryBuilder::PARAM_STR_ARRAY)))
-            ->andWhere($qb->expr()->isNotNull('lease_until'))
-            ->andWhere($qb->expr()->lt('lease_until', $qb->createNamedParameter($now, IQueryBuilder::PARAM_INT)))
-            ->executeStatement();
+        if ($this->restoreGuard->isQuarantined()) { return; }
+        $q=$this->db->getQueryBuilder();
+        $expired=$q->select('id')->from('cognos_runs')
+            ->where($q->expr()->in('state',$q->createNamedParameter(self::LIVE,IQueryBuilder::PARAM_STR_ARRAY)))
+            ->andWhere($q->expr()->isNotNull('lease_until'))
+            ->andWhere($q->expr()->lt('lease_until',$q->createNamedParameter(time(),IQueryBuilder::PARAM_INT)))->executeQuery()->fetchAll();
+        foreach($expired as $r){$this->moveFrom((string)$r['id'],self::LIVE,'unknown','租约到了还没收到结果：不知道做没做完。',null);}
     }
 
-    private function moveFrom(string $runId, array $from, string $to, ?string $error, ?int $leaseUntil): bool {
+    private function moveFrom(string $runId, array $from, string $to, ?string $error, ?int $leaseUntil, bool $retryable = false): bool {
+        $this->db->beginTransaction();
+        try {
         $qb = $this->db->getQueryBuilder();
         $qb->update('cognos_runs')
             ->set('state', $qb->createNamedParameter($to))
@@ -301,7 +345,10 @@ final class RunService {
         if ($error !== null) {
             $qb->set('error', $qb->createNamedParameter($error));
         }
-        return $qb->executeStatement() > 0;
+        $changed = $qb->executeStatement() > 0;
+        if ($changed) { $this->dispatchQueue->runOutcome($runId,$to,$retryable); }
+        $this->db->commit();return $changed;
+        } catch (\Throwable $e) { $this->db->rollBack();throw $e; }
     }
 
     /** @return list<array{type: string, id: string, version: ?string, note: ?string}> */
@@ -326,6 +373,8 @@ final class RunService {
     private function publicRow(array $row): array {
         return [
             'id' => (string)$row['id'],
+            'project_id' => $row['project_id'] ?? null,
+            'execution_epoch' => isset($row['execution_epoch']) ? (int)$row['execution_epoch'] : null,
             'space_type' => (string)$row['space_type'],
             'space_id' => (string)$row['space_id'],
             'target_type' => (string)$row['target_type'],

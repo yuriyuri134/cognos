@@ -83,7 +83,9 @@ final class DecisionService {
         sort($scope);
         return $this->projects->commit($uid, $requestId, ['record_decision', $projectId, $content, $scope, $sourceMessageId, $sourceNote, $saidAt, $recordedBy, $supersedes],
             function () use ($uid, $projectId, $content, $scope, $sourceMessageId, $sourceNote, $saidAt, $recordedBy, $supersedes): array {
+                $this->projects->lockedProject($uid, $projectId);
                 $project = $this->projects->project($uid, $projectId);
+                if (!empty($project['merged_into'])) { throw new \RuntimeException('项目已合并，请到当前项目登记决定', 409); }
                 $ids = array_column($project['locations'], 'id');
                 foreach ($scope as $locationId) {
                     if (!in_array($locationId, $ids, true)) {
@@ -128,7 +130,10 @@ final class DecisionService {
             if ($decision === null) {
                 throw new \RuntimeException('决定不存在或不可访问', 404);
             }
-            $this->projects->project($uid, $decision['project_id']);
+            $projectId = $decision['project_id'];
+            $this->projects->lockedProject($uid, $projectId);
+            $decision = $this->get($decisionId);
+            if (!$decision || $decision['project_id'] !== $projectId) { throw new \RuntimeException('决定归属已变化，请重新查看', 409); }
             if ($decision['status'] !== 'active') {
                 throw new \RuntimeException('这条决定已经不在生效了', 409);
             }

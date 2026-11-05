@@ -45,14 +45,14 @@
                 <select id="pw-merge-parent"></select>
                 <button type="button" id="pw-preview-merge">预览合并</button>
             </details>
-            <div id="pw-restructure-preview" hidden>
-                <p><strong>确认前先看后果</strong></p>
-                <ul id="pw-restructure-lines" class="pw-reach"></ul>
-                <div class="pw-inline"><button type="button" id="pw-restructure-apply">确认</button><button type="button" id="pw-restructure-cancel">算了</button></div>
-            </div>
             <ul id="pw-location-history" class="pw-reach" data-location-only></ul>
         </aside>
         <div class="pw-main">
+            <section id="pw-restructure-preview" hidden tabindex="-1" aria-labelledby="pw-restructure-title">
+                <h2 id="pw-restructure-title">确认前先看后果</h2>
+                <ul id="pw-restructure-lines" class="pw-reach"></ul>
+                <div class="pw-inline"><button type="button" id="pw-restructure-apply">确认</button><button type="button" id="pw-restructure-cancel">算了</button></div>
+            </section>
             <section class="pw-decisions" aria-labelledby="pw-decisions-title">
                 <div class="pw-section-title"><h2 id="pw-decisions-title">在生效的决定</h2></div>
                 <p class="pw-hint">你本人说过、现在对这个项目里所有参与者都有效的话。每次有人进来或开始做事，入口最前面就是对那一处适用的这几条。</p>
@@ -85,9 +85,36 @@
                     <button type="button" id="pw-handoff-copy">复制</button>
                 </details>
             </section>
+            <section aria-labelledby="pw-lifecycle-title">
+                <h2 id="pw-lifecycle-title">项目状态</h2>
+                <p id="pw-lifecycle-state" role="status"></p>
+                <p id="pw-explore-entry" hidden><a href="/index.php/apps/cognos/initium">到 Initium 另起一段探索</a>，原项目和讨论保留。</p>
+                <details><summary>调整推进安排</summary>
+                    <form id="pw-lifecycle-form">
+                        <label for="pw-lifecycle-action">操作</label>
+                        <select id="pw-lifecycle-action"></select>
+                        <label for="pw-lifecycle-note">这次为什么调整（可留空）</label>
+                        <textarea id="pw-lifecycle-note" rows="2" maxlength="4000"></textarea>
+                        <label for="pw-lifecycle-reopen">再开条件或未完成内容（可留空）</label>
+                        <textarea id="pw-lifecycle-reopen" rows="2" maxlength="2000"></textarea>
+                        <button type="submit">保存推进安排</button>
+                    </form>
+                </details>
+                <details><summary>状态变化记录</summary><ul id="pw-lifecycle-history"></ul></details>
+            </section>
             <section class="pw-who" aria-labelledby="pw-who-title">
                 <h2 id="pw-who-title">谁在动什么</h2>
                 <div id="pw-who" aria-live="polite"></div>
+            </section>
+            <section id="pw-followups-section" hidden aria-labelledby="pw-followups-title">
+                <h2 id="pw-followups-title">接续安排</h2>
+                <p class="pw-hint">这里只记录一次接续选择，不代表 AI 已完成。未知项先核对外部运行；关闭本次接续不会重放它，也不会把实际运行标成完成。</p>
+                <ul id="pw-followups" class="pw-decision-list"></ul>
+            </section>
+            <section id="pw-dispatch-section" hidden aria-labelledby="pw-dispatch-title">
+                <h2 id="pw-dispatch-title">排队与派发</h2>
+                <p class="pw-hint">保留原消息或反对的引用。已派出不等于已完成；未知项先核对外部工作。关闭记录不重放，也不改变实际运行状态。</p>
+                <ul id="pw-dispatch-queue" class="pw-decision-list"></ul>
             </section>
             <p id="pw-merged-banner" class="pw-run pw-warn" hidden></p>
             <section id="pw-origin" aria-labelledby="pw-origin-title" hidden>
@@ -106,10 +133,39 @@
                 <p class="pw-hint">每次交回时做事的那位上报了依据什么；没上报就照写「未上报依据」，不等于它没有依据。</p>
                 <ul id="pw-recent" class="pw-reach"></ul>
             </section>
+            <section id="pw-attempts-section" aria-labelledby="pw-attempts-title">
+                <div class="pw-section-title"><h2 id="pw-attempts-title">尝试</h2><button type="button" id="at-refresh">刷新尝试</button></div>
+                <p class="pw-hint">研究、推演、试写或现实活动都可以从一句话开始。简介说明现在在做什么；阶段记录保留当时的认识，与执行工作的完成分开。</p>
+                <p id="at-notice" role="status" aria-live="polite"></p>
+                <details id="at-create-box" data-location-only><summary>留下一项尝试</summary><form id="at-create"></form></details>
+                <ul id="at-items" class="pw-decision-list"></ul>
+            </section>
+            <section id="pw-work-items-section" aria-labelledby="pw-work-items-title">
+                <div class="pw-section-title"><h2 id="pw-work-items-title">执行工作</h2><button type="button" id="wi-refresh">刷新工作</button></div>
+                <p class="pw-hint">有明确交付安排时再登记；讨论和自由探索可以继续在原处。工作是否完成与 AI 是否返回分别记录。</p>
+                <p id="wi-notice" role="status" aria-live="polite"></p>
+                <details data-location-only><summary>登记一份工作</summary>
+                    <form id="wi-create">
+                        <label for="wi-description">这份工作的范围</label><textarea id="wi-description" required maxlength="4000" rows="2"></textarea>
+                        <label for="wi-owner">负责人（可以暂不指定）</label><input id="wi-owner" maxlength="200">
+                        <label for="wi-deliverable">交付什么</label><textarea id="wi-deliverable" maxlength="4000" rows="2"></textarea>
+                        <label for="wi-acceptance">怎样验收</label><textarea id="wi-acceptance" maxlength="4000" rows="2"></textarea>
+                        <button type="submit">登记工作</button>
+                    </form>
+                </details>
+                <ul id="wi-items" class="pw-decision-list"></ul>
+            </section>
             <section class="pw-delegate" data-location-only aria-labelledby="pw-delegate-title">
                 <h2 id="pw-delegate-title">交出去</h2>
-                <p class="pw-hint">把这一处的一件事交给本机的 Claude Code，你可以走开。结果回到这里的讨论；允许改当前内容时，它写的版本署它的名字，交出去以后你改过这里，就不覆盖。</p>
+                <p class="pw-hint">把这一处的一件事交给本机参与者，你可以走开。结果回到这里的讨论；允许改当前内容时，它写的版本署它的名字，交出去以后你改过这里，就不覆盖。</p>
                 <form id="pw-delegate-form">
+                    <p id="pw-delegate-work-label" class="pw-hint"></p>
+                    <button type="button" id="pw-delegate-work-clear" hidden>不关联这份工作</button>
+                    <label for="pw-delegate-executor">交给谁</label>
+                    <select id="pw-delegate-executor">
+                        <option value="claude-code">Claude Code</option>
+                        <option value="codex">Codex</option>
+                    </select>
                     <label for="pw-delegate-ask">要做的事（一句话就行）</label>
                     <textarea id="pw-delegate-ask" rows="2" maxlength="2000" required placeholder="例如：把当前稿里两种入口方案各写三条优缺点放回当前稿"></textarea>
                     <details>
@@ -131,6 +187,7 @@
                         </select>
                     </details>
                     <label class="pw-check"><input type="checkbox" id="pw-delegate-edit"> 可以改这一处的当前内容</label>
+                    <label class="pw-check"><input type="checkbox" id="pw-delegate-manage-work" disabled> 可以维护关联工作的安排（改范围、记录结果、拆分；子项另行授权）</label>
                     <label class="pw-check"><input type="checkbox" id="pw-delegate-adopt"> 可以在这一处采用（回答或当前内容的某一版）</label>
                     <button type="submit">交出去</button>
                 </form>

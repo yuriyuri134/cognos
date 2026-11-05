@@ -84,6 +84,7 @@
     for (const item of items) {
       const li = node('li', undefined, 'pw-decision in-item');
       li.dataset.creationId = String(item.id);
+      for(const p of item.explored_from || []) {const source=node('p');source.append(document.createTextNode('从项目另起：'),link(p.title,base+'/projects/'+p.id));li.append(source);}
       const head = node('p'); head.append(link(item.title, base + '/creations/' + item.id));
       head.append(document.createTextNode(' · ' + item.message_count + ' 句 · ' + date(item.updated_at)));
       li.append(head);
@@ -108,9 +109,33 @@
     }
     if (!items.length) list.append(node('li', '还没有。上面留一句就有了。', 'pw-hint'));
   }
+  let exploringHash='';
+  function renderExploring(items) {
+    const hash=JSON.stringify(items);
+    if(hash===exploringHash || document.activeElement?.closest('#in-exploring form')) return;
+    exploringHash=hash;
+    $('in-exploring-section').hidden=!items.length;
+    const list=$('in-exploring');list.replaceChildren();
+    for(const p of items){
+      const li=node('li',undefined,'pw-decision in-item');li.dataset.projectId=p.id;
+      li.append(link(p.title,base+'/projects/'+p.id));
+      if(p.latest?.note)li.append(node('p',p.latest.note));
+      if(p.latest?.reopen_when)li.append(node('p','再开条件或未完成：'+p.latest.reopen_when));
+      const old=node('details');old.append(node('summary','原来的位置与讨论'));
+      const locations=node('ul');for(const l of p.locations){const row=node('li');row.append(link(l.title,base+'/projects/locations/'+l.id));locations.append(row);}old.append(locations);li.append(old);
+      const form=node('form');const text=node('textarea');text.rows=2;text.maxLength=20000;text.required=true;text.id='in-explore-'+p.id;
+      const label=node('label','这次想探索什么');label.htmlFor=text.id;
+      const submit=node('button','另起一段探索');submit.type='submit';form.append(label,text,submit);
+      form.addEventListener('submit',e=>{e.preventDefault();busy(form,async()=>{
+        const result=await mutate('/projects/'+p.id+'/explorations',{text:text.value});location.href=base+'/creations/'+result.creation_id;
+      });});
+      li.append(form);list.append(li);
+    }
+  }
   async function load() {
     const data = await api('/initium/data');
     projects = data.projects;
+    renderExploring(data.exploring || []);
     if (!document.querySelector('.in-form')) render(data.items);
   }
   $('in-capture-form').addEventListener('submit', e => {

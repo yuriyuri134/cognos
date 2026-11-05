@@ -1,0 +1,4 @@
+const fs=require('node:fs'),path=require('node:path'),{execFileSync}=require('node:child_process');
+const output=execFileSync('docker',['exec','-u','www-data','-w','/var/www/html','cognos-nextcloud-trial-app-1','php','/tmp/check_legacy_queue_scan.php'],{encoding:'utf8'});
+const fixture=JSON.parse(output.split('\n').find(l=>l.startsWith('{')));const report={...fixture,result:'pass',checks:output.split('\n').filter(l=>l&&!l.startsWith('{')&&l!=='PASS')};
+fs.mkdirSync(path.join(__dirname,'evidence'),{recursive:true});fs.writeFileSync(path.join(__dirname,'evidence/legacy-scan.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));

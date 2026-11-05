@@ -42,10 +42,15 @@ final class SpaceApiController extends OCSController {
         private HermesAgentService $hermes,
         private IConfig $config,
         private RunService $runs,
+        private \OCA\Cognos\Service\FollowupService $followups,
+        private \OCA\Cognos\Service\FollowupDispatcher $followupDispatcher,
         private DecisionService $decisions,
         private ProjectService $projects,
         private DelegationService $delegations,
         private AdoptionService $adoptions,
+        private \OCA\Cognos\Service\WorkItemService $workItems,
+        private \OCA\Cognos\Service\RunDriftService $runDrift,
+        private \OCA\Cognos\Service\AttemptService $attempts,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -92,6 +97,82 @@ final class SpaceApiController extends OCSController {
         }
         $this->spaces->markSeen($spaceType, $spaceId, $subject);
         return new DataResponse(['subject' => $subject, 'text' => $text, 'entry' => $entry]);
+    }
+
+    /** Agent read/preview path: never proxy owner-attributed work mutations. */
+    private function workLocation(string $spaceType, string $spaceId): ?array {
+        $uid=$this->uid();
+        if ($uid===null || $spaceType!=='creation' || !ctype_digit($spaceId) || $this->creations->get((int)$spaceId,$uid)===null) { return null; }
+        return $this->projects->locationForCreation($uid,(int)$spaceId);
+    }
+
+    #[NoAdminRequired]
+    public function attemptList(string $spaceType,string $spaceId):DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);if($loc===null)return new DataResponse(['message'=>'Project location not found'],404);
+        return new DataResponse(['items'=>$this->attempts->list((string)$this->uid(),$loc['project_id'],$loc['id'])]);
+    }
+    #[NoAdminRequired]
+    public function attemptDetail(string $spaceType,string $spaceId,string $attemptId):DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);if($loc===null)return new DataResponse(['message'=>'Project location not found'],404);
+        try{$item=$this->attempts->detail((string)$this->uid(),$attemptId);if(!in_array($loc['id'],$item['location_ids'],true))return new DataResponse(['message'=>'Attempt not in this location'],404);return new DataResponse(['item'=>$item]);}
+        catch(\RuntimeException $e){if($e->getCode()===404)return new DataResponse(['message'=>'Attempt not found'],404);throw $e;}
+    }
+    #[NoAdminRequired]
+    public function workList(string $spaceType,string $spaceId): DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);
+        if ($loc===null) { return new DataResponse(['message'=>'Project location not found'],404); }
+        $items=$this->workItems->list((string)$this->uid(),$loc['project_id'],$loc['id']);
+        $fields=array_flip(['id','description','owner','deliverable','acceptance','evidence','state','revision','split_from_id','split_from_revision','created_by','created_subject','created_at']);
+        return new DataResponse(['location_id'=>$loc['id'],'items'=>array_map(static fn(array $w):array=>array_intersect_key($w,$fields),$items)]);
+    }
+
+    #[NoAdminRequired]
+    public function workDetail(string $spaceType,string $spaceId,string $workId): DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);
+        if ($loc===null) { return new DataResponse(['message'=>'Project location not found'],404); }
+        try { $w=$this->workItems->detail((string)$this->uid(),$workId); }
+        catch (\RuntimeException $e) { if ($e->getCode()===404) { return new DataResponse(['message'=>'Work not found'],404); } throw $e; }
+        if ($w['location_id']!==$loc['id']) { return new DataResponse(['message'=>'Work not found here'],404); }
+        return new DataResponse(['item'=>$w]);
+    }
+
+    #[NoAdminRequired]
+    public function workSplitPreview(string $spaceType,string $spaceId,string $workId,array $parts): DataResponse {
+        $read=$this->workDetail($spaceType,$spaceId,$workId);
+        if ($read->getStatus()!==200) { return $read; }
+        try { return new DataResponse($this->workItems->previewSplit((string)$this->uid(),$workId,$parts)); }
+        catch (\InvalidArgumentException $e) { return new DataResponse(['message'=>$e->getMessage()],422); }
+        catch (\RuntimeException $e) { if ($e->getCode()===409) { return new DataResponse(['message'=>$e->getMessage()],409); } throw $e; }
+    }
+
+    #[NoAdminRequired]
+    public function workUpdate(string $spaceType,string $spaceId,string $workId):DataResponse {
+        return $this->manageWork($spaceType,$spaceId,$workId,false);
+    }
+    #[NoAdminRequired]
+    public function workSplit(string $spaceType,string $spaceId,string $workId):DataResponse {
+        return $this->manageWork($spaceType,$spaceId,$workId,true);
+    }
+    private function manageWork(string $spaceType,string $spaceId,string $workId,bool $split):DataResponse {
+        $loc=$this->workLocation($spaceType,$spaceId);
+        if($loc===null)return new DataResponse(['message'=>'Project location not found'],404);
+        $body=$this->body();$uid=(string)$this->uid();
+        $authority=['subject'=>$this->subject((string)($body['subject']??'')),'run_id'=>(string)($body['run_id']??''),
+            'location_id'=>$loc['id'],'acknowledged'=>!empty($body['acknowledged']),'drift_token'=>(string)($body['drift_token']??'')];
+        try {
+            if($split){
+                if(!is_array($body['parts']??null))throw new \InvalidArgumentException('parts is required');
+                $result=$this->workItems->split($uid,$workId,$body['parts'],(string)($body['basis']??''),(string)($body['request_id']??''),$authority);
+            }else{
+                $data=array_intersect_key($body,array_flip(['description','owner','deliverable','acceptance']));
+                $result=$this->workItems->update($uid,$workId,(int)($body['expected_revision']??0),$data,(string)($body['state']??''),
+                    (string)($body['evidence']??''),(string)($body['note']??''),(string)($body['request_id']??''),$authority);
+            }
+            return new DataResponse($result);
+        }catch(\OCA\Cognos\Service\WorkDriftException $e){return new DataResponse(['message'=>$e->getMessage(),'drift'=>$e->drift],409);}
+        catch(\DomainException $e){return new DataResponse(['message'=>$e->getMessage()],403);}
+        catch(\InvalidArgumentException $e){return new DataResponse(['message'=>$e->getMessage()],422);}
+        catch(\RuntimeException $e){if(in_array($e->getCode(),[404,409],true))return new DataResponse(['message'=>$e->getMessage()],$e->getCode());throw $e;}
     }
 
     #[NoAdminRequired]
@@ -225,9 +306,43 @@ final class SpaceApiController extends OCSController {
         }
         // 回的是对话里哪一句；被反对叫回来的回答是 0（不回任何一句）
         $replyTo = isset($body['reply_to']) && $body['reply_to'] !== null ? (int)$body['reply_to'] : null;
+        $missing = []; $changed = [];
+        $finalize = function (int $messageId) use ($uid, $run, $body, $spaceType, $spaceId, $resultId, &$missing, &$changed): void {
+            $this->followups->enqueue($resultId,$run,$uid);
+            // 运行起步以后才有、输入里没有的适用决定：结果照收，记下来，页面上标「起步时还没有这条决定」；不自动应用到共享内容
+            $drift = $this->driftSnapshot($uid, $run);
+            $missing = $drift['decisions_missing'];
+            if ($missing !== []) {
+                $this->runs->setDecisionsMissing($run['id'], $missing);
+            }
+            // 它报过的依据在这期间被改了：照收，记下来；它交回前看过差异（acknowledged_drift）也记下
+            $changed = $drift['basis_changed'];
+            $seen = !empty($body['acknowledged_drift']) && is_string($body['drift_token'] ?? null)
+                && hash_equals($drift['drift_token'], $body['drift_token'])
+                && ($missing !== [] || $changed !== []) ? time() : null;
+            if ($changed !== [] || $seen !== null) {
+                $this->runs->setDrift($run['id'], $changed, $seen);
+            }
+            if ($run['target_type'] === 'delegation') {
+                $this->delegations->returned($run['target_id'], (int)$messageId);
+            }
+            // 从哪件没完的叫起来的，以登记的运行为准
+            $openId = $run['target_type'] === 'open' ? (int)$run['target_id'] : null;
+            if ($openId !== null) {
+                $checks = is_array($body['checks'] ?? null)
+                    ? ['ok' => (bool)($body['checks']['ok'] ?? false), 'text' => trim((string)($body['checks']['text'] ?? ''))]
+                    : null;
+                try {
+                    $this->continuation->afterRun($spaceType, $spaceId, $openId, (int)($body['run_started'] ?? 0),
+                        isset($body['branch']) ? (string)$body['branch'] : null, $checks, (bool)($body['timed_out'] ?? false));
+                } catch (\InvalidArgumentException $error) {
+                    // 那件没完的不在了：回答照样留下，只是不接着走
+                }
+            }
+        };
         try {
             $received = $this->runs->receiveResult($run, $resultId, trim((string)($body['subject'] ?? '')), array_values($dependsOn),
-                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo)['id']);
+                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo)['id'], $finalize);
         } catch (\DomainException $error) {
             return new DataResponse(['message' => $error->getMessage()], 403);
         } catch (\InvalidArgumentException $error) {
@@ -235,42 +350,13 @@ final class SpaceApiController extends OCSController {
         }
         $message = $this->message((int)$spaceId, $uid, $received['message_id']);
         if ($received['duplicate']) {
-            // 已经收过：不再存、不再记检查、不再叫下一件
+            // Only a still-unclaimed durable intent may be recovered by receipt retry.
+            $this->processFollowup($resultId,$uid);
+            // 已经收过：不再存、不再记检查
             return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => true], 200);
         }
-        $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
-        $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
-        // 运行起步以后才有、输入里没有的适用决定：结果照收，记下来，页面上标「起步时还没有这条决定」；不自动应用到共享内容
-        $drift = $this->driftSnapshot($uid, $run);
-        $missing = $drift['decisions_missing'];
-        if ($missing !== []) {
-            $this->runs->setDecisionsMissing($run['id'], $missing);
-        }
-        // 它报过的依据在这期间被改了：照收，记下来；它交回前看过差异（acknowledged_drift）也记下
-        $changed = $drift['basis_changed'];
-        $seen = !empty($body['acknowledged_drift']) && is_string($body['drift_token'] ?? null)
-            && hash_equals($drift['drift_token'], $body['drift_token'])
-            && ($missing !== [] || $changed !== []) ? time() : null;
-        if ($changed !== [] || $seen !== null) {
-            $this->runs->setDrift($run['id'], $changed, $seen);
-        }
-        if ($run['target_type'] === 'delegation') {
-            $this->delegations->returned($run['target_id'], (int)$received['message_id']);
-        }
-        // 从哪件没完的叫起来的，以登记的运行为准
-        $openId = $run['target_type'] === 'open' ? (int)$run['target_id'] : null;
-        if ($openId !== null) {
-            $checks = is_array($body['checks'] ?? null)
-                ? ['ok' => (bool)($body['checks']['ok'] ?? false), 'text' => trim((string)($body['checks']['text'] ?? ''))]
-                : null;
-            try {
-                $this->continuation->afterRun($spaceType, $spaceId, $openId, (int)($body['run_started'] ?? 0),
-                    isset($body['branch']) ? (string)$body['branch'] : null, $checks, (bool)($body['timed_out'] ?? false));
-            } catch (\InvalidArgumentException $error) {
-                // 那件没完的不在了：回答照样留下，只是不接着走
-            }
-        }
-        $this->callNext($spaceType, $spaceId, $uid, $openId);
+        // Claim the durable intent after commit; external work is never inside the receipt transaction.
+        $this->processFollowup($resultId,$uid);
         return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false, 'decisions_missing' => $missing,
             'basis_changed' => $changed], 201);
     }
@@ -328,7 +414,7 @@ final class SpaceApiController extends OCSController {
             return new DataResponse(['message' => 'content is required'], 422);
         }
         try {
-            return new DataResponse($this->delegations->writeContent($uid, (int)$spaceId, $this->subject((string)($body['subject'] ?? '')), $body['content']));
+            return new DataResponse($this->delegations->writeContent($uid, (int)$spaceId, $this->subject((string)($body['subject'] ?? '')), $body['content'], (string)($body['run_id'] ?? '')));
         } catch (\DomainException $error) {
             return new DataResponse(['message' => $error->getMessage()], 403);
         } catch (\InvalidArgumentException $error) {
@@ -349,13 +435,7 @@ final class SpaceApiController extends OCSController {
         }
         $body = $this->body();
         $subject = $this->subject((string)($body['subject'] ?? ''));
-        $run = null;
-        foreach ($this->runs->activeForSpace($spaceType, $spaceId) as $candidate) {
-            if ($candidate['subject'] === $subject && in_array($candidate['state'], ['queued', 'claimed', 'running'], true)) {
-                $run = $candidate;
-                break;
-            }
-        }
+        $run = $this->activeSubjectRun($uid, $spaceType, $spaceId, $subject, (string)($body['run_id'] ?? ''));
         if ($run === null) {
             return new DataResponse(['message' => '这里没有正由你在做的运行；依据要在做的时候报'], 409);
         }
@@ -408,8 +488,13 @@ final class SpaceApiController extends OCSController {
         $purpose = $purpose === '' ? '自己进来做事' : mb_substr($purpose, 0, 500);
         $entry = $this->entries->entry($space, $subject, null, []);
         $decisionIds = SpaceEntryService::decisionIds($entry);
+        try {
         $run = $this->runs->create($spaceType, $spaceId, 'conversation', $spaceType . ':' . $spaceId, $purpose, $subject, $uid,
             ['system' => $this->entries->renderText($entry), 'decision_ids' => $decisionIds, 'started_by' => 'agent']);
+        } catch (\RuntimeException $e) {
+            if ($e->getCode() !== 409) { throw $e; }
+            return new DataResponse(['message'=>$e->getMessage()],409);
+        }
         $this->decisions->recordIncluded($run['id'], $decisionIds);
         $this->runs->startedByAgent($run['id']);
         $this->spaces->markSeen($spaceType, $spaceId, $subject);
@@ -427,42 +512,7 @@ final class SpaceApiController extends OCSController {
         return new DataResponse($this->driftSnapshot($uid, $run));
     }
 
-    /** Fingerprint of the exact returned drift; not proof of understanding or authority. */
-    private function driftSnapshot(string $uid, array $run): array {
-        $missing = $this->decisions->missingForRun($uid, $run);
-        $changed = $this->basisChanged($uid, $run['id']);
-        usort($missing, static fn(array $a, array $b): int => strcmp($a['id'], $b['id']));
-        usort($changed, static fn(array $a, array $b): int => [$a['location_id'], $a['version']] <=> [$b['location_id'], $b['version']]);
-        $token = hash('sha256', json_encode([$run['id'], $missing, $changed], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE));
-        return ['decisions_missing' => $missing, 'basis_changed' => $changed, 'drift_token' => $token];
-    }
-
-    /** 这次运行报过「依据了某处当前内容第几版」，而那一处现在已经是更新的版本。 */
-    private function basisChanged(string $uid, string $runId): array {
-        $out = [];
-        foreach ($this->runs->dependencies($runId) as $dep) {
-            if ($dep['type'] !== 'location_content' || $dep['version'] === null) {
-                continue;
-            }
-            try {
-                $loc = $this->projects->location($uid, $dep['id']);
-            } catch (\RuntimeException) {
-                continue;
-            }
-            if ($loc['revision'] > (int)$dep['version']) {
-                // 改了哪些行：只在一边有的行（不标行内改动）
-                $old = explode("
-", (string)$this->projects->revision($uid, $loc['id'], (int)$dep['version'])['content']);
-                $new = explode("
-", (string)$loc['content']);
-                $out[] = ['location_id' => $loc['id'], 'title' => $loc['title'], 'version' => (int)$dep['version'],
-                    'current' => $loc['revision'], 'editor' => $loc['editor'],
-                    'removed' => array_values(array_filter(array_diff($old, $new), 'strlen')),
-                    'added' => array_values(array_filter(array_diff($new, $old), 'strlen'))];
-            }
-        }
-        return $out;
-    }
+    private function driftSnapshot(string $uid,array $run):array { return $this->runDrift->snapshot($uid,$run); }
 
     /**
      * 正在这里做事的 agent 采用一样东西的一版。在交给它、写明允许在这里采用的事里，直接采用（采用者是它，依据是那次委托）；
@@ -476,10 +526,7 @@ final class SpaceApiController extends OCSController {
         }
         $body = $this->body();
         $subject = $this->subject((string)($body['subject'] ?? ''));
-        $run = null;
-        foreach ($this->runs->activeForSpace($spaceType, $spaceId) as $candidate) {
-            if ($candidate['subject'] === $subject && in_array($candidate['state'], ['queued', 'claimed', 'running'], true)) { $run = $candidate; break; }
-        }
+        $run = $this->activeSubjectRun($uid, $spaceType, $spaceId, $subject, (string)($body['run_id'] ?? ''));
         if ($run === null) {
             return new DataResponse(['message' => '这里没有正由你在做的运行；采用要在做事的时候'], 409);
         }
@@ -556,29 +603,20 @@ final class SpaceApiController extends OCSController {
     }
 
     /** 这一位做完了：排着的下一件接着叫（一条反对，或者交互对象在它忙时说的一句）；都没有，就从还拉着的没完的接着走。 */
-    private function callNext(string $spaceType, string $spaceId, string $uid, ?int $justRan): void {
-        $next = $this->pushBack->drain($spaceType, $spaceId, $uid);
-        if ($next === null) {
-            $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
-            return;
-        }
-        [$what, $messageId] = $next;
-        if ($what !== 'msg') {
-            return;
-        }
-        try {
-            $answer = $this->hermes->chatCreationFromMessage((int)$spaceId, $messageId);
-            if ($answer !== null) {
-                // 叫来的是 Hermes：回答当场就有，没人占着桥，没完的接着走
-                $this->creations->addMessage((int)$spaceId, $uid, 'assistant', $answer, $messageId);
-                $this->continuation->resume($spaceType, $spaceId, $uid, $justRan);
+    private function processFollowup(string $resultId,string $uid):void {
+        $this->followupDispatcher->process($resultId,$uid);
+    }
+
+    private function activeSubjectRun(string $uid, string $spaceType, string $spaceId, string $subject, string $requested): ?array {
+        foreach ($this->runs->activeForSpace($spaceType, $spaceId) as $candidate) {
+            if ($candidate['subject'] !== $subject || !in_array($candidate['state'], ['queued', 'claimed', 'running'], true)) {
+                continue;
             }
-        } catch (\Throwable $error) {
-            if ($error instanceof \RuntimeException && $error->getCode() === ClaudeBridgeService::BUSY) {
-                $this->pushBack->enqueueMessage($spaceType, $spaceId, $messageId, true);
+            if ($requested === '' || ($candidate['id'] === $requested && $candidate['caller'] === $uid)) {
+                return $candidate;
             }
-            // 别的原因叫不上：那句还在对话里、没人回，页面上能「再叫一次」
         }
+        return null;
     }
 
     private function uid(): ?string {

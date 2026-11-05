@@ -92,3 +92,51 @@ powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-bridge.ps1
 接着走总是叫本机的 Claude Code（经桥），和 `creation_agent` 设的是谁无关。来路见项目文件 `框架审视/为什么会停-2026-10-27.md`。
 
 每次运行的完整输入输出（`system.txt`、`prompt.txt`、`stream.jsonl`、`meta.json`）存在 `deploy/nextcloud-trial/evidence/claude-bridge/runs/`，起桥前设 `COGNOS_RUN_LABEL` 可以给运行打标签；`compare_runs.py` 按标签对照。见 `docs/条件B对照-2026-11-01.md`。
+
+
+## 本机 Codex 独立进入（2026-11-04，app 0.32.1）
+
+`codex_entry.py` 使用现有 `codex exec` 和 Cognos MCP 进入一个指定位置，不编辑全局 Codex 配置。先在本机完成 Codex 登录；本次实际验证为 codex-cli 0.159.2、ChatGPT 登录、gpt-6.1-sol。配置方式参考 [OpenAI MCP 文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)及[非交互执行文档](https://learn.chatgpt.com/docs/non-interactive-mode)。
+
+为 Codex 单独建立 Nextcloud 应用密码，在运行它的终端设置 `COGNOS_URL`、`COGNOS_USER`、`COGNOS_APP_PASSWORD`。不要把密码放进任务文本或提交仓库。实际验证的凭据保存在本机 `.secrets/codex-app-password`。它仍对应原 Nextcloud 账号，不是独立多账号权限体系。
+
+```powershell
+$env:COGNOS_URL = 'http://127.0.0.1:8780'
+$env:COGNOS_USER = 'cognos-admin'
+$env:COGNOS_APP_PASSWORD = (Get-Content -Raw deploy/nextcloud-trial/.secrets/codex-app-password).Trim()
+$env:COGNOS_MCP_STATE_DIR = "$env:LOCALAPPDATA/cognos-codex-handoff"
+py -3 tools/cognos-space-mcp/codex_entry.py --space-id <位置的creation编号> --prompt-file <任务文本路径> --output-dir <本地记录目录> --subject Codex
+```
+
+任务文本可以让它进来、登记、读取/预览工作、报依据和交回。启动器限定 MCP 到本次位置，关闭 shell、应用和插件工具，不改用户设置；文件执行策略为只读，但 Cognos 的登记和交回仍通过明确列出的 MCP 工具发生。允许工具仅为 `enter_space/start_work/note_basis/check_changes/hand_back/list_work_items/get_work_item/preview_work_split/list_attempts/get_attempt`。这限制的是这次本机连接的能力，不改变账号在服务器上的基础权限。
+
+`COGNOS_MCP_STATE_DIR` 应跨进程保持，便于沿同一 run_id 和原结果取回回执。CLI 会话本身是临时会话，跨调用通过 Cognos 的运行编号和已保存输入继续，不假定模型自动保留上一段内部状态。日志含项目内容，由调用者保存到不入库的位置。超时或失败后先核对已有运行和结果，不自动重新开工。
+
+这条路径已真实跑过 Codex 与 Claude 共同工作：Codex 先登记并依据第 2 版；新增决定后 Claude 改成第 3 版；Codex 再进入、看到新决定和差异并沿原运行交回。Codex 的两段是独立 CLI 调用，不宣称两模型持续同时生成。另一个真实 Codex 进程复用成功回执，没有新运行或重复消息。
+
+### 工作读取与拆分预览
+
+`list_work_items`、`get_work_item`、`preview_work_split` 走代理 OCS 接口，只读取或预览。项目入口最多给 10 份未完工作摘要，标明总数、省略数量及正文截断；要看全部或原版本再用读取工具。预览不会拆分、复制委托或更改原作者。0.33.0 的 AI 工作写入通过单份委托授权与实际作者检查，见下节。0.35.0 的项目页面另有本机 Codex 委托入口，见下节。
+
+
+### 获准维护一份工作（0.33.0）
+
+委托需关联 `work_item_id` 并明确授予 `may_manage_work`；旧委托和自行 `start_work` 没有该权限。经桥启动时附加 `COGNOS_RUN_ID`、限定空间和实际主体；`update_work_item` 保存完整安排与状态（需要 `expected_revision`），`preview_work_split` 后以返回的 `basis` 调用 `split_work_item`。工具读取原运行资格，不重新登记。独立 `codex_entry.py` 默认仍不开放这两个写工具。
+
+新决定或已报依据变化时，第一次写入只展示变化。面对变化后用 `acknowledged=true` 再提交；确认绑定本机实际收到的差异指纹，期间又变化则重新展示。工作写入用确定的请求编号，网络失联后以同一意图重试取得原回执，不重复版本或子项。请求成功后请读取新版，再作不同的修改。运行、项目或工作资格失效时不能开始新操作；原成功请求仍可取回回执。
+
+仅本次行动的委托跟随自己允许的修改；其他人改范围会让旧委托失效。完成、等待、取消、拆分不续权；子项不复制委托、不自动启动。账号和 AI 作者分别保留。工作维护不自动授予改当前稿或采用权限，也不代表外部进程已经停止。当前应用密码仍是账号凭据，不把这层限定宣称为账号级强隔离。
+
+
+### 尝试与阶段历史读取（0.34.0）
+
+`list_attempts/get_attempt` 只读当前关联位置的尝试、简介原版本及各段总结；新位置没有关联时不能以同账号任意跨过空间限定读取。Codex 独立入口和 Claude 桥的列表均增加这两个只读工具。简介与总结有作者，阶段覆盖与具体来源不等同完成、采用或验证。项目入口仅给最多五份及最近阶段的有界摘要，报告省略/截断，完整旧版本按需读取。当前网页按登录账号写入，不提供冒用用户作者的代理写入口；本次工程检查未调用模型生成总结。
+
+
+### 从项目页面委托本机 Codex（0.35.0）
+
+位置页「交出去」可选择 Claude Code 或 Codex。使用 Codex 前，在运行桥的 Windows 账号下完成 `codex login`，为桥配置对应账号的 `COGNOS_CODEX_APP_PASSWORD` 或 `.secrets/codex-app-password`，再启动当前版本的桥。`/health` 的 `codex_configured` 表示已找到 CLI 和应用凭据，模型登录与额度仍由一次实际运行确认。
+
+Codex 委托走桥的 `/codex`。服务先登记委托、运行、账号与入口输入，再发送。独立入口仍用 `codex_entry.py`。页面委托复用临时 CLI、只读文件策略及同一个桥的结果队列，MCP 同时限定位置和原运行，工具参数自动使用这两个绑定。读取入口、工作和尝试属于常用工具，写稿、采用及工作维护工具按单项授权开放。最终回答由桥按原运行交回。同一请求编号可以取回原委托，换参与者需要新的请求。
+
+桥的 Codex 凭据属于一个 Nextcloud 账号，接单时对照委托账号。入口不可用时页面保留拒绝原因，响应是否丢失无法判断时保留未知状态。各空间的后续自动接续沿原有设置。

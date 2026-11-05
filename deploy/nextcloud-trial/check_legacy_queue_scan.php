@@ -1,0 +1,16 @@
+<?php
+declare(strict_types=1);define('OC_CONSOLE',1);$_SERVER['SCRIPT_FILENAME']='/var/www/html/console.php';require '/var/www/html/lib/base.php';set_exception_handler(function($e){fwrite(STDERR,(string)$e);exit(1);});
+use OCA\Cognos\Service\{ProjectService,CreationSpaceService,RunService,LegacyQueueImportService,DispatchQueueService};
+$projects=\OC::$server->get(ProjectService::class);$chats=\OC::$server->get(CreationSpaceService::class);$runs=\OC::$server->get(RunService::class);$scan=\OC::$server->get(LegacyQueueImportService::class);$queue=\OC::$server->get(DispatchQueueService::class);$config=\OC::$server->get(\OCP\IConfig::class);$db=\OC::$server->get(\OCP\IDBConnection::class);
+function check(bool $ok,string $s):void{if(!$ok)throw new RuntimeException($s);echo $s."\n";}
+$p=$projects->create('cognos-admin','验证：主动找回旧积压 '.time(),bin2hex(random_bytes(16)));$loc=$projects->location('cognos-admin',$p['location_id']);$space=(string)$loc['creation_id'];$msg=$chats->addMessage((int)$space,'cognos-admin','user','旧排队的原话');
+$key='pushback_queue_creation_'.$space;$raw=json_encode([123,'msg:'.$msg['id']]);$config->setAppValue('cognos',$key,$raw);
+$report=$scan->scan();$own=array_values(array_filter($report,fn($r)=>$r['source_key']===$key));check(count($own)===1&&$own[0]['state']==='imported'&&$own[0]['item_count']===2,'scanner finds old queue without a new result receipt');
+$items=$queue->forCreations([$space]);check(count($items)===2&&array_unique(array_column($items,'state'))===['held'],'old items are atomically held for review');
+check($queue->claim('creation',$space,'must-not-start')===null&&$queue->hasHeld('creation',$space),'held backlog cannot be automatically claimed');
+check($runs->forSpace('creation',$space)===[],'import invents no run and executes no AI');check($config->getAppValue('cognos',$key)===$raw,'original legacy value retained');
+$again=$scan->scan();check(!array_filter($again,fn($r)=>$r['source_key']===$key),'unchanged source hash skips repeated import');check(count($queue->forCreations([$space]))===2,'repeated scan does not duplicate backlog');
+$bad=$projects->create('cognos-admin','验证：损坏旧积压 '.time(),bin2hex(random_bytes(16)));$badLoc=$projects->location('cognos-admin',$bad['location_id']);$badKey='pushback_queue_creation_'.$badLoc['creation_id'];$badRaw='["msg:1","not-a-reference"]';$config->setAppValue('cognos',$badKey,$badRaw);
+$scan->scan();check($queue->forCreations([(string)$badLoc['creation_id']])===[],'invalid batch does not import a valid prefix');check($config->getAppValue('cognos',$badKey)===$badRaw,'invalid raw source remains intact');
+$q=$db->getQueryBuilder();$audit=$q->select('state','source_hash','item_count')->from('cognos_queue_imports')->where($q->expr()->eq('source_key',$q->createNamedParameter($badKey)))->executeQuery()->fetch();check($audit['state']==='invalid'&&$audit['source_hash']===hash('sha256',$badRaw),'invalid source has a durable audit without copying content');
+echo json_encode(['project_id'=>$p['project_id'],'location_id'=>$p['location_id'],'creation_id'=>(int)$space],JSON_UNESCAPED_UNICODE)."\nPASS\n";

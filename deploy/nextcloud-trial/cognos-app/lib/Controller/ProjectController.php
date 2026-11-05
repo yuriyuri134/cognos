@@ -23,6 +23,8 @@ final class ProjectController extends Controller {
     public function __construct(IRequest $request, private IUserSession $users, private ProjectService $projects,
         private DecisionService $decisions, private DelegationService $delegations, private InitiumService $initium,
         private AdoptionService $adoptions, private RestructureService $restructures,
+        private \OCA\Cognos\Service\FollowupService $followups,
+        private \OCA\Cognos\Service\DispatchQueueService $dispatchQueue,
         private IConfig $config, private LoggerInterface $logger) {
         parent::__construct('cognos', $request);
     }
@@ -39,12 +41,14 @@ final class ProjectController extends Controller {
             $progress = $this->decisions->progress(array_column($decisions, 'id'), $activity['creation_ids']);
             foreach ($decisions as &$d) { $d['progress'] = $progress[$d['id']] ?? []; }
             unset($d);
+            $followups = $this->followups->forCreations($uid,$activity['creation_ids']);
+            $queue=$this->dispatchQueue->forCreations($activity['creation_ids']);
             unset($activity['creation_ids']);
             $counts = $this->delegations->countsForProject($projectId);
             $reviews = $this->adoptions->reviewCounts($projectId);
             $locations = array_map(static fn(array $l): array => $l + ($counts[$l['id']] ?? ['open' => 0, 'held' => 0]) + ['review' => $reviews[$l['id']] ?? 0],
                 $this->projects->locationStates($uid, $projectId));
-            $out = ['decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
+            $out = ['dispatch_queue'=>$queue, 'followups' => $followups, 'project' => $this->projects->project($uid, $projectId), 'lifecycle_history' => $this->projects->lifecycleHistory($uid, $projectId), 'decisions' => $decisions, 'activity' => $activity, 'locations' => $locations,
                 'formed_from' => $this->initium->forProject($uid, $projectId),
                 'history' => $this->restructures->historyForProject($uid, $projectId), 'merged_into' => $this->mergedInto($uid, $projectId)];
             if ($location_id !== '') {
@@ -68,9 +72,9 @@ final class ProjectController extends Controller {
     /** 从这个位置交出去一件事，交给本机 Claude Code；结果回到这个位置。 */
     #[NoAdminRequired]
     public function delegate(string $locationId, string $ask, string $request_id, string $goal = '', string $means = '',
-        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false, bool $may_adopt = false): DataResponse {
+        string $forbidden = '', int $return_minutes = 30, bool $may_edit = false, bool $may_adopt = false, string $work_item_id = '', int $expected_work_revision = 0, bool $may_manage_work = false, string $executor = ''): DataResponse {
         return $this->respond(fn(string $uid) => $this->delegations->delegate($uid, $locationId, $ask, $goal, $means, $forbidden,
-            $return_minutes, $may_edit, $request_id, $may_adopt));
+            $return_minutes, $may_edit, $request_id, $may_adopt, $work_item_id, $expected_work_revision, $may_manage_work, $executor));
     }
 
     #[NoAdminRequired]
@@ -104,6 +108,8 @@ final class ProjectController extends Controller {
     #[NoCSRFRequired]
     public function page(string $projectId = '', string $locationId = ''): TemplateResponse {
         Util::addScript('cognos', 'project-workspace');
+        Util::addScript('cognos', 'work-items');
+        Util::addScript('cognos', 'attempts');
         Util::addStyle('cognos', 'project-workspace');
         return new TemplateResponse('cognos', 'project-workspace', ['projectId' => $projectId, 'locationId' => $locationId]);
     }
@@ -111,20 +117,21 @@ final class ProjectController extends Controller {
     /** 重组：先预览后果（带 basis），确认时带回 basis，状态变了就整批不做。 */
     #[NoAdminRequired]
     public function previewRestructure(string $action, string $location_id = '', string $parent_id = '', string $project_id = '',
-        string $target_parent_id = ''): DataResponse {
+        string $target_parent_id = '', string $change_id = ''): DataResponse {
         return $this->respond(fn(string $uid) => $this->restructures->preview($uid, $action,
-            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id)));
+            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id, $change_id)));
     }
 
     #[NoAdminRequired]
     public function restructure(string $action, string $basis, string $request_id, string $location_id = '', string $parent_id = '',
-        string $project_id = '', string $target_parent_id = ''): DataResponse {
+        string $project_id = '', string $target_parent_id = '', string $change_id = ''): DataResponse {
         return $this->respond(fn(string $uid) => $this->restructures->apply($uid, $action,
-            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id), $basis, $request_id));
+            $this->restructureParams($action, $location_id, $parent_id, $project_id, $target_parent_id, $change_id), $basis, $request_id));
     }
 
-    private function restructureParams(string $action, string $locationId, string $parentId, string $projectId, string $targetParentId): array {
+    private function restructureParams(string $action, string $locationId, string $parentId, string $projectId, string $targetParentId, string $changeId): array {
         return match ($action) {
+            'undo_move', 'undo' => ['change_id' => $changeId],
             'move' => ['location_id' => $locationId, 'parent_id' => $parentId],
             'independent' => ['location_id' => $locationId],
             'merge' => ['project_id' => $projectId, 'target_parent_id' => $targetParentId],
@@ -195,7 +202,12 @@ final class ProjectController extends Controller {
 
     #[NoAdminRequired]
     public function initium(): DataResponse {
-        return $this->respond(fn(string $uid) => ['items' => $this->initium->list($uid), 'projects' => $this->projects->projects($uid)]);
+        return $this->respond(fn(string $uid) => ['exploring' => $this->initium->exploring($uid), 'items' => $this->initium->list($uid), 'projects' => $this->projects->projects($uid)]);
+    }
+
+    #[NoAdminRequired]
+    public function exploreFrom(string $projectId, string $text, string $request_id): DataResponse {
+        return $this->respond(fn(string $uid) => $this->initium->exploreFrom($uid,$projectId,$text,$request_id));
     }
 
     #[NoAdminRequired]
@@ -216,6 +228,47 @@ final class ProjectController extends Controller {
         $tz = $this->config->getUserValue($uid, 'core', 'timezone', '') ?: 'Asia/Shanghai';
         try { $zone = new \DateTimeZone($tz); } catch (\Exception) { $zone = new \DateTimeZone('Asia/Shanghai'); }
         return (new \DateTimeImmutable('@' . $ts))->setTimezone($zone)->format($format);
+    }
+
+    #[NoAdminRequired]
+    public function lifecycle(string $projectId, string $action, int $expected_revision, string $request_id, string $note = '', string $reopen_when = ''): DataResponse {
+        return $this->respond(fn(string $uid) => $this->projects->changeLifecycle($uid,$projectId,$action,$expected_revision,$request_id,$note,$reopen_when));
+    }
+
+    #[NoAdminRequired]
+    public function closeFollowup(string $resultId,string $expected_state,string $note,string $request_id):DataResponse {
+        return $this->respond(fn(string $uid) => $this->projects->commit($uid,$request_id,['close_followup',$resultId,$expected_state,$note],
+            fn()=>$this->followups->close($resultId,$uid,$expected_state,$note)));
+    }
+
+    #[NoAdminRequired]
+    public function closeQueue(string $itemId,int $creation_id,string $expected_state,string $note,string $request_id):DataResponse {
+        return $this->respond(fn(string $uid)=>$this->projects->commit($uid,$request_id,['close_queue',$itemId,$creation_id,$expected_state,$note],function()use($uid,$itemId,$creation_id,$expected_state,$note):array {
+            $loc=$this->projects->locationForCreation($uid,$creation_id);
+            if($loc===null)throw new \RuntimeException('项目讨论不存在或不可访问',404);
+            $this->projects->lockedLocation($uid,$loc['id']);
+            // Both review entry points lock intent before queue to avoid opposite lock order.
+            $peek=$this->dispatchQueue->get($itemId);
+            if($peek!==null&&$peek['followup_id']!==null)$this->followups->lockOwned($peek['followup_id'],$uid);
+            $closed=$this->dispatchQueue->close($itemId,(string)$creation_id,$uid,$expected_state,$note);
+            if($expected_state==='unknown'&&$closed['followup_id']!==null){
+                $intent=$this->followups->get($closed['followup_id']);
+                if($intent!==null&&$intent['state']==='unknown'&&$intent['user_id']===$uid)$this->followups->close($intent['result_id'],$uid,'unknown',$note);
+            }
+            return $closed;
+        }));
+    }
+
+    #[NoAdminRequired]
+    public function resumeQueue(string $itemId,int $creation_id,string $note,string $request_id):DataResponse {
+        return $this->respond(fn(string $uid)=>$this->projects->commit($uid,$request_id,['resume_queue',$itemId,$creation_id,$note],function()use($uid,$itemId,$creation_id,$note):array {
+            $loc=$this->projects->locationForCreation($uid,$creation_id);if($loc===null)throw new \RuntimeException('项目讨论不存在或不可访问',404);
+            $loc=$this->projects->lockedLocation($uid,$loc['id']);$project=$this->projects->lockedProject($uid,$loc['project_id']);
+            if($project['state']!=='active')throw new \RuntimeException('请先明确恢复项目推进，再继续旧排队',409);
+            $item=$this->dispatchQueue->releaseHeld($itemId,(string)$creation_id,$uid,$note);$intent=bin2hex(random_bytes(16));
+            $this->followups->enqueueReviewed($intent,$uid,(string)$creation_id,$itemId,$project,trim($note));
+            return ['item_id'=>$itemId,'state'=>'queued','followup_id'=>$intent];
+        }));
     }
 
     private function respond(callable $fn): DataResponse {

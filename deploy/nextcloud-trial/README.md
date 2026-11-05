@@ -59,7 +59,7 @@ Talk 中使用 `@Cognos @Gemini 你的问题`。默认要求提及 bot；未提�
 
 它会删除固定名称的临时隧道容器、结束本次 Cognos/webhook proxy 进程，并移除 Quick Tunnel 的 Nextcloud URL 覆盖配置。`install-talk-bot.ps1 -ReplaceExisting` 可在每次 URL 变化后更新 bot webhook；房间中的 bot 关系需要再次 `talk:bot:setup`。
 
-这条试用路径仍未提供固定域名、长期 HTTPS 证书、邀请审批、注册限流、细粒度组织权限、备份恢复或公网安全审计。实际让同学使用前先用两个测试账号走一遍：加入 Talk、发送 `@Cognos`、断开/恢复网络、刷新后确认回复和 Cognos raw 引用。
+这条试用路径仍未提供固定域名、长期 HTTPS 证书、邀请审批、注册限流、细粒度组织权限或公网安全审计。实际让同学使用前先用两个测试账号走一遍：加入 Talk、发送 `@Cognos`、断开/恢复网络、刷新后确认回复和 Cognos raw 引用。
 
 镜像 Nextcloud 固定在 35.0.1；Nextcloud/Postgres/Redis 的 Docker Registry manifest 在 2026-10-07 核查为 HTTP 200，并已固定 digest。App Store 安装的实际应用版本也须记入证据。升级前备份，保留旧版本兼容记录。
 
@@ -230,3 +230,5 @@ PowerShell 里 `psql -c "..."` 的引号会被拆坏。用管道把 SQL 送进�
 - 试用环境自己的管理员是 `cognos-admin`，密码只在 `.secrets/admin-password`。检查脚本（`check_*.py`、浏览器脚本）自己从文件里读，不打印。
 - 在 Claude Code 的自动模式下，把这个密码读进对话会被拦；要在登录后的页面里看，就用脚本登录（参照 `browser-shell.cjs` 的 `login`）。
 - 不要：用小林本人的账号（`lin`、`yuriyuri`）做测试。
+
+本机整包备份及隔离恢复见[备份与隔离恢复](备份与隔离恢复.md)。

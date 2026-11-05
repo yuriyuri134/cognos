@@ -89,8 +89,11 @@
     const hash = JSON.stringify(data);
     if (hash === state.lastOverview) return;
     state.lastOverview = hash;
+    if (data.project) { state.project = data.project; renderLifecycle(data.lifecycle_history || []); }
     renderDecisions(data.decisions);
     renderWho(data.activity);
+    renderFollowups(data.followups || []);
+    renderDispatchQueue(data.dispatch_queue || []);
     if (state.mode === 'location') renderHistory($('pw-location-history'), data.location_history || [], true);
     if (state.mode === 'project') {
       renderStates(data.locations, data.activity.runs); renderRecent(data.activity.recent, data.decisions); renderOrigin(data.formed_from || []);
@@ -107,6 +110,78 @@
     renderDelegations(data.delegations || []);
     await followRevision(data.revision);
     if (document.activeElement !== $('pw-handoff-text')) $('pw-handoff-text').value = data.handoff_text || '';
+  }
+  const lifecycleNames = {active:'正在推进',paused:'已暂停',ended:'已结束',exploring:'自由探索'};
+  function renderLifecycle(history) {
+    const current = state.project.state || 'active';
+    $('pw-lifecycle-state').textContent = lifecycleNames[current] + (current === 'active' ? '。' : '。已停止派新工作；已在执行的参与者可能仍在运行，结果可以交回。');
+    $('pw-explore-entry').hidden=current!=='exploring';
+    const select = $('pw-lifecycle-action');
+    if (select.dataset.current !== current) {
+      select.replaceChildren();
+      for (const [action,target,label] of [['pause','paused','暂停'],['end','ended','结束这一轮'],['explore','exploring','退回自由探索'],['resume','active','重新开始推进']]) {
+        if (target !== current) { const option=node('option',label); option.value=action; select.append(option); }
+      }
+      select.dataset.current=current;
+    }
+    $('pw-lifecycle-form').hidden=!!state.project.merged_into;
+    $('pw-lifecycle-history').replaceChildren(...history.map(h => node('li', date(h.created_at)+' · '+h.actor+'：'+lifecycleNames[h.from_state]+' → '+lifecycleNames[h.to_state]+(h.note?'；'+h.note:'')+(h.reopen_when?'；再开条件或未完成：'+h.reopen_when:''))));
+  }
+  $('pw-lifecycle-form').addEventListener('submit', e => {
+    e.preventDefault();
+    busy(e.currentTarget,async()=>{
+      try {
+        await mutate('/projects/'+state.project.id+'/lifecycle','POST',{action:$('pw-lifecycle-action').value,expected_revision:Number(state.project.lifecycle_revision),note:$('pw-lifecycle-note').value,reopen_when:$('pw-lifecycle-reopen').value});
+        $('pw-lifecycle-note').value=''; $('pw-lifecycle-reopen').value=''; notice('推进安排已保存。');
+      } finally { state.lastOverview=''; await loadOverview(); }
+    });
+  });
+  function renderFollowups(items) {
+    if(document.activeElement?.closest('#pw-followups form')) return;
+    $('pw-followups-section').hidden=!items.length;
+    const labels={pending:'待接续',claimed:'正在处理接续',attempted:'已尝试接续，执行情况看对应运行',cancelled:'本次接续已取消',unknown:'接续状态未知，先核对，不能直接重试',reconciled:'已核清并关闭本次接续'};
+    const list=$('pw-followups');list.replaceChildren();
+    for(const item of items){
+      const li=node('li',undefined,'pw-decision'+(item.state==='unknown'?' pw-warn':''));li.dataset.resultId=item.result_id;
+      li.append(node('p',labels[item.state]||item.state));
+      const source=node('p');source.append(link('查看对应讨论',base+'/creations/'+item.space_id),document.createTextNode(' · '+date(item.updated_at)));li.append(source);
+      if(item.request_note)li.append(node('p','核对原话：'+item.request_note));
+      if(item.note){const note=node('p',item.note);note.style.whiteSpace='pre-wrap';li.append(note);}
+      if(['pending','unknown'].includes(item.state)){
+        const form=node('form');const input=node('textarea');input.required=true;input.maxLength=2000;input.rows=2;input.id='pw-close-followup-'+item.result_id;
+        const label=node('label',item.state==='unknown'?'核对了什么，为什么可以关闭':'为什么关闭这次接续');label.htmlFor=input.id;
+        const button=node('button',item.state==='unknown'?'已核清，关闭本次接续':'关闭本次接续');button.type='submit';form.append(label,input,button);
+        form.addEventListener('submit',e=>{e.preventDefault();busy(form,async()=>{
+          try{await mutate('/projects/followups/'+item.result_id+'/close','POST',{expected_state:item.state,note:input.value});input.value='';notice('本次接续已关闭，没有重放，也没有改变实际运行状态。');}
+          finally{document.activeElement?.blur();state.lastOverview='';await loadOverview();}
+        });});li.append(form);
+      }
+      list.append(li);
+    }
+  }
+  function renderDispatchQueue(items) {
+    if(document.activeElement?.closest('#pw-dispatch-queue form'))return;
+    $('pw-dispatch-section').hidden=!items.length;
+    const labels={held:'已找回的旧排队，等待重新核对',queued:'等待派发',claimed:'已领取，尚未确认派出',sent:'已派出',unknown:'派发状态未知，请先核对',skipped:'未派发，已跳过',reconciled:'已核清并关闭',cancelled:'已取消本次排队'};
+    const runs={queued:'等待确认',running:'正在执行',unknown:'状态未知',delivered:'结果已交回',failed:'未能开始'};
+    const list=$('pw-dispatch-queue');list.replaceChildren();
+    for(const item of items){
+      const li=node('li',undefined,'pw-decision'+(item.state==='unknown'?' pw-warn':''));li.dataset.queueId=item.id;
+      li.append(node('p',(item.kind==='hit'?'反对 #':'消息 #')+item.ref_id+' · '+(labels[item.state]||item.state)+(item.run_state?' · 对应运行：'+(runs[item.run_state]||item.run_state):'')));
+      li.append(link('查看原讨论',base+'/creations/'+item.space_id));
+      if(item.note){const text=item.note.replace(/^运行 [a-f0-9]{32}：(running|delivered|failed|unknown)([^\n]*)/,(_,status,tail)=>'运行状态：'+(runs[status]||status)+tail);const note=node('p',text);note.style.whiteSpace='pre-wrap';li.append(note);}
+      if(['queued','unknown','held'].includes(item.state)){
+        const form=node('form');const input=node('textarea');input.required=true;input.rows=2;input.maxLength=2000;input.id='pw-queue-note-'+item.id;
+        const label=node('label','核对或取消说明');label.htmlFor=input.id;
+        const button=node('button',item.state==='unknown'?'已核清，关闭本次派发':'取消本次排队');button.type='submit';form.append(label,input,button);
+        if(item.state==='held'){const resume=node('button','核对后继续这一项');resume.type='submit';resume.dataset.resume='1';form.append(resume);}
+        form.addEventListener('submit',e=>{e.preventDefault();const continuing=e.submitter?.dataset.resume==='1';busy(form,async()=>{
+          try{await mutate('/projects/queue/'+item.id+(continuing?'/resume':'/close'),'POST',{creation_id:Number(item.space_id),...(continuing?{}:{expected_state:item.state}),note:input.value});notice(continuing?'已记录明确继续；后台会在当前安排有效时领取这一项。':'队列记录已关闭，没有重放，也没有改变实际运行状态。');}
+          finally{document.activeElement?.blur();state.lastOverview='';await loadOverview();}
+        });});li.append(form);
+      }
+      list.append(li);
+    }
   }
   function decisionItem(d) {
     const li = node('li', undefined, 'pw-decision pw-decision-' + d.status);
@@ -196,15 +271,17 @@
       const li = node('li', undefined, 'pw-decision pw-delegation');
       li.dataset.delegationId = d.id;
       li.append(node('blockquote', d.ask));
-      const meta = ['交出去 ' + date(d.created_at), '约定 ' + date(d.return_by) + ' 前回来',
-        d.may_edit ? '可以改当前内容（起步时版本 ' + d.base_revision + '）' : '只要回答'];
+      const executor = d.executor === 'codex' ? 'Codex' : 'Claude Code';
+      const meta = ['交给 ' + executor, '交出去 ' + date(d.created_at), '约定 ' + date(d.return_by) + ' 前回来',
+        d.may_edit ? '可以改当前内容（起步时版本 ' + d.base_revision + '）' : (d.may_manage_work ? '不能改当前内容' : '只要回答')];
       if (d.may_adopt) meta.push('可以在这里采用');
+      if (d.may_manage_work) meta.push('可以维护关联工作安排，子项另行授权');
       for (const [label, value] of [['要做成', d.goal], ['用', d.means], ['不要碰', d.forbidden]]) if (value) meta.push(label + '：' + value);
       li.append(node('p', meta.join(' · '), 'pw-hint'));
       let status;
       if (d.state === 'not_taken') status = '没交出去：' + (d.note || '桥没接下') + '。可以再交一次。';
       else if (d.state === 'returned') status = (d.subject || 'AI') + ' 交回了结果。';
-      else status = (d.subject || 'Claude Code') + '：' + (runStates[d.run_state] || '正在交出去');
+      else status = (d.subject || executor) + '：' + (runStates[d.run_state] || '正在交出去');
       if (d.overdue) status += ' 已过了约定的时间，还没回来。';
       li.append(node('p', status, 'pw-run pw-delegation-status' + (d.state === 'not_taken' || d.overdue || d.run_state === 'unknown' ? ' pw-warn' : '')));
       if (d.result_message_id) {
@@ -427,11 +504,16 @@
     for (const h of rows) {
       const li = node('li', undefined, 'pw-hint');
       const who = here ? '这一处' : '「' + (h.location_title || '某处') + '」';
-      if (h.action === 'move') li.textContent = date(h.changed_at) + ' ' + who + '从「' + (h.from_parent_title || '顶层') + '」下面移到「' + (h.to_parent_title || '顶层') + '」下面';
+      if (h.action === 'move') li.textContent = date(h.changed_at) + ' ' + who + (h.reverts_change_id ? '撤回此前调整，' : '') + '从「' + (h.from_parent_title || '顶层') + '」下面移到「' + (h.to_parent_title || '顶层') + '」下面';
       else {
-        li.append(document.createTextNode(date(h.changed_at) + ' ' + who + (h.action === 'merge' ? '随项目合并，' : '独立出来，') + '从项目 '));
+        li.append(document.createTextNode(date(h.changed_at) + ' ' + who + (h.action === 'undo_merge' ? '撤回合并，' : h.reverts_change_id ? '撤回独立，' : h.action === 'merge' ? '随项目合并，' : '独立出来，') + '从项目 '));
         li.append(link('「' + h.from_project_title + '」', base + '/projects/' + h.from_project_id), document.createTextNode(' 到项目 '));
         li.append(link('「' + h.to_project_title + '」', base + '/projects/' + h.to_project_id));
+      }
+      if (h.undo_action || h.can_undo_move) {
+        const undo = node('button', '预览撤回这次重组'); undo.type = 'button';
+        undo.addEventListener('click', () => busy(li, () => previewRestructure({action: h.undo_action || 'undo_move', change_id: h.change_id})));
+        li.append(' ', undo);
       }
       box.append(li);
     }
@@ -466,6 +548,7 @@
     $('pw-restructure-lines').replaceChildren(...r.consequences.map(c => node('li', c)));
     $('pw-restructure-preview').hidden = false;
     $('pw-restructure-preview').scrollIntoView({block: 'nearest'});
+    $('pw-restructure-preview').focus({preventScroll: true});
   }
   function openDecisionForm(content, sourceMessageId, supersedes) {
     $('pw-decision-add').open = true;
@@ -645,7 +728,7 @@
     try {
       const r = await mutate('/projects/restructure', 'POST', state.pending);
       const action = state.pending.action; state.pending = null;
-      location.href = action === 'move' ? locationUrl(r.location_id) : base + '/projects/' + r.project_id;
+      location.href = ['move', 'undo_move', 'undo'].includes(action) ? locationUrl(r.location_id) : base + '/projects/' + r.project_id;
     } catch (e) {
       if (e.status === 409) { $('pw-restructure-preview').hidden = true; state.pending = null; }
       throw e;
@@ -659,16 +742,32 @@
       await loadAdoptions(); notice('已在这里采用当前内容的版本 ' + state.location.revision + '。');
     });
   });
+  document.addEventListener('cognos:delegate-work', e => {
+    if (!state.location || state.mode !== 'location') return;
+    const w = e.detail; state.delegatedWork = {id: w.id, revision: w.revision};
+    $('pw-delegate-work-label').textContent = '关联工作：' + w.description + '（第 ' + w.revision + ' 版）；这次委托不会自动完成工作。';
+    $('pw-delegate-work-clear').hidden = false; $('pw-delegate-manage-work').disabled = false; $('pw-delegate-manage-work').checked = false;
+    $('pw-delegate-ask').value = w.description; $('pw-delegate-goal').value = w.deliverable;
+    $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
+    $('pw-delegate-edit').checked = false; $('pw-delegate-adopt').checked = false;
+    $('pw-delegate-form').scrollIntoView({block: 'start'}); $('pw-delegate-ask').focus();
+  });
+  function clearDelegatedWork() { state.delegatedWork = null; $('pw-delegate-manage-work').checked = false; $('pw-delegate-manage-work').disabled = true; $('pw-delegate-work-label').textContent = ''; $('pw-delegate-work-clear').hidden = true; }
+  $('pw-delegate-work-clear').addEventListener('click', clearDelegatedWork);
   $('pw-delegate-form').addEventListener('submit', e => {
     e.preventDefault(); busy(e.currentTarget, async () => {
       if ($('pw-delegate-edit').checked && state.dirty) { notice('当前内容有没保存的修改，先保存，再交出去。', true); return; }
       const r = await mutate('/projects/locations/' + state.location.id + '/delegations', 'POST', {
+        executor: $('pw-delegate-executor').value,
         ask: $('pw-delegate-ask').value, goal: $('pw-delegate-goal').value, means: $('pw-delegate-means').value,
         forbidden: $('pw-delegate-forbidden').value, return_minutes: Number($('pw-delegate-return').value),
-        may_edit: $('pw-delegate-edit').checked, may_adopt: $('pw-delegate-adopt').checked});
+        may_edit: $('pw-delegate-edit').checked, may_adopt: $('pw-delegate-adopt').checked,
+        work_item_id: state.delegatedWork?.id || '', expected_work_revision: state.delegatedWork?.revision || 0,
+        may_manage_work: $('pw-delegate-manage-work').checked});
       $('pw-delegate-ask').value = ''; $('pw-delegate-goal').value = ''; $('pw-delegate-means').value = ''; $('pw-delegate-forbidden').value = '';
+      clearDelegatedWork(); document.dispatchEvent(new Event('cognos:work-updated'));
       state.lastOverview = ''; await Promise.all([loadOverview(), loadMessages()]);
-      notice(r.state === 'not_taken' ? '记下了，但没交出去：' + r.note : '交出去了。可以走开，结果会回到这里。', r.state === 'not_taken');
+      notice(r.run_state === 'unknown' ? '还不能确认对方是否已经开工，已记为状态未知；请先核对，勿重复派发。' : (r.state === 'not_taken' ? '记下了，但没交出去：' + r.note : '交出去了。可以走开，结果会回到这里。'), r.state === 'not_taken' || r.run_state === 'unknown');
     });
   });
   $('pw-handoff-copy').addEventListener('click', async () => {
@@ -714,7 +813,7 @@
       state.sending = true;
       try {
         const result = await api('/creations/' + state.location.creation_id + '/messages', 'POST', {message});
-        $('pw-message').value = ''; notice(result.queued ? '原话已保存，将在当前回复后继续处理。' : '原话已保存。');
+        $('pw-message').value = ''; notice(result.execution_blocked ? '原话已保存。'+result.message : (result.queued ? '原话已保存，将在当前回复后继续处理。' : '原话已保存。'));
       } catch (error) {
         if (error.body?.messages?.length) {
           $('pw-message').value = ''; notice('原话已保存，但这次未能叫来 AI：' + error.message, true);

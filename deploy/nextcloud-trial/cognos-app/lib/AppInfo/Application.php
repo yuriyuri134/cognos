@@ -16,6 +16,7 @@ class Application extends App implements IBootstrap {
     }
     public function register(IRegistrationContext $context): void {
         $context->registerEventListener(BeforeTemplateRenderedEvent::class, TaskFeedbackListener::class);
+        $context->registerEventListener(BeforeTemplateRenderedEvent::class, \OCA\Cognos\Listener\RestoreNoticeListener::class);
     }
     public function boot(IBootContext $context): void {
         $server = $context->getServerContainer();

@@ -21,12 +21,16 @@ final class ClaudeBridgeService {
     /** 桥正忙（同一片空间同时只做一件事）时抛出的异常码 */
     public const BUSY = 409;
 
+    private RestoreGuardService $restoreGuard;
+
     public function __construct(
         private IClientService $http,
         private IConfig $config,
         private RunService $runs,
         private DecisionService $decisions,
+        ?RestoreGuardService $restoreGuard = null,
     ) {
+        $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
     }
 
     public function configured(): bool {
@@ -72,7 +76,16 @@ final class ClaudeBridgeService {
      * @throws \RuntimeException 没接下；桥正忙时异常码是 self::BUSY
      */
     public function send(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller, array $extra = []): string {
+        $this->restoreGuard->assertExecutionAllowed();
         $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
+        $codex = ($extra['executor'] ?? null) === 'codex';
+        if ($codex) {
+            $default = str_ends_with($url, '/chat') ? substr($url, 0, -5) . '/codex' : '';
+            $url = $this->config->getAppValue('cognos', 'codex_bridge_url', $default);
+            if (!str_ends_with($url, '/codex') || $subject !== 'Codex' || empty($extra['delegation_id']) || empty($extra['caller_uid'])) {
+                throw new \RuntimeException('Codex 委托需要有效的本机入口和账号', 422);
+            }
+        }
         $token = $this->config->getAppValue('cognos', 'claude_bridge_token', '');
         if ($token === '') {
             throw new \RuntimeException('Claude Code 桥没有配置口令（occ config:app:set cognos claude_bridge_token）');
@@ -80,15 +93,18 @@ final class ClaudeBridgeService {
 
         // 入口里实际给了哪几条在生效的决定：记在运行上，不带给桥
         $decisionIds = array_values(array_filter(array_map('strval', (array)($extra['decision_ids'] ?? []))));
+        $queueClaim = isset($extra['queue_claim']) && is_array($extra['queue_claim']) ? $extra['queue_claim'] : null;
+        unset($extra['queue_claim']);
         unset($extra['decision_ids']);
         [$targetType, $targetId, $purpose] = $this->target($spaceType, $spaceId, $extra);
-        $run = $this->runs->create($spaceType, $spaceId, $targetType, $targetId, $purpose, $subject, $caller, [
+        $run = $this->runs->create($spaceType, $spaceId, $targetType, $targetId, $purpose, $subject, (string)($extra['caller_uid'] ?? $caller), [
             'system' => $system,
             'history' => $history,
             'message' => $message,
             'extra' => $extra,
             'decision_ids' => $decisionIds,
-        ]);
+            'queue_claim' => $queueClaim,
+        ], $queueClaim);
         $this->decisions->recordIncluded($run['id'], $decisionIds);
 
         try {
@@ -108,7 +124,7 @@ final class ClaudeBridgeService {
                     'message' => $message,
                     'caller' => $caller,
                     // Cognos 自己的空间：桥在仓库副本的新分支上做
-                    'repo' => $this->isSelf($spaceType, $spaceId),
+                    'repo' => !$codex && $this->isSelf($spaceType, $spaceId),
                 ]), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
                 'timeout' => 30,
                 'http_errors' => false,
@@ -116,8 +132,8 @@ final class ClaudeBridgeService {
                 'nextcloud' => ['allow_local_address' => true],
             ]);
         } catch (\Throwable $error) {
-            $this->runs->failed($run['id'], '连不上桥：' . $error->getMessage());
-            throw new \RuntimeException('连不上本机的 Claude Code 桥（' . $url . '）：桥可能没起来，在仓库目录跑 python tools\\cognos-space-mcp\\claude_bridge.py');
+            $this->runs->dispatchUnknown($run['id'], '桥响应丢失，不能确认是否已经开工：' . $error->getMessage());
+            throw new \RuntimeException('没有收到桥的确认，工作可能已经开始；已记为状态未知，请先核对，勿重复派发。');
         }
 
         $status = $response->getStatusCode();
@@ -132,8 +148,12 @@ final class ClaudeBridgeService {
         }
         $body = json_decode((string)$response->getBody(), true);
         $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
-        $this->runs->failed($run['id'], ($status === self::BUSY ? '桥正忙，没接下' : '桥没接下（HTTP ' . $status . '）') . ($reason !== '' ? '：' . $reason : ''));
-        throw new \RuntimeException('Claude Code 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
+        if (in_array($status, [400, 401, 403, self::BUSY, 422], true) || ($codex && $status === 404)) {
+            $this->runs->failed($run['id'], '桥明确拒绝（HTTP ' . $status . '）' . ($reason !== '' ? '：' . $reason : ''), $status === self::BUSY);
+            throw new \RuntimeException(($codex ? 'Codex' : 'Claude Code') . ' 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）'), $status === self::BUSY ? self::BUSY : 0);
+        }
+        $this->runs->dispatchUnknown($run['id'], '桥返回 HTTP ' . $status . '，不能确认是否已经开工');
+        throw new \RuntimeException('桥返回异常回复，工作是否开始尚不确定；请先核对，勿重复派发。');
     }
 
     /**

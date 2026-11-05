@@ -38,6 +38,8 @@ final class HermesAgentService {
     private ?VectorStoreService $vectorStore = null;
     private bool $ragEnabled = false;
 
+    private RestoreGuardService $restoreGuard;
+
     public function __construct(
         private IDBConnection $db,
         private IUserSession $users,
@@ -48,9 +50,12 @@ final class HermesAgentService {
         private CreationSpaceService $creations,
         private ClaudeBridgeService $bridge,
         private PushBackService $pushBack,
+        private LifecycleService $lifecycle,
         private IConfig $config,
         private LoggerInterface $logger,
+        ?RestoreGuardService $restoreGuard = null,
     ) {
+        $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
         $this->initializeTools();
         $this->initializeRAG();
     }
@@ -539,20 +544,28 @@ final class HermesAgentService {
             array_pop($history);
         }
 
+        $this->lifecycle->assertCanStart('creation',(string)$creationId);
+
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
-        if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
+        $delegatedExecutor = !empty($extra['delegation_id']) ? ($extra['executor'] ?? null) : null;
+        if ($delegatedExecutor === 'codex' || $delegatedExecutor === 'claude-code'
+            || $this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
             // 在 Cognos 自己的空间里，被叫来的是替 Cognos 说话的那位
-            $subject = $this->bridge->subjectFor('creation', (string)$creationId);
+            $subject = $delegatedExecutor === 'codex' ? 'Codex' : $this->bridge->subjectFor('creation', (string)$creationId);
+            $abilities = $delegatedExecutor === 'codex' ? [
+                '可以读取这一处的入口、尝试和工作，使用 note_basis 记录这次真正依赖的依据。',
+                '用 check_changes 查看运行期间变化。最终回答由桥交回这次运行。',
+            ] : $this->bridge->canDo('creation', (string)$creationId);
             $entry = $this->entries->entry(
                 $space,
                 $subject,
                 ['caller' => $caller, 'message' => $message],
                 // 不在项目里的空间没有决定和当前内容可依据，不给 note_basis
-                array_merge(array_values(array_filter($this->bridge->canDo('creation', (string)$creationId),
+                array_merge(array_values(array_filter($abilities,
                     static fn(string $line): bool => !empty($space['project_context']) || (!str_starts_with($line, 'note_basis') && !str_starts_with($line, 'adopt')))), $canDo),
             );
             $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller,
-                array_merge($extra, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry)]));
+                array_merge($extra, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry), 'caller_uid' => $user->getUID()]));
             $this->spaces->markSeen('creation', (string)$creationId, $subject);
             return null;
         }
@@ -595,7 +608,7 @@ final class HermesAgentService {
      *
      * @return ?string 同 chatCreation
      */
-    public function chatCreationFromMessage(int $creationId, int $messageId): ?string {
+    public function chatCreationFromMessage(int $creationId, int $messageId, array $extra = []): ?string {
         $user = $this->users->getUser();
         if ($user === null) {
             throw new \RuntimeException('Authentication required');
@@ -613,8 +626,16 @@ final class HermesAgentService {
         if ($said === null || $said['role'] !== 'user') {
             throw new \InvalidArgumentException('Message not found');
         }
+        if (isset($extra['queue_claim'])) {
+            // A queued question may predate the answer to an earlier question.
+            // Include that completed answer, but never pull in later user requests.
+            $earlierUsers=array_column(array_filter($upTo,static fn(array $m):bool=>$m['role']==='user'&&(int)$m['id']<$messageId),'id');
+            foreach($context['messages'] as $item){
+                if((int)$item['id']>$messageId&&$item['role']==='assistant'&&in_array((int)($item['reply_to']??0),$earlierUsers,true))$upTo[]=$item;
+            }
+        }
         $context['messages'] = $upTo;
-        return $this->chatCreation($creationId, (string)$said['content'], $context, $messageId);
+        return $this->chatCreation($creationId, (string)$said['content'], $context, $messageId, $extra);
     }
 
     /**
@@ -1111,6 +1132,7 @@ final class HermesAgentService {
     }
 
     private function callHermes(string $sessionId, array $messages, ?string $model, ?string $participantId = null, array $tools = []): array {
+        $this->restoreGuard->assertExecutionAllowed();
         $url = getenv('HERMES_API_URL') ?: 'http://host.docker.internal:8642/v1/chat/completions';
         $keyFile = getenv('HERMES_API_KEY_FILE') ?: '/run/secrets/hermes_api_key';
         $key = is_readable($keyFile)
