@@ -355,6 +355,10 @@ final class SpaceApiController extends OCSController {
             // 已经收过：不再存、不再记检查
             return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => true], 200);
         }
+        // 结果回来了，这一件就不在做了：清掉「AI 正在做」。原来只在后续顺利派发时才清，后续被推迟或取消时它会一直挂着。
+        // 后续要是马上又派出一件，桥接下时会重新挂上（ClaudeBridgeService::send）。
+        $this->config->deleteAppValue('cognos', 'agent_pending_creation_' . (int)$spaceId);
+        $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
         // Claim the durable intent after commit; external work is never inside the receipt transaction.
         $this->processFollowup($resultId,$uid);
         return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false, 'decisions_missing' => $missing,

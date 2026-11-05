@@ -31,6 +31,7 @@ final class PushBackService {
         private IConfig $config,
         private DispatchQueueService $dispatchQueue,
         private LoggerInterface $logger,
+        private LegacyQueueImportService $legacyImports,
     ) {
     }
 
@@ -120,7 +121,7 @@ final class PushBackService {
             // reply_to=0：发回来的回答不回对话里的任何一句
             $this->bridge->send($spaceType, $spaceId, $holder, $this->entries->renderText($entry), [], $message, $hitter, ['hit_id' => $hit['id'], 'reply_to' => 0, 'decision_ids' => SpaceEntryService::decisionIds($entry), 'queue_claim' => $queueClaim]);
         } catch (\RuntimeException $error) {
-            if (!($error instanceof ProjectInactiveException) && $error->getCode() === ClaudeBridgeService::BUSY) {
+            if (ClaudeBridgeService::isBusy($error)) {
                 $this->enqueue($spaceType, $spaceId, 'hit:' . $hit['id']);
                 return $this->result(false, $holder, sprintf('%s 正在这片空间里做上一件事，做完会接着被叫回来回应这一下。', $holder));
             }
@@ -147,11 +148,9 @@ final class PushBackService {
         return max(0, (int)$this->config->getAppValue('cognos', 'pushback_ai_daily', (string)self::AI_DAILY_DEFAULT));
     }
 
+    /** 这片空间的旧队列记录：没导入过才导入一次；坏的记成无法识别（原值保留，可在页面上核对），不抛错。 */
     private function importLegacy(string $spaceType,string $spaceId):void {
-        $raw=$this->config->getAppValue('cognos','pushback_queue_'.$spaceType.'_'.$spaceId,'[]');
-        $items=json_decode($raw,true);
-        if(!is_array($items))throw new \RuntimeException('旧队列无法识别，保留原记录供核对');
-        $this->dispatchQueue->importHeldLegacy($spaceType,$spaceId,$items);
+        $this->legacyImports->importKey('pushback_queue_'.$spaceType.'_'.$spaceId);
     }
     private function enqueue(string $spaceType,string $spaceId,string $item,bool $front=false):array {
         $this->importLegacy($spaceType,$spaceId);[$kind,$id]=explode(':',$item,2);
