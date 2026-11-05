@@ -38,17 +38,30 @@ final class AttemptController extends Controller {
             $loc=$this->projects->location($uid,$locationId);$sources=[];$omitted=0;
             $sources[]=['type'=>'location_content','id'=>$loc['id'],'version'=>$loc['revision'],'label'=>'当前稿：'.$loc['title'].' · 第 '.$loc['revision'].' 版'];
             $conversations=[(int)$loc['creation_id']];foreach($this->projects->usages($uid,$loc['id']) as $usage)$conversations[]=(int)$usage['source_creation_id'];
+            // 每样只在查询里取要显示的那几条（最近的），另用计数说明省略了多少；原来是整处全取出来再截
             foreach(array_unique($conversations) as $chat){
-                $messages=$this->creations->getMessages($chat,$uid);$omitted+=max(0,count($messages)-30);
-                foreach(array_slice($messages,-30) as $m)$sources[]=['type'=>'message','id'=>(string)$m['id'],'version'=>null,'label'=>'消息 #'.$m['id'].' · '.($m['role']??'').' · '.mb_substr((string)$m['content'],0,100)];
+                if($this->creations->get($chat,$uid)===null)continue;
+                $where=fn($q)=>$q->expr()->eq('creation_id',$q->createNamedParameter($chat,\OCP\DB\QueryBuilder\IQueryBuilder::PARAM_INT));
+                $omitted+=max(0,$this->count('cognos_creation_messages',$where)-30);
+                $q=$this->db->getQueryBuilder();$messages=array_reverse($q->select('id','role','content')->from('cognos_creation_messages')->where($where($q))->orderBy('id','DESC')->setMaxResults(30)->executeQuery()->fetchAll());
+                foreach($messages as $m)$sources[]=['type'=>'message','id'=>(string)$m['id'],'version'=>null,'label'=>'消息 #'.$m['id'].' · '.($m['role']??'').' · '.mb_substr((string)$m['content'],0,100)];
             }
-            foreach([['cognos_space_traces','trace','content',30],['cognos_runs','run','purpose',20]] as [$table,$type,$text,$limit]){
-                $q=$this->db->getQueryBuilder();$rows=$q->select('*')->from($table)->where($q->expr()->eq('space_type',$q->createNamedParameter('creation')))->andWhere($q->expr()->eq('space_id',$q->createNamedParameter((string)$loc['creation_id'])))->orderBy($type==='trace'?'id':'created_at','DESC')->addOrderBy('id','DESC')->executeQuery()->fetchAll();
-                $omitted+=max(0,count($rows)-$limit);foreach(array_slice($rows,0,$limit) as $row)$sources[]=['type'=>$type,'id'=>(string)$row['id'],'version'=>null,'label'=>($type==='trace'?'旧记录':'运行').' · '.($row['author']??$row['subject']??'').' · '.mb_substr((string)$row[$text],0,100)];
+            $inSpace=fn($q)=>$q->expr()->andX($q->expr()->eq('space_type',$q->createNamedParameter('creation')),$q->expr()->eq('space_id',$q->createNamedParameter((string)$loc['creation_id'])));
+            foreach([['cognos_space_traces','trace',['id','author','content'],'content',30],['cognos_runs','run',['id','subject','purpose','created_at'],'purpose',20]] as [$table,$type,$columns,$text,$limit]){
+                $omitted+=max(0,$this->count($table,$inSpace)-$limit);
+                $q=$this->db->getQueryBuilder();$rows=$q->select(...$columns)->from($table)->where($inSpace($q))->orderBy($type==='trace'?'id':'created_at','DESC')->addOrderBy('id','DESC')->setMaxResults($limit)->executeQuery()->fetchAll();
+                foreach($rows as $row)$sources[]=['type'=>$type,'id'=>(string)$row['id'],'version'=>null,'label'=>($type==='trace'?'旧记录':'运行').' · '.($row['author']??$row['subject']??'').' · '.mb_substr((string)$row[$text],0,100)];
             }
-            $q=$this->db->getQueryBuilder();$rows=$q->select('id','description','revision')->from('cognos_work_items')->where($q->expr()->eq('location_id',$q->createNamedParameter($loc['id'])))->orderBy('updated_at','DESC')->addOrderBy('id')->executeQuery()->fetchAll();
-            $omitted+=max(0,count($rows)-30);foreach(array_slice($rows,0,30) as $row)$sources[]=['type'=>'work_item','id'=>$row['id'],'version'=>(int)$row['revision'],'label'=>'工作：'.$row['description'].' · 第 '.$row['revision'].' 版'];
+            $atLocation=fn($q)=>$q->expr()->eq('location_id',$q->createNamedParameter($loc['id']));
+            $omitted+=max(0,$this->count('cognos_work_items',$atLocation)-30);
+            $q=$this->db->getQueryBuilder();$rows=$q->select('id','description','revision')->from('cognos_work_items')->where($atLocation($q))->orderBy('updated_at','DESC')->addOrderBy('id')->setMaxResults(30)->executeQuery()->fetchAll();
+            foreach($rows as $row)$sources[]=['type'=>'work_item','id'=>$row['id'],'version'=>(int)$row['revision'],'label'=>'工作：'.$row['description'].' · 第 '.$row['revision'].' 版'];
             $omitted+=max(0,count($sources)-200);$sources=array_slice($sources,0,200);return ['sources'=>$sources,'omitted'=>$omitted,'truncated'=>$omitted>0];
         });
+    }
+    /** 一张表里符合条件的有多少（只数，不取）。$where 收到查询，返回条件。 */
+    private function count(string $table,callable $where):int {
+        $q=$this->db->getQueryBuilder();
+        return (int)$q->select($q->func()->count('*','n'))->from($table)->where($where($q))->executeQuery()->fetchOne();
     }
 }
