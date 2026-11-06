@@ -48,7 +48,9 @@ final class NormApiController extends OCSController {
         } catch (\InvalidArgumentException $e) {
             return new DataResponse(['message' => $e->getMessage()], 409);
         }
-        if (!$got['duplicate'] && $got['nudge'] !== null) {
+        // 放进空间以后自动叫那个空间的 agent，先关着：第一次试时它用了 4 分钟额度，却读不到放进来的原话。
+        // 要开：occ config:app:set cognos reader_nudge --value=yes
+        if (!$got['duplicate'] && $got['nudge'] !== null && $this->config->getAppValue('cognos', 'reader_nudge', 'no') === 'yes') {
             $this->nudge($uid, $got['nudge']['creation_id'], $got['nudge']['title']);
         }
         return new DataResponse(['reading' => $got['reading'], 'duplicate' => $got['duplicate']], $got['duplicate'] ? 200 : 201);
@@ -71,6 +73,7 @@ final class NormApiController extends OCSController {
         }
         $out['waiting_for_you'] = array_values(array_filter($this->norm->events($uid, $space['id'], 'decide', 20), static fn(array $e): bool => $e['answer'] === null));
         $out['recent'] = array_slice($this->norm->events($uid, $space['id'], 'happened', 10), 0, 10);
+        $out['linked'] = $this->linkedText($uid, $space['id']);
         $out['formats'] = [
             'stages' => '[{"when": "时间", "title": "这一段叫什么", "text": "发生了什么", "current": true 只给现在这段, "proposed": true 是你提出、等人定的}]',
             'branches' => '[{"title": "分支", "parts": [{"title": "部分", "text": "说明"}]}]',
@@ -111,6 +114,32 @@ final class NormApiController extends OCSController {
         return new DataResponse(['message' => ($kind === 'decide' ? '留给交互对象定了' : '记下了') . '（#' . $id . '）。他打开「' . $space['title'] . '」时最先看到。']);
     }
 
+    /**
+     * 放进这个空间的 Initium 对话的原话，最近放进来的在前。agent 要接着做，得读得到原话，不能只有一句转述和几个编号。
+     * 一共最多 4 万字，一段最多 2 万字；太长时只给后面一段，并说前面还有多少。
+     */
+    private function linkedText(string $uid, string $spaceId): array {
+        $budget = 40000;
+        $out = [];
+        foreach (array_reverse($this->norm->links($uid, $spaceId)) as $link) {
+            $messages = $this->creations->getMessages($link['creation_id'], $uid);
+            $item = ['creation_id' => $link['creation_id'], 'title' => $link['title'], 'messages' => count($messages)];
+            $cap = min(20000, $budget);
+            if ($cap < 2000) {
+                $item['text'] = null;
+                $item['note'] = '这段放不下了，前面几段已经占满';
+                $out[] = $item;
+                continue;
+            }
+            $text = implode("\n\n", array_map(static fn(array $m): string => ($m['role'] === 'user' ? '人' : 'AI') . '：' . trim((string)$m['content']), $messages));
+            $n = mb_strlen($text);
+            $item['text'] = $n <= $cap ? $text : '（前面还有 ' . ($n - $cap) . " 字没给）\n\n" . mb_substr($text, $n - $cap);
+            $budget -= mb_strlen($item['text']);
+            $out[] = $item;
+        }
+        return $out;
+    }
+
     /** 这段对话指的是哪个空间。 */
     private function resolve(string $uid, string $spaceType, string $spaceId, string $normSpace): ?array {
         if ($spaceType !== 'creation' || !ctype_digit($spaceId)) {
@@ -139,7 +168,7 @@ final class NormApiController extends OCSController {
         try {
             $context = $this->creations->getContext($creationId, $uid);
             $this->hermes->chatCreation($creationId,
-                '（这句不是交互对象说的。读者刚把 Initium 里的「' . $title . '」放进这个空间。先用 read_space 看看这里，'
+                '（这句不是交互对象说的。读者刚把 Initium 里的「' . $title . '」放进这个空间。先用 read_space 看看这里，那段对话的原话在返回的 linked 里；'
                 . '照这里的做法看接下来能做什么，能做就做一点。做了什么、发生了什么，用 note_for_you 记下；只有交互对象能定的，用 note_for_you(kind=decide) 提出来。'
                 . '交互对象回来时会先看到那里。）', $context);
         } catch (\Throwable $error) {

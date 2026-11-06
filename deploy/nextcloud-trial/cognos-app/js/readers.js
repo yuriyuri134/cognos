@@ -79,7 +79,10 @@
     const list = node('div'); list.style.cssText = 'display:flex;flex-direction:column;gap:10px';
     (res.readings || []).forEach((r, i) => {
       const card = node('div', undefined, 'cg-reader');
-      card.append(node('div', '读者' + '一二三四五'[i] + ' · ' + r.label, 'cg-reader-label'), node('div', r.what || r.raw || '（这位没读出东西）'));
+      // 回来的不是一份读法（没说「是什么」）：明说没读出来，不把它回的那几个字当成读法摆出来
+      const missed = r.missed || !r.what;
+      card.append(node('div', '读者' + '一二三四五'[i] + ' · ' + r.label, 'cg-reader-label'), node('div', missed ? '（这位没读出东西）' : r.what, missed ? 'cg-hint' : undefined));
+      if (missed && r.raw) card.append(node('div', '它只回了：' + r.raw.slice(0, 80) + (r.raw.length > 80 ? '…' : ''), 'cg-small'));
       if (r.where || (r.needs || []).length || (r.quotes || []).length) {
         const det = node('details'); det.append(node('summary', '往哪走、它依据的原话'));
         if (r.where) det.append(node('p', '往哪走：' + r.where));

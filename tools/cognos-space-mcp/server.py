@@ -339,7 +339,7 @@ NORM_SPACE = {"type": "string", "description": "只在 Norm 自己的对话里�
 TOOLS += [
     {"name": "read_space",
      "description": ("读你所在的 Norm 空间现在的样子：它是什么、agent 在这里的做法（交互对象不在时做什么、怎样算往前走、什么时候找他）、"
-                     "用哪几块和每一块现在的内容、还等着他定的事、最近发生的。动手改之前先读。"),
+                     "用哪几块和每一块现在的内容、还等着他定的事、最近发生的，以及放进这里的 Initium 对话原话（linked）。动手改之前先读。"),
      "inputSchema": {"type": "object", "properties": {"space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE},
                      "required": ["space_id"]}},
     {"name": "write_part",

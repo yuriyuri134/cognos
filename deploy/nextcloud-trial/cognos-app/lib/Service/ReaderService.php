@@ -294,10 +294,12 @@ TXT;
         $mine = implode("\n\n", array_map(static fn(array $m): string => trim((string)$m['content']),
             array_values(array_filter($messages, static fn(array $m): bool => $m['role'] === 'user'))));
         $back = implode("\n\n", array_map($line, array_reverse($messages)));
+        // 原话很长时，模型读到最后可能忘了要做什么，顺着原话往下接（试读时一位读者只回了「息。」）。所以原话后面再说一遍。
+        $end = "\n\n（原话到这里为止。）\n\n读完了。不要接着原话往下写，按一开始说的，只输出那一个 JSON 对象。";
         return [
-            "下面是一段对话的全文，按时间顺序。\n\n" . $this->clip($all, true),
-            "下面只有这段对话里人写的那部分，按时间顺序，AI 的回答都去掉了。\n\n" . $this->clip($mine, true),
-            "下面是一段对话的全文，顺序倒过来：最先是最近的一句，越往下越早。\n\n" . $this->clip($back, false),
+            "下面是一段对话的全文，按时间顺序。\n\n" . $this->clip($all, true) . $end,
+            "下面只有这段对话里人写的那部分，按时间顺序，AI 的回答都去掉了。\n\n" . $this->clip($mine, true) . $end,
+            "下面是一段对话的全文，顺序倒过来：最先是最近的一句，越往下越早。\n\n" . $this->clip($back, false) . $end,
         ];
     }
 
@@ -446,19 +448,23 @@ TXT;
         $readings = [];
         foreach ($raw as $i => $text) {
             $parsed = self::json($text);
+            $what = trim((string)($parsed['what'] ?? ''));
             $readings[] = [
                 'label' => self::LABELS[$i] ?? ('读者' . ($i + 1)),
-                'what' => (string)($parsed['what'] ?? ''), 'where' => (string)($parsed['where'] ?? ''),
+                'what' => $what, 'where' => (string)($parsed['where'] ?? ''),
                 'needs' => array_values(array_map('strval', (array)($parsed['needs'] ?? []))),
                 'quotes' => array_values(array_map('strval', (array)($parsed['quotes'] ?? []))),
                 'raw' => $parsed === null ? mb_substr($text, 0, 4000) : null,
+                // 回来的不是那个 JSON，或者没说「是什么」：这位没读出来，不能当成一份读法
+                'missed' => $what === '',
             ];
         }
+        $read = count(array_filter($readings, static fn(array $r): bool => !$r['missed']));
         $compare = self::json((string)($body['compare'] ?? '')) ?? [];
         $error = trim((string)($body['error'] ?? ''));
         $result = ['readings' => $readings, 'compare' => $compare, 'compare_raw' => $compare === [] ? mb_substr((string)($body['compare'] ?? ''), 0, 4000) : null];
-        if ($readings === [] || ($compare === [] && $error !== '')) {
-            $this->set($reading['id'], ['state' => 'failed', 'result' => json_encode($result, JSON_UNESCAPED_UNICODE), 'error' => $error !== '' ? $error : '读者没有读出东西']);
+        if ($read === 0 || ($compare === [] && $error !== '')) {
+            $this->set($reading['id'], ['state' => 'failed', 'result' => json_encode($result, JSON_UNESCAPED_UNICODE), 'error' => $error !== '' ? $error : '读者都没读出东西']);
             return null;
         }
         $applied = null;

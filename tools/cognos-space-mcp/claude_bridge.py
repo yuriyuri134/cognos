@@ -883,6 +883,18 @@ def run_plain(subject: str, system: str, prompt: str, job: dict) -> str:
     return answer_from(done.stdout, done.stderr)
 
 
+def reading_ok(text: str) -> bool:
+    """读者回来的是不是那个 JSON，并且说了「是什么」。不是的话不能当成一份读法（试读时有一位只回了「息。」）。"""
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return False
+    try:
+        data = json.loads(text[start:end + 1])
+    except ValueError:
+        return False
+    return isinstance(data, dict) and bool(str(data.get("what") or "").strip())
+
+
 def read_work(job: dict) -> None:
     """三个读者同时各读各的，读完由比较的那位看三份读法（不看原文），结果发回 Cognos 的 post_path。"""
     key = job["busy_key"]
@@ -903,8 +915,11 @@ def read_work(job: dict) -> None:
             t.join()
         got = [(i, a) for i, a in enumerate(answers) if a]
         compare = ""
-        if got:
-            parts = [f"## 读者{i + 1}（{job['readers'][i]['label']}）\n{a}" for i, a in got]
+        if got and not any(reading_ok(a) for _, a in got):
+            errors.append("读者都没读出东西")  # 不拿几句不是读法的话去比，省一次额度
+        elif got:
+            parts = [f"## 读者{i + 1}（{job['readers'][i]['label']}）\n"
+                     + (a if reading_ok(a) else f"（这位没读出东西，只回了：{a.strip()[:80]}）") for i, a in got]
             try:
                 compare = run_plain("读者-比较", job["compare"]["system"], "\n\n".join(parts), job)
             except Exception as error:
