@@ -1,8 +1,4 @@
 <?php
-\OCP\Util::addScript('cognos', 'readers');
-\OCP\Util::addStyle('cognos', 'norm');
-\OCP\Util::addScript('cognos', 'creation-detail');
-\OCP\Util::addStyle('cognos', 'creation-detail');
 ?>
 
 <div class="cognos-chat-app" data-creation-id="<?php p($_['creationId']); ?>">

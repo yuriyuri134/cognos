@@ -11,7 +11,7 @@ const fs = require('node:fs'), path = require('node:path');
 
 live.run('readers', async checks => {
   const {req} = live.client();
-  const list = (await req('/creations')).creations || [];
+  const list = (await req('/creations/data')).creations || [];
   let ids = (process.env.READERS_IDS || '').split(',').map(Number).filter(Boolean);
   if (!ids.length) {
     const sized = [];

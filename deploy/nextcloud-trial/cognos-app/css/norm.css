@@ -9,6 +9,7 @@
   --cg-sans: 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   font-family: var(--cg-sans); color: var(--cg-ink); line-height: 1.6;
 }
+/* 暗色：账号选了暗色主题，或者跟着系统、系统是暗色。和 Initium 那页（用 Nextcloud 自己的颜色）保持一致 */
 body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-themes*="dark"] .cg-readers {
   --cg-bg: #191816; --cg-panel: #1F1E1B; --cg-card: #26241F; --cg-line: #36332D; --cg-line-strong: #4A463E;
   --cg-ink: #EEEAE0; --cg-ink-2: #D6D1C5; --cg-muted: #A39E92; --cg-faint: #827D72;
@@ -16,6 +17,17 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
   --cg-warm-bg: #33291B; --cg-warm-line: #6B5232; --cg-warm-ink: #E7B577; --cg-warm-text: #F0DFC6;
   --cg-dark: #0F0E0C; --cg-dark-line: #4A463E;
 }
+@media (prefers-color-scheme: dark) {
+  body:not([data-themes*="light"]) .cg-v2, body:not([data-themes*="light"]) .cg-home, body:not([data-themes*="light"]) .cg-readers {
+    --cg-bg: #191816; --cg-panel: #1F1E1B; --cg-card: #26241F; --cg-line: #36332D; --cg-line-strong: #4A463E;
+    --cg-ink: #EEEAE0; --cg-ink-2: #D6D1C5; --cg-muted: #A39E92; --cg-faint: #827D72;
+    --cg-accent: #3FA196; --cg-chip: #2F2C26;
+    --cg-warm-bg: #33291B; --cg-warm-line: #6B5232; --cg-warm-ink: #E7B577; --cg-warm-text: #F0DFC6;
+    --cg-dark: #0F0E0C; --cg-dark-line: #4A463E;
+  }
+}
+/* Nextcloud 给标题上了自己的颜色，这里跟着本页的字色 */
+.cg-v2 h1, .cg-v2 h2, .cg-v2 h3, .cg-home h2, .cg-readers h2, .cg-readers h3 { color: inherit; }
 
 #app-content { width: 100%; max-width: none; }
 .cg-v2 button, .cg-readers button { font: inherit; cursor: pointer; }
@@ -40,6 +52,7 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
 .cg-nav a.cg-on { background: var(--cg-dark); color: var(--cg-dark-ink); }
 .cg-nav a.cg-door-link { color: var(--cg-ink); padding: 10px 12px; }
 .cg-nav a.cg-door-link.cg-strong { font-weight: 700; }
+.cg-nav a.cg-on, .cg-nav a.cg-door-link.cg-on { background: var(--cg-dark); color: var(--cg-dark-ink); }
 .cg-nav-group { margin: 16px 12px 4px; font-size: 12px; color: var(--cg-muted); }
 .cg-nav-empty { padding: 6px 12px; color: var(--cg-faint); }
 .cg-dot { color: var(--cg-amber); }

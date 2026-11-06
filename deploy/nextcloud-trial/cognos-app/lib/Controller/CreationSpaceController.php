@@ -53,9 +53,11 @@ final class CreationSpaceController extends Controller {
     #[NoCSRFRequired]
     public function detail(int $id): TemplateResponse {
         // space-panel 要先于 creation-detail 载入，后者 init 时会调 window.CognosSpacePanel
-        Util::addScript('cognos', 'space-panel');
+        // 右边是读者（readers.js）；它要在 creation-detail.js 之前，那边一开始就叫它
+        Util::addScript('cognos', 'readers');
         Util::addScript('cognos', 'creation-detail');
         Util::addStyle('cognos', 'creation-detail');
+        Util::addStyle('cognos', 'norm');
         return new TemplateResponse('cognos', 'creation-detail', ['creationId' => $id]);
     }
 
