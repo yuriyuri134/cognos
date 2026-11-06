@@ -82,7 +82,8 @@ HERE = Path(__file__).resolve().parent
 SECRETS = HERE.parent.parent / "deploy" / "nextcloud-trial" / ".secrets"
 SERVER = HERE / "server.py"
 PUBLIC_STATE = SECRETS.parent / ".public-access-state.json"
-TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here", "note_basis", "write_content", "adopt", "list_work_items", "get_work_item", "preview_work_split", "update_work_item", "split_work_item", "list_attempts", "get_attempt"]
+TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here", "note_basis", "write_content", "adopt", "list_work_items", "get_work_item", "preview_work_split", "update_work_item", "split_work_item", "list_attempts", "get_attempt",
+         "read_space", "write_part", "note_for_you"]
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 
@@ -624,6 +625,11 @@ def post_back(result: dict) -> None:
     result 里有 run_id、result_id（Cognos 按它只收一次）、subject、content；
     reply_to：回的是对话里哪一句；被反对叫回来的是 0（不回任何一句）。
     """
+    if result.get("post_path"):
+        # 读者的结果：发到 Cognos 指定的地方（readers/<id>），不进对话
+        body = {k: v for k, v in result.items() if k not in ("space_type", "space_id", "post_path")}
+        cognos_post(str(result["post_path"]), body)
+        return
     path = ("spaces/" + urllib.parse.quote(str(result["space_type"]), safe="") + "/"
             + urllib.parse.quote(str(result["space_id"]), safe="") + "/messages")
     body = {k: v for k, v in result.items() if k not in ("space_type", "space_id", "executor", "caller_uid")}
@@ -847,6 +853,109 @@ def work(job: dict) -> None:
             POSTED.set()
 
 
+def run_plain(subject: str, system: str, prompt: str, job: dict) -> str:
+    """读者用：一次没有任何工具的 claude -p。不接 MCP，不读本机设置，工作目录是空的临时目录，只拿到给它的这段文字。"""
+    exe = shutil.which("claude.cmd") or shutil.which("claude")
+    if exe is None:
+        raise RuntimeError("本机 PATH 里找不到 claude")
+    with tempfile.TemporaryDirectory(prefix="cognos-reader-") as tmp:
+        tmpdir = Path(tmp)
+        (tmpdir / "system.txt").write_text(system, encoding="utf-8")
+        work_dir = tmpdir / "work"
+        work_dir.mkdir()
+        cmd = [exe, "-p", "--system-prompt-file", str(tmpdir / "system.txt"),
+               "--strict-mcp-config", "--tools", "",
+               "--no-session-persistence", "--setting-sources", "",
+               "--output-format", "stream-json", "--verbose"]
+        if MODEL:
+            cmd += ["--model", MODEL]
+        env = dict(os.environ) if KEEP_API_ENV else {k: v for k, v in os.environ.items() if k not in API_ENV}
+        started = time.time()
+        try:
+            done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
+                                  cwd=work_dir, env=env, timeout=TIMEOUT)
+        except subprocess.TimeoutExpired as error:
+            out = error.stdout.decode("utf-8", "replace") if isinstance(error.stdout, bytes) else (error.stdout or "")
+            err = error.stderr.decode("utf-8", "replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+            record_run(job, subject, system, prompt, started, out, err, None, True)
+            raise
+        record_run(job, subject, system, prompt, started, done.stdout, done.stderr, done.returncode, False)
+    return answer_from(done.stdout, done.stderr)
+
+
+def read_work(job: dict) -> None:
+    """三个读者同时各读各的，读完由比较的那位看三份读法（不看原文），结果发回 Cognos 的 post_path。"""
+    key = job["busy_key"]
+    try:
+        answers: list[str | None] = [None] * len(job["readers"])
+        errors: list[str] = []
+
+        def one(i: int, reader: dict) -> None:
+            try:
+                answers[i] = run_plain(f"读者{i + 1}-{reader['label']}", reader["system"], reader["prompt"], job)
+            except Exception as error:  # 一个读者没读完，不挡另外两个
+                errors.append(f"读者{i + 1}（{reader['label']}）没读完：{error}")
+
+        threads = [threading.Thread(target=one, args=(i, r), daemon=True) for i, r in enumerate(job["readers"])]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        got = [(i, a) for i, a in enumerate(answers) if a]
+        compare = ""
+        if got:
+            parts = [f"## 读者{i + 1}（{job['readers'][i]['label']}）\n{a}" for i, a in got]
+            try:
+                compare = run_plain("读者-比较", job["compare"]["system"], "\n\n".join(parts), job)
+            except Exception as error:
+                errors.append(f"比较没做完：{error}")
+        result = {
+            "result_id": uuid.uuid4().hex,
+            "run_id": job["run_id"],
+            "space_type": job["space_type"],
+            "space_id": job["space_id"],
+            "post_path": job["post_path"],
+            "subject": job["subject"],
+            "readings": [a or "" for a in answers],
+            "compare": compare,
+            "error": "；".join(errors),
+        }
+        pending = save_result(result)
+        clear_inflight(job["run_id"])
+        deliver(pending)
+    except Exception as error:
+        sys.stderr.write(f"[claude-bridge] 读者这一次的结果没存下：{error}\n")
+    finally:
+        with BUSY_LOCK:
+            BUSY.discard(key)
+
+
+def read_job(body: dict) -> dict:
+    run_id = str(body["run_id"])
+    if not run_id.isalnum() or len(run_id) != 32:
+        raise ValueError("run_id 不对")
+    post_path = str(body["post_path"])
+    if not re.fullmatch(r"readers/[0-9]+", post_path):
+        raise ValueError("post_path 不对")
+    readers = body.get("readers")
+    if not isinstance(readers, list) or not 1 <= len(readers) <= 5:
+        raise ValueError("readers 要是 1 到 5 个")
+    clean = []
+    for r in readers:
+        if not isinstance(r, dict) or not isinstance(r.get("system"), str) or not isinstance(r.get("prompt"), str):
+            raise ValueError("每个读者要有 system 和 prompt")
+        clean.append({"label": str(r.get("label") or ""), "system": r["system"], "prompt": r["prompt"]})
+    compare = body.get("compare")
+    if not isinstance(compare, dict) or not isinstance(compare.get("system"), str):
+        raise ValueError("compare 要有 system")
+    return {
+        "run_id": run_id, "post_path": post_path, "readers": clean, "compare": {"system": compare["system"]},
+        "subject": str(body.get("subject") or "读者"),
+        "space_type": str(body.get("space_type") or "creation"), "space_id": str(body.get("space_id") or ""),
+        "caller": "读者", "busy_key": "read/" + post_path,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def send_json(self, status: int, body: dict) -> None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -866,11 +975,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path not in ("/chat", "/codex"):
+        if self.path not in ("/chat", "/codex", "/read"):
             self.send_json(404, {"error": "not found"})
             return
         if not hmac.compare_digest(self.headers.get("X-Cognos-Bridge-Token", ""), TOKEN):
             self.send_json(401, {"error": "口令不对"})
+            return
+        if self.path == "/read":
+            self.do_read()
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -924,6 +1036,31 @@ class Handler(BaseHTTPRequestHandler):
         threading.Thread(target=work, args=(job,), daemon=True).start()
         self.send_json(202, {"accepted": True, "subject": job["subject"]})
 
+    def do_read(self) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(body, dict):
+                raise ValueError("请求必须是 JSON 对象")
+            job = read_job(body)
+        except (KeyError, TypeError, ValueError) as error:
+            self.send_json(400, {"error": f"请求不完整：{error}"})
+            return
+        with BUSY_LOCK:
+            if job["busy_key"] in BUSY:
+                self.send_json(409, {"error": "读者还在读这一次"})
+                return
+            BUSY.add(job["busy_key"])
+        try:
+            mark_inflight(job)
+        except OSError as error:
+            with BUSY_LOCK:
+                BUSY.discard(job["busy_key"])
+            self.send_json(500, {"error": f"桥记不下这一件（{error}），没有接"})
+            return
+        threading.Thread(target=read_work, args=(job,), daemon=True).start()
+        self.send_json(202, {"accepted": True, "subject": job["subject"]})
+
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("[claude-bridge] " + (fmt % args) + "\n")
 
@@ -941,7 +1078,7 @@ def main() -> None:
     # 开始接新的之前先看：上一次做到一半没了的、没发出去的结果
     stale = stale_inflight()
     threading.Thread(target=outbox_loop, args=(stale,), daemon=True).start()
-    print(f"Claude Code 桥在 http://{HOST}:{PORT}（/chat，/codex，/health）；工作目录 {SPACES_DIR}；"
+    print(f"Claude Code 桥在 http://{HOST}:{PORT}（/chat，/codex，/read，/health）；工作目录 {SPACES_DIR}；"
           f"命令{'开' if commands_allowed() else '关'}；长进身体{'开' if SELF_MERGE else '关'}；"
           f"待发送 {len(list(outbox('pending').glob('*.json')))} 个，做到一半没了的 {len(stale)} 个", flush=True)
     HTTPD.serve_forever()

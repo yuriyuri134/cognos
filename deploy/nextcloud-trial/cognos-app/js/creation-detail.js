@@ -261,8 +261,6 @@
           <span class="cognos-message-time">${timestamp}</span>
         </div>
         <div class="cognos-message-content">${role === 'user' ? formatMessageContent(message.content) : renderMarkdown(message.content)}</div>
-        ${role === 'user' ? `<button type="button" class="space-keep-btn" data-message-id="${message.id}" title="把这句原话留在空间里，作为意图或事实">留在空间里</button>` : ''}
-        ${role === 'user' ? `<button type="button" class="space-keep-btn hang-btn" data-message-id="${message.id}" title="把这句挂成没完的：它会一直拉着，AI 从它接着走，直到卡在只有你或现实能给的地方">挂着</button>` : ''}
         ${unanswered ? `<button type="button" class="space-keep-btn recall-btn" data-message-id="${message.id}" title="这句没人回，用它再叫一次">没人回，再叫一次</button>` : ''}
       </div>
     `;

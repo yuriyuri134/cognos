@@ -1,7 +1,7 @@
 /* The two entries end to end, as cognos-admin in a real browser:
  * 1. Initium (/creations): write one line, press 写下, land in the conversation, and the agent answers by itself
  *    (nothing else clicked). 2. Norm: send one line in the chat box and get an answer.
- * Also screenshots home, Norm, the cognos project's three tabs. Calls the real agent through the bridge, writes data.
+ * Also screenshots home, Norm, and the cognos space page (chat in the middle, its parts on the right). Calls the real agent through the bridge, writes data.
  * Report in evidence/two-entries.json; screenshots evidence/two-entries-*.png.
  */
 const live = require('./lib/live.cjs');
@@ -31,7 +31,7 @@ live.run('two-entries', async checks => {
 
     // Norm
     await b.go(live.APP + '/norm');
-    await b.until('!!document.querySelector(".cg-chat-form") && !!document.querySelector("#cg-norm-main a")');
+    await b.until('!!document.querySelector(".cg-chat-form") && !!document.querySelector("#cg-norm-cards a")');
     await b.shoot('two-entries-norm-before.png');
     const normId = await b.evaluate(`fetch('/index.php/apps/cognos/norm/data',{credentials:'same-origin',headers:{Accept:'application/json',requesttoken:OC.requestToken}}).then(r=>r.json()).then(d=>d.conversation_id)`);
     const before = await b.evaluate(`fetch('/index.php/apps/cognos/creations/${normId}/messages',{credentials:'same-origin',headers:{Accept:'application/json',requesttoken:OC.requestToken}}).then(r=>r.json()).then(b=>(b.messages||[]).length)`);
@@ -42,25 +42,17 @@ live.run('two-entries', async checks => {
     await b.shoot('two-entries-norm-reply.png');
     checks.push('Norm: message sent in conversation ' + normId + ', agent replied');
 
-    // Home and the project's three tabs
+    // Home and the main space page
     await b.go(live.APP + '/');
     await b.until('!!document.querySelector(".cg-door")');
     await b.shoot('two-entries-home.png');
     await b.go(live.APP + '/norm');
-    await b.until('!!document.querySelector("#cg-norm-main a")');
-    const href = await b.evaluate('document.querySelector("#cg-norm-main a").getAttribute("href")');
+    await b.until('!!document.querySelector("#cg-norm-cards a.cg-card-main")');
+    const href = await b.evaluate('document.querySelector("#cg-norm-cards a.cg-card-main").getAttribute("href")');
     await b.go(live.ORIGIN + href);
-    await b.until('document.querySelectorAll("#cg-stages li").length > 0');
-    await b.shoot('two-entries-project-stages.png');
-    for (const tab of ['branches', 'map']) {
-      await b.click(`.cg-tabs button[data-tab=${tab}]`);
-      await b.until(`!document.querySelector("#cg-tab-${tab}").hidden`);
-      await live.sleep(500);
-      const vis = await b.evaluate(`['stages','branches','map'].filter(t=>getComputedStyle(document.getElementById('cg-tab-'+t)).display!=='none').join(',')`);
-      if (vis !== tab) throw Error('after clicking ' + tab + ' these tabs are visible: ' + vis);
-      await b.shoot(`two-entries-project-${tab}.png`);
-    }
-    checks.push('home, Norm and the cognos project (3 tabs) screenshotted');
+    await b.until('document.querySelectorAll("#cg-space-parts section").length > 0 && !!document.querySelector("#cg-space-chat .cg-chat-form")');
+    await b.shoot('two-entries-space.png');
+    checks.push('home, Norm and the main space (chat + parts) screenshotted');
     if (b.errors.length) throw Error('uncaught page errors: ' + b.errors.join(' | '));
   } finally { b.close(); }
 });

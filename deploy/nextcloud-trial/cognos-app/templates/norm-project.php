@@ -1,17 +1,24 @@
 <?php /** @var array $_ */ ?>
 <div id="app-content">
-<main id="cg-project" class="cg-page" data-project-id="<?php p($_['projectId']); ?>">
-    <header class="cg-header">
-        <a href="/index.php/apps/cognos/norm">Norm</a>
-        <h1 id="cg-project-title">项目</h1>
-    </header>
-    <nav class="cg-tabs" role="tablist">
-        <button type="button" role="tab" data-tab="stages" aria-selected="true">历史阶段</button>
-        <button type="button" role="tab" data-tab="branches" aria-selected="false">分支和部分拆解</button>
-        <button type="button" role="tab" data-tab="map" aria-selected="false">关系图</button>
-    </nav>
-    <section id="cg-tab-stages" class="cg-tab"><ol id="cg-stages" class="cg-stages"></ol></section>
-    <section id="cg-tab-branches" class="cg-tab" hidden><div id="cg-branches" class="cg-branches"></div></section>
-    <section id="cg-tab-map" class="cg-tab" hidden><div id="cg-map" class="cg-map"></div></section>
-</main>
+<div id="cg-space" class="cg-v2 cg-with-aside" data-project-id="<?php p($_['projectId']); ?>">
+    <nav class="cg-nav" id="cg-nav" aria-label="空间"></nav>
+    <main class="cg-main">
+        <header class="cg-main-head">
+            <h1 id="cg-space-title">加载中…</h1>
+            <span class="cg-meta" id="cg-space-meta"></span>
+        </header>
+        <div id="cg-space-top"></div>
+        <section class="cg-chat-wrap" aria-labelledby="cg-space-chat-title">
+            <h2 id="cg-space-chat-title" class="cg-visually-hidden">和这个空间的 agent 说</h2>
+            <div id="cg-space-chat"></div>
+        </section>
+    </main>
+    <aside class="cg-aside" id="cg-space-parts" aria-label="这个空间现在的样子"></aside>
+    <div class="cg-overlay" id="cg-map-overlay" hidden>
+        <div class="cg-overlay-box" role="dialog" aria-modal="true" aria-labelledby="cg-map-title">
+            <header><h2 id="cg-map-title">关系</h2><button type="button" class="cg-btn cg-btn-small" id="cg-map-close">收起</button></header>
+            <div class="cg-map" id="cg-map-full"></div>
+        </div>
+    </div>
+</div>
 </div>

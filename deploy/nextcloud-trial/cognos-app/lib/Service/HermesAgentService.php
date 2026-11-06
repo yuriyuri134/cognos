@@ -53,6 +53,7 @@ final class HermesAgentService {
         private LifecycleService $lifecycle,
         private IConfig $config,
         private LoggerInterface $logger,
+        private NormService $norm,
         ?RestoreGuardService $restoreGuard = null,
     ) {
         $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
@@ -562,7 +563,9 @@ final class HermesAgentService {
                 ['caller' => $caller, 'message' => $message],
                 // 不在项目里的空间没有决定和当前内容可依据，不给 note_basis
                 array_merge(array_values(array_filter($abilities,
-                    static fn(string $line): bool => !empty($space['project_context']) || (!str_starts_with($line, 'note_basis') && !str_starts_with($line, 'adopt')))), $canDo),
+                    static fn(string $line): bool => !empty($space['project_context']) || (!str_starts_with($line, 'note_basis') && !str_starts_with($line, 'adopt')))), $canDo,
+                    // 这段对话是 Norm 里一个空间的（或已经放进 Norm）：这里是什么、怎么工作、能改哪几块
+                    $delegatedExecutor === 'codex' ? [] : $this->norm->agentLines($user->getUID(), $creationId)),
             );
             $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller,
                 array_merge($extra, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry), 'caller_uid' => $user->getUID()]));

@@ -8,6 +8,7 @@ use OCA\Cognos\Service\ClaudeBridgeService;
 use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\HermesAgentService;
+use OCA\Cognos\Service\NormService;
 use OCA\Cognos\Service\PushBackService;
 use OCA\Cognos\Service\RunService;
 use OCA\Cognos\Service\SpaceEntryService;
@@ -35,6 +36,7 @@ final class CreationSpaceController extends Controller {
         private ClaudeBridgeService $bridge,
         private IConfig $config,
         private RunService $runs,
+        private NormService $norm,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -64,9 +66,9 @@ final class CreationSpaceController extends Controller {
             return new DataResponse(['message' => 'Authentication required'], 401);
         }
         try {
-            // Norm 自己的那段对话不算在 Initium 里
-            $norm = (int)$this->config->getUserValue($user->getUID(), 'cognos', 'norm_creation_id', '0');
-            $list = array_values(array_filter($this->creations->list($user->getUID()), static fn(array $c): bool => (int)$c['id'] !== $norm));
+            // Norm 自己的那段对话、还在 Norm 里的空间各自的那段，不算在 Initium 里
+            $hidden = array_flip($this->norm->hiddenConversationIds($user->getUID()));
+            $list = array_values(array_filter($this->creations->list($user->getUID()), static fn(array $c): bool => !isset($hidden[(int)$c['id']])));
             return new DataResponse(['creations' => $list]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch creations'], 500);

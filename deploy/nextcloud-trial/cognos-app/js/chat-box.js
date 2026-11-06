@@ -1,5 +1,5 @@
 /* 一个和 agent 说话的框：读一段对话的消息，发一句，等 agent 回。
- * 用法：CognosChatBox.mount(element, creationId)。消息存在那段对话里，和创立空间的对话是同一种东西。 */
+ * 用法：CognosChatBox.mount(element, creationId, { placeholder, onChange })。onChange 在对话多了一条时调（agent 可能改了别的东西）。消息存在那段对话里，和创立空间的对话是同一种东西。 */
 (function () {
   'use strict';
   const base = '/index.php/apps/cognos/creations/';
@@ -11,12 +11,14 @@
     const body = await r.json().catch(() => ({}));
     return { ok: r.ok, body };
   }
-  function mount(root, creationId) {
+  function mount(root, creationId, opts) {
+    opts = opts || {};
+    let count = -1;
     root.classList.add('cg-chat');
     const log = node('div', undefined, 'cg-chat-log'); log.setAttribute('role', 'log');
     const status = node('p', '', 'cg-chat-status'); status.setAttribute('aria-live', 'polite');
     const form = node('form', undefined, 'cg-chat-form');
-    const input = node('textarea'); input.rows = 3; input.placeholder = '和 agent 说点什么（Enter 发送，Shift+Enter 换行）'; input.setAttribute('aria-label', '和 agent 说的话');
+    const input = node('textarea'); input.rows = 3; input.placeholder = opts.placeholder || '和 agent 说点什么（Enter 发送，Shift+Enter 换行）'; input.setAttribute('aria-label', '和 agent 说的话');
     const send = node('button', '发送'); send.type = 'submit';
     form.append(input, send);
     root.append(log, status, form);
@@ -35,6 +37,9 @@
       const { ok, body } = await api(base + creationId + '/messages');
       if (!ok) { status.textContent = body.message || '读不到这段对话'; return; }
       render(body.messages || []);
+      const n = (body.messages || []).length;
+      if (count >= 0 && n !== count && opts.onChange) opts.onChange();
+      count = n;
       waiting = !!body.pending;
       status.textContent = waiting ? (body.pending_who || 'Agent') + ' 在想，回答会出现在上面。' : '';
       clearTimeout(timer);
@@ -52,6 +57,7 @@
     });
     input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
     load();
+    return { reload: load };
   }
   window.CognosChatBox = { mount };
 })();
