@@ -10,7 +10,7 @@ const live = require('./lib/live.cjs');
 const assets = path.join(__dirname, 'cognos-app');
 const app = '/index.php/apps/cognos';
 const long = '长回答的一段：保留完整内容，可以回到前文继续阅读。\n'.repeat(100);
-let messages = Array.from({length: 60}, (_, i) => ({id: i + 1, role: i % 2 ? 'assistant' : 'user', author: 'Claude', content: i === 59 ? long + '回答结束标记' : '历史消息 ' + (i + 1)}));
+let messages = Array.from({length: 60}, (_, i) => ({id: i + 1, role: i % 2 ? 'assistant' : 'user', author: 'Claude', content: i === 59 ? long + '回答结束标记' : i === 1 ? '**查到的**：\n- 一条\n- 两条' : '历史消息 ' + (i + 1)}));
 const project = {id: 'fixture', title: 'Cognos · 对话与历史', board: '项目', is_main: true, state: 'active',
   parts: ['stages', 'branches', 'relations', 'compare', 'doc'], way: {away: '接着研究', progress: '留下依据', ask: '需要决定时'},
   stages: [{when: '2026-11-07', title: '当前阶段', text: long, current: true}],
@@ -74,17 +74,16 @@ live.run('norm-ui-offline', async checks => {
     b = await live.browser(); await b.desktop();
     const url = 'http://127.0.0.1:' + server.address().port;
     await b.go(url); await b.until('document.querySelectorAll(".cg-msg").length === 60');
-    // 有一件等你定：「正在发生」默认展开
-    assert(await b.evaluate('!document.querySelector("#cg-space-conversation").hidden && document.querySelector(".cg-notice").open'));
-    // 展开时对话仍留得够大；收起后回到大的阅读区
-    assert(await b.evaluate('document.querySelector(".cg-chat-log").clientHeight > 250'));
-    assert(await b.evaluate('(() => {const r=document.querySelector(".cg-decide button").getBoundingClientRect();return r.bottom<=innerHeight && r.height>0})()'));
-    await b.click('.cg-notice > summary');
-    assert(await b.evaluate('document.querySelector(".cg-chat-log").clientHeight > 450'));
+    // 等你定的一件在对话里、输入框上面，是一张小卡；「正在发生」默认收起，不占对话的地方
+    assert(await b.evaluate('!document.querySelector("#cg-space-conversation").hidden && !document.querySelector(".cg-notice").open'));
+    assert(await b.evaluate('document.querySelector(".cg-chat-log").clientHeight > 300'));
+    assert(await b.evaluate('(() => {const a=document.querySelector("#cg-space-chat .cg-ask");const f=document.querySelector(".cg-chat-form");return !!a && a.getBoundingClientRect().bottom<=f.getBoundingClientRect().top && a.getBoundingClientRect().height<140 && f.getBoundingClientRect().bottom<=innerHeight})()'));
+    // agent 的回答按 Markdown 显示，不露出 **；你写的照原样
+    assert(await b.evaluate('(() => {const t=document.querySelectorAll(".cg-msg-agent .cg-msg-text")[0];return !!t.querySelector("strong") && !t.textContent.includes("**") && !!t.querySelector("li")})()'));
     assert(await b.evaluate('document.querySelectorAll(".cg-msg .cg-msg-text")[59].textContent.endsWith("回答结束标记")'));
     assert(await b.noOverflow());
     await b.shoot('norm-ui-desktop.png');
-    checks.push('Desktop defaults to wide conversation; 60 complete messages, long answer intact; a waiting decision opens the notice with its buttons in view, collapsing gives the chat back its full height.');
+    checks.push('Desktop defaults to wide conversation; 60 complete messages, long answer intact; a waiting decision is a small card above the composer, the notice stays collapsed; agent Markdown renders.');
 
     await b.evaluate('window.firstMessage=document.querySelector(".cg-msg");window.historyLog=document.querySelector(".cg-chat-log");historyLog.scrollTop=200');
     await b.until('!document.querySelector(".cg-chat-latest").hidden');
@@ -134,17 +133,12 @@ live.run('norm-ui-offline', async checks => {
     await b.until('historyLog.scrollHeight-historyLog.scrollTop-historyLog.clientHeight<2');
     await b.shoot('norm-ui-phone.png');
     // 上面收起过，同一件不再自己打开；再点开
-    assert(await b.evaluate('!document.querySelector(".cg-notice").open'));
-    await b.click('.cg-notice > summary');
-    assert(await b.evaluate('document.querySelector(".cg-notice").open'));
-    assert(await b.evaluate('document.querySelector(".cg-decide button").getBoundingClientRect().bottom<=innerHeight && document.querySelector(".cg-chat-form").getBoundingClientRect().bottom<=innerHeight'));
+    assert(await b.evaluate('document.querySelector(".cg-ask button").getBoundingClientRect().bottom<=innerHeight && document.querySelector(".cg-chat-form").getBoundingClientRect().bottom<=innerHeight'));
     const msgsBefore = await b.evaluate('document.querySelectorAll(".cg-msg").length');
-    await b.click('.cg-decide button'); await b.until('!document.querySelector(".cg-decide")');
+    await b.click('.cg-ask button'); await b.until('!document.querySelector(".cg-ask")');
     // 定了以后在对话里说一句，agent 接着做
     await b.until('document.querySelectorAll(".cg-msg").length===' + (msgsBefore + 1));
     assert(posts.some(x => x.url.endsWith('/messages') && /我定了：继续/.test(x.body.message)));
-    assert(await b.evaluate('document.querySelector(".cg-notice").open'));
-    await b.click('.cg-notice > summary');
     await b.fill('.cg-chat-form textarea', '新问题');
     await b.send('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13});
     await b.until('document.querySelectorAll(".cg-msg").length===' + (msgsBefore + 2));
@@ -189,7 +183,7 @@ live.run('norm-ui-offline', async checks => {
 
     messages = []; events = []; arrived.items = []; project.parts = []; project.board = null; project.way = {};
     await b.go(url); await b.until('!!window.testChat && !!document.querySelector(".cg-chat-log .cg-hint")');
-    assert(await b.evaluate('!document.querySelector(".cg-decide") && !document.querySelector("#cg-space-conversation").hidden'));
+    assert(await b.evaluate('!document.querySelector(".cg-ask") && !document.querySelector("#cg-space-conversation").hidden'));
     assert(await b.noOverflow());
     checks.push('Empty conversation, no decisions, and custom space with no supplied parts keep conversation available.');
     assert.deepEqual(b.errors, []);

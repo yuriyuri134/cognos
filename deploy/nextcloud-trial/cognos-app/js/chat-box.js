@@ -11,6 +11,50 @@
     const body = await r.json().catch(() => ({}));
     return { ok: r.ok, body };
   }
+  // agent 的回答多半是 Markdown：照格式显示（粗体、标题、列表、代码、引用、链接），不露出 ** 和 #。
+  // 只建 DOM 节点、只用 textContent，不拼 HTML，回答里有什么尖括号都只是字。
+  function inline(parent, text) {
+    const re = /\*\*([^*\n]+)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
+    let at = 0; let m;
+    while ((m = re.exec(text))) {
+      if (m.index > at) parent.append(document.createTextNode(text.slice(at, m.index)));
+      if (m[1] !== undefined) parent.append(node('strong', m[1]));
+      else if (m[2] !== undefined) parent.append(node('code', m[2]));
+      else { const a = node('a', m[3]); a.href = m[4]; a.target = '_blank'; a.rel = 'noopener noreferrer'; parent.append(a); }
+      at = re.lastIndex;
+    }
+    if (at < text.length) parent.append(document.createTextNode(text.slice(at)));
+  }
+  function md(text) {
+    const out = document.createDocumentFragment();
+    const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+    let para = null; let list = null;
+    const end = () => { para = null; list = null; };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^\s*```/.test(line)) {
+        const code = [];
+        for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) code.push(lines[i]);
+        const pre = node('pre'); pre.append(node('code', code.join('\n'))); out.append(pre); end(); continue;
+      }
+      if (!line.trim()) { end(); continue; }
+      let m;
+      if ((m = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line))) { const h = node('p', undefined, 'cg-md-h'); inline(h, m[1].replace(/\s*#+\s*$/, '')); out.append(h); end(); continue; }
+      if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { out.append(node('hr')); end(); continue; }
+      if ((m = /^\s*>\s?(.*)$/.exec(line))) { const q = node('blockquote'); inline(q, m[1]); out.append(q); end(); continue; }
+      const ul = /^\s*[-*+]\s+(.*)$/.exec(line); const ol = /^\s*\d+[.)、]\s+(.*)$/.exec(line);
+      if (ul || ol) {
+        const tag = ul ? 'ul' : 'ol';
+        if (!list || list.tagName.toLowerCase() !== tag) { list = node(tag); out.append(list); para = null; }
+        const li = node('li'); inline(li, (ul || ol)[1]); list.append(li); continue;
+      }
+      if (list && /^\s{2,}\S/.test(line)) { const li = list.lastChild; li.append(document.createElement('br')); inline(li, line.trim()); continue; }
+      if (!para) { para = node('p'); out.append(para); list = null; } else para.append(document.createElement('br'));
+      inline(para, line);
+    }
+    return out;
+  }
+  window.CognosMd = { render: md };
   function whoName(a) { return !a ? 'Agent' : a === 'GPT' || a === 'Codex' ? 'GPT' : /claude|cognos/i.test(a) ? 'Claude' : a; }
   function mount(root, creationId, opts) {
     opts = opts || {};
@@ -110,7 +154,10 @@
           row.version = version; changed = true;
           row.element.className = 'cg-msg ' + (m.role === 'user' ? 'cg-msg-you' : 'cg-msg-agent');
           row.element.querySelector('.cg-msg-who').textContent = m.role === 'user' ? '你' : whoName(m.author);
-          row.element.querySelector('.cg-msg-text').textContent = m.content;
+          // 你写的照原样显示；agent 的回答按 Markdown 显示
+          const textBox = row.element.querySelector('.cg-msg-text');
+          if (m.role === 'user') { textBox.classList.remove('cg-md'); textBox.textContent = m.content; }
+          else { textBox.classList.add('cg-md'); textBox.replaceChildren(md(m.content)); }
           row.element.querySelector('.cg-msg-acts').replaceWith(actions(m));
         }
         if (log.children[i] !== row.element) log.insertBefore(row.element, log.children[i] || null);
