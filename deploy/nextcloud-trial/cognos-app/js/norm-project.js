@@ -154,6 +154,8 @@
     askVersion = version;
     old?.remove();
     if (waiting.length) form.parentNode.insertBefore(askCard(waiting[0], waiting.length), form);
+    // 卡片出现或消失会改变对话区的高度：原来停在最新的，接着停在最新
+    chat?.show();
   }
 
   async function answerAsk(e, answer, said) {

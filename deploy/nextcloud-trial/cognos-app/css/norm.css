@@ -289,6 +289,7 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
 .cg-md p:last-child, .cg-md ul:last-child, .cg-md ol:last-child { margin-bottom: 0; }
 .cg-md .cg-md-h { font-weight: 700; margin-top: .8em; }
 .cg-md ul, .cg-md ol { margin: 0 0 .6em; padding-left: 1.4em; }
+.cg-md ul { list-style: disc outside; } .cg-md ol { list-style: decimal outside; } .cg-md li { display: list-item; }
 .cg-md li { margin: .15em 0; }
 .cg-md code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; padding: 0 .3em; border-radius: 4px; background: var(--cg-panel); }
 .cg-md pre { margin: 0 0 .6em; padding: 10px 12px; border-radius: 8px; background: var(--cg-panel); overflow-x: auto; white-space: pre; }
@@ -304,9 +305,9 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
 .cg-ask-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .cg-ask-skip { opacity: .75; }
 @media (max-width: 760px) { .cg-ask { padding: 8px 10px; } }
-/* 「回到最新」浮在对话底边上，不另占一行 */
-.cg-project .cg-chat-latest { position: relative; z-index: 1; margin: -46px auto 10px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
-.cg-project .cg-chat-latest[hidden] { display: none; }
+/* 「回到最新」在对话里面贴着底边浮着，不另占一行 */
+.cg-chat-latest { position: sticky; bottom: 8px; z-index: 1; margin-top: auto; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.cg-chat-latest[hidden] { display: none; }
 @media (max-width: 760px) {
   .cg-project .cg-main-head .cg-meta { font-size: 12px; }
   .cg-space-views .cg-btn { padding: 4px 10px; min-height: 30px; }

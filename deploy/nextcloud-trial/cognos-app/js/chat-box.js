@@ -14,11 +14,12 @@
   // agent 的回答多半是 Markdown：照格式显示（粗体、标题、列表、代码、引用、链接），不露出 ** 和 #。
   // 只建 DOM 节点、只用 textContent，不拼 HTML，回答里有什么尖括号都只是字。
   function inline(parent, text) {
-    const re = /\*\*([^*\n]+)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
+    const re = /\*\*(.+?)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
     let at = 0; let m;
     while ((m = re.exec(text))) {
       if (m.index > at) parent.append(document.createTextNode(text.slice(at, m.index)));
-      if (m[1] !== undefined) parent.append(node('strong', m[1]));
+      // 粗体里还可以有代码、链接：接着往里拆
+      if (m[1] !== undefined) { const b = node('strong'); inline(b, m[1]); parent.append(b); }
       else if (m[2] !== undefined) parent.append(node('code', m[2]));
       else { const a = node('a', m[3]); a.href = m[4]; a.target = '_blank'; a.rel = 'noopener noreferrer'; parent.append(a); }
       at = re.lastIndex;
@@ -65,9 +66,10 @@
     const latest = node('button', '回到最新', 'cg-chat-latest'); latest.type = 'button'; latest.hidden = true;
     let followLatest = true; let readingTop = 0; let unseen = false;
     const rows = new Map();
+    let pinnedHeight = 0;
     function showLatest() {
       followLatest = true; unseen = false;
-      log.scrollTop = log.scrollHeight; readingTop = log.scrollTop; latest.hidden = true;
+      log.scrollTop = log.scrollHeight; readingTop = log.scrollTop; latest.hidden = true; pinnedHeight = log.clientHeight;
     }
     function updateLatest() {
       latest.hidden = followLatest;
@@ -75,12 +77,16 @@
     }
     log.addEventListener('scroll', () => {
       if (!log.clientHeight) return; // 切到另一个工作区时仍保留阅读位置
+      // 停在最新时对话区刚变矮（下面多了额度、卡片）：这不是你往上翻，接着停在最新
+      if (followLatest && log.clientHeight < pinnedHeight) { showLatest(); return; }
       readingTop = log.scrollTop;
       followLatest = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
       if (followLatest) unseen = false;
       updateLatest();
     });
     latest.addEventListener('click', showLatest);
+    // 对话区变矮（下面多出额度、卡片、状态一行）时，原来停在最新的继续停在最新
+    if (window.ResizeObserver) new ResizeObserver(() => { if (followLatest && log.clientHeight) showLatest(); }).observe(log);
     const status = node('p', '', 'cg-chat-status'); status.setAttribute('aria-live', 'polite');
     const form = node('form', undefined, 'cg-chat-form');
     const input = node('textarea'); input.rows = 3; input.placeholder = opts.placeholder || '和 agent 说点什么（Enter 发送，Shift+Enter 换行）'; input.setAttribute('aria-label', '和 agent 说的话');
@@ -88,7 +94,9 @@
     form.append(input, send);
     setTimeout(() => window.CognosAgentPick?.mount(form, creationId), 0);
     const usageLine = node('p', '', 'cg-usage'); usageLine.hidden = true;
-    root.append(log, latest, status, form, usageLine);
+    // 「回到最新」放在对话里面、贴着底边浮着，不另占一行（消息都插在它前面）
+    log.append(latest);
+    root.append(log, status, form, usageLine);
     let waiting = false; let timer = null; let editing = null;
     // 像 ChatGPT 那样：改你说的一句，后面的都去掉，用改过的这句重新回；删一句，连回它的回答一起删
     function actions(m) {

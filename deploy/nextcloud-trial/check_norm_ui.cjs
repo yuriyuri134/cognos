@@ -10,7 +10,7 @@ const live = require('./lib/live.cjs');
 const assets = path.join(__dirname, 'cognos-app');
 const app = '/index.php/apps/cognos';
 const long = '长回答的一段：保留完整内容，可以回到前文继续阅读。\n'.repeat(100);
-let messages = Array.from({length: 60}, (_, i) => ({id: i + 1, role: i % 2 ? 'assistant' : 'user', author: 'Claude', content: i === 59 ? long + '回答结束标记' : i === 1 ? '**查到的**：\n- 一条\n- 两条' : '历史消息 ' + (i + 1)}));
+let messages = Array.from({length: 60}, (_, i) => ({id: i + 1, role: i % 2 ? 'assistant' : 'user', author: 'Claude', content: i === 59 ? long + '回答结束标记' : i === 1 ? '**查到的 `check_judgment`：**\n- 一条\n- 两条' : '历史消息 ' + (i + 1)}));
 const project = {id: 'fixture', title: 'Cognos · 对话与历史', board: '项目', is_main: true, state: 'active',
   parts: ['stages', 'branches', 'relations', 'compare', 'doc'], way: {away: '接着研究', progress: '留下依据', ask: '需要决定时'},
   stages: [{when: '2026-11-07', title: '当前阶段', text: long, current: true}],
@@ -79,7 +79,9 @@ live.run('norm-ui-offline', async checks => {
     assert(await b.evaluate('document.querySelector(".cg-chat-log").clientHeight > 300'));
     assert(await b.evaluate('(() => {const a=document.querySelector("#cg-space-chat .cg-ask");const f=document.querySelector(".cg-chat-form");return !!a && a.getBoundingClientRect().bottom<=f.getBoundingClientRect().top && a.getBoundingClientRect().height<140 && f.getBoundingClientRect().bottom<=innerHeight})()'));
     // agent 的回答按 Markdown 显示，不露出 **；你写的照原样
-    assert(await b.evaluate('(() => {const t=document.querySelectorAll(".cg-msg-agent .cg-msg-text")[0];return !!t.querySelector("strong") && !t.textContent.includes("**") && !!t.querySelector("li")})()'));
+    assert(await b.evaluate('(() => {const t=document.querySelectorAll(".cg-msg-agent .cg-msg-text")[0];return !!t.querySelector("strong code") && !t.textContent.includes("**") && !t.textContent.includes("`") && getComputedStyle(t.querySelector("li")).display==="list-item"})()'));
+    // 打开时停在最新一条；「回到最新」在对话里面，不另占一行
+    assert(await b.evaluate('(L=>L.scrollHeight-L.scrollTop-L.clientHeight<2 && L.contains(document.querySelector(".cg-chat-latest")))(document.querySelector(".cg-chat-log"))'));
     assert(await b.evaluate('document.querySelectorAll(".cg-msg .cg-msg-text")[59].textContent.endsWith("回答结束标记")'));
     assert(await b.noOverflow());
     await b.shoot('norm-ui-desktop.png');
