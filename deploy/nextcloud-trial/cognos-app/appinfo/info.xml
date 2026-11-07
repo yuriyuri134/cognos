@@ -5,7 +5,7 @@
   <name>Cognos</name>
   <summary>Continue Cognos work from Nextcloud projects and tasks</summary>
   <description>Adds the Cognos Activity continuation layer to Nextcloud Deck, with source snapshots, resumable attempts, and task history.</description>
-  <version>0.37.1</version>
+  <version>0.37.2</version>
   <licence>agpl</licence>
   <author>Cognos contributors</author>
   <namespace>Cognos</namespace>
@@ -23,6 +23,7 @@
     <command>OCA\Cognos\Command\ImportSpace</command>
     <command>OCA\Cognos\Command\NormSeed</command>
     <command>OCA\Cognos\Command\ReadNow</command>
+    <command>OCA\Cognos\Command\ImportConversations</command>
   </commands>
   <dependencies><nextcloud min-version="35" max-version="35"/></dependencies>
 </info>

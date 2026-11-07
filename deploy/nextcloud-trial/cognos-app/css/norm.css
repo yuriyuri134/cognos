@@ -158,8 +158,8 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
 .cg-sources a { display: block; padding: 4px 0; }
 
 /* 关系图铺满 */
-.cg-overlay { position: fixed; inset: 0; z-index: 3000; background: rgba(28, 27, 25, .5); display: flex; align-items: center; justify-content: center; padding: 24px; }
-.cg-overlay[hidden] { display: none; }
+.cg-overlay { position: fixed; inset: 0; z-index: 3000; background: rgba(28, 27, 25, .5); color: var(--cg-ink); display: flex; align-items: center; justify-content: center; padding: 24px; margin: 0; border: 0; width: 100%; height: 100%; max-width: none; max-height: none; box-sizing: border-box; }
+.cg-overlay:not([open]) { display: none; }
 .cg-overlay-box { background: var(--cg-card); border-radius: 16px; width: min(1100px, 100%); max-height: 100%; overflow: auto; padding: 18px 22px; box-sizing: border-box; }
 .cg-overlay-box header { display: flex; justify-content: space-between; align-items: center; }
 .cg-map svg { width: 100%; height: auto; }
@@ -220,3 +220,98 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
 .cg-agent-pick { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 0 0 6px; color: inherit; opacity: .9; }
 .cg-agent-pick button { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 999px; padding: 2px 12px; min-height: 28px; cursor: pointer; opacity: .7; }
 .cg-agent-pick button.cg-on { opacity: 1; background: var(--cg-dark, #1C1B19); color: var(--cg-dark-ink, #F4F2EC); border-color: transparent; }
+
+/* 项目页：对话和各部分共用主区，不再挤进固定宽度的右栏。 */
+.cg-project { height: calc(100dvh - var(--header-height, 50px)); min-height: 0; overflow: hidden; }
+.cg-project > .cg-nav { overflow-y: auto; min-height: 0; }
+.cg-project .cg-main { min-height: 0; overflow: hidden; }
+.cg-project .cg-main-head { flex-shrink: 0; flex-wrap: wrap; padding: 16px 28px 12px; }
+.cg-project .cg-main-head h1, .cg-project .cg-meta { overflow-wrap: anywhere; }
+#cg-space-top { flex-shrink: 0; max-height: 35dvh; overflow: auto; }
+.cg-notice { margin: 8px 28px; border: 1px solid var(--cg-line); border-radius: 10px; background: var(--cg-panel); }
+.cg-notice > summary { padding: 8px 12px; cursor: pointer; color: var(--cg-ink-2); overflow-wrap: anywhere; }
+.cg-notice .cg-block, .cg-notice .cg-own, .cg-notice .cg-drift { margin: 12px; }
+.cg-notice .cg-decide { flex-wrap: wrap; }
+.cg-notice .cg-actions { flex-shrink: 1; }
+.cg-space-views { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 28px; border-bottom: 1px solid var(--cg-line); flex-shrink: 0; }
+.cg-space-views .cg-btn[aria-pressed="true"] { background: var(--cg-dark); color: var(--cg-dark-ink); border-color: var(--cg-dark); }
+.cg-project .cg-chat-wrap { min-height: 0; padding: 12px 28px 16px; overflow: hidden; }
+.cg-project .cg-chat { min-height: 0; }
+.cg-project .cg-chat-log { height: 0; min-height: 0; flex: 1 1 0; overflow-anchor: none; }
+.cg-project .cg-msg { box-sizing: border-box; max-width: min(100%, 90ch); flex-shrink: 0; }
+.cg-project .cg-msg-agent { width: 100%; }
+.cg-project .cg-chat-form textarea { max-height: 24dvh; }
+.cg-chat-latest { align-self: center; border: 1px solid var(--cg-line-strong); border-radius: 20px; padding: 6px 16px; color: var(--cg-accent); background: var(--cg-card); cursor: pointer; }
+.cg-space-parts { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 28px; overflow-wrap: anywhere; }
+.cg-space-parts h2 { font-size: 18px; margin: 0 0 16px; }
+.cg-space-parts section + section { margin-top: 24px; }
+.cg-space-parts .cg-rel-mini { height: min(60dvh, 600px); }
+.cg-space-parts .cg-cmp { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.cg-project [hidden] { display: none !important; }
+.cg-project :focus-visible { outline: 2px solid var(--cg-accent); outline-offset: 3px; }
+@media (max-width: 760px) {
+  .cg-project { grid-template-rows: auto minmax(0, 1fr); }
+  .cg-project > .cg-nav { max-height: 16dvh; padding: 8px 12px; flex-wrap: nowrap; overflow-x: auto; align-items: center; }
+  .cg-project > .cg-nav a { flex-shrink: 0; }
+  .cg-project .cg-nav .cg-brand, .cg-project .cg-nav-empty { display: none; }
+  .cg-project .cg-main-head { padding: 10px 16px; gap: 4px; }
+  .cg-project .cg-main-head h1 { font-size: 20px; }
+  .cg-notice { margin: 6px 16px; }
+  .cg-space-views { padding: 6px 16px; flex-wrap: nowrap; overflow-x: auto; }
+  .cg-space-views .cg-btn { flex-shrink: 0; }
+  .cg-project .cg-chat-wrap { padding: 8px 16px 12px; }
+  .cg-project .cg-msg { padding: 10px 12px; }
+  .cg-project .cg-chat-form { gap: 8px; }
+  .cg-project .cg-chat-form textarea { padding: 10px; }
+  .cg-project .cg-chat-form button { padding: 0 14px; }
+  .cg-space-parts { padding: 16px; }
+  .cg-overlay { padding: 8px; }
+  .cg-overlay-box { padding: 12px; }
+  .cg-map { overflow: auto; }
+  .cg-map svg { min-width: 760px; }
+}
+.cg-notice-must { border-color: var(--cg-accent); }
+.cg-notice-must > summary { color: var(--cg-accent); font-weight: 600; }
+
+/* 改 / 删：悬停时出现，像 ChatGPT */
+.cg-msg-acts { display: flex; gap: 6px; margin-top: 2px; opacity: 0; transition: opacity .15s; }
+.cg-msg:hover .cg-msg-acts, .cg-msg-acts:focus-within, .cg-msg-edit-bar { opacity: 1; }
+.cg-msg-act { background: none; border: none; padding: 2px 6px; font-size: 12px; color: var(--cg-muted, inherit); cursor: pointer; border-radius: 4px; }
+.cg-msg-act:hover { background: var(--cg-chip, rgba(0,0,0,.06)); color: var(--cg-ink, inherit); }
+.cg-msg-edit { width: 100%; box-sizing: border-box; font: inherit; margin-bottom: 6px; }
+@media (hover: none) { .cg-msg-acts { opacity: 1; } }
+/* 额度和这段对话上一次回话用了多少 */
+.cg-usage { white-space: pre-line; font-size: 12px; color: var(--cg-muted, inherit); margin: 6px 0 0; line-height: 1.5; }
+.cg-version { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; padding-top: 8px; border-top: 1px dashed var(--cg-line); }
+/* agent 回答按 Markdown 显示 */
+.cg-msg-text.cg-md { white-space: normal; }
+.cg-md p { margin: 0 0 .6em; }
+.cg-md p:last-child, .cg-md ul:last-child, .cg-md ol:last-child { margin-bottom: 0; }
+.cg-md .cg-md-h { font-weight: 700; margin-top: .8em; }
+.cg-md ul, .cg-md ol { margin: 0 0 .6em; padding-left: 1.4em; }
+.cg-md li { margin: .15em 0; }
+.cg-md code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; padding: 0 .3em; border-radius: 4px; background: var(--cg-panel); }
+.cg-md pre { margin: 0 0 .6em; padding: 10px 12px; border-radius: 8px; background: var(--cg-panel); overflow-x: auto; white-space: pre; }
+.cg-md pre code { padding: 0; background: none; }
+.cg-md blockquote { margin: 0 0 .6em; padding-left: 10px; border-left: 3px solid var(--cg-line-strong); color: var(--cg-ink-2); }
+.cg-md hr { border: 0; border-top: 1px solid var(--cg-line); margin: .8em 0; }
+/* agent 问你的一件：在对话里、输入框上面，一张小卡 */
+.cg-doc.cg-md { white-space: normal; }
+.cg-ask { margin: 0 0 8px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--cg-accent); background: var(--cg-card); max-width: min(100%, 90ch); box-sizing: border-box; }
+.cg-ask-who { font-size: 12px; color: var(--cg-accent); font-weight: 600; margin-bottom: 2px; }
+.cg-ask-text { margin: 0 0 6px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.cg-ask-text.cg-ask-full { display: block; -webkit-line-clamp: unset; max-height: 30dvh; overflow-y: auto; }
+.cg-ask-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.cg-ask-skip { opacity: .75; }
+@media (max-width: 760px) { .cg-ask { padding: 8px 10px; } }
+/* 「回到最新」浮在对话底边上，不另占一行 */
+.cg-project .cg-chat-latest { position: relative; z-index: 1; margin: -46px auto 10px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.cg-project .cg-chat-latest[hidden] { display: none; }
+@media (max-width: 760px) {
+  .cg-project .cg-main-head .cg-meta { font-size: 12px; }
+  .cg-space-views .cg-btn { padding: 4px 10px; min-height: 30px; }
+  .cg-ask-text { -webkit-line-clamp: 1; margin-bottom: 4px; }
+  .cg-ask .cg-btn { padding: 2px 10px; min-height: 28px; }
+  /* 额度在手机上只留一行，点开对话页电脑上看全 */
+  .cg-project .cg-usage { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}

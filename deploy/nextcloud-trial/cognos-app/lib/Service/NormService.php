@@ -61,6 +61,17 @@ final class NormService {
         return array_values(array_filter($ids));
     }
 
+    /** 撤回了、退回 Initium 的空间各自的那段对话。 */
+    public function inactiveConversationIds(string $uid): array {
+        $q = $this->db->getQueryBuilder();
+        $rows = $q->select('conversation_id')->from('cognos_norm_projects')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->isNotNull('conversation_id'))
+            ->andWhere($q->expr()->neq('state', $q->createNamedParameter('active')))
+            ->executeQuery()->fetchAll();
+        return array_values(array_filter(array_map(static fn(array $r): int => (int)$r['conversation_id'], $rows)));
+    }
+
     /** @return list<array> 主项目在前，其余按最近更新；只列还在 Norm 里的。 */
     public function projects(string $uid): array {
         $q = $this->db->getQueryBuilder();
@@ -158,18 +169,24 @@ final class NormService {
         return $cid;
     }
 
-    /** 这段对话是哪个空间的（空间自己的那段）。 */
+    /**
+     * 这段对话是哪个还在 Norm 里的空间的（空间自己的那段）。
+     * 撤回了、退回 Initium 的空间不算：那段对话回到 Initium，agent 不再把它当成 Norm 空间去读写，读者照 Initium 的对话读它。
+     */
     public function spaceByConversation(string $uid, int $creationId): ?array {
         $q = $this->db->getQueryBuilder();
         $r = $q->select('*')->from('cognos_norm_projects')
             ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
             ->andWhere($q->expr()->eq('conversation_id', $q->createNamedParameter($creationId, IQueryBuilder::PARAM_INT)))
+            ->andWhere($q->expr()->orX($q->expr()->isNull('state'), $q->expr()->eq('state', $q->createNamedParameter('active'))))
             ->setMaxResults(1)->executeQuery()->fetch();
         return $r === false ? null : $this->row($r, true);
     }
 
-    /** 改一块的全部内容。 */
-    public function writePart(string $uid, string $id, string $part, mixed $content): void {
+    /**
+     * 改一块的全部内容。改之前把原来的存成一版（能换回去），并在空间里记一条「谁改了哪一块」，你回来时看得到。
+     */
+    public function writePart(string $uid, string $id, string $part, mixed $content, string $who = 'agent'): void {
         if (!isset(self::PARTS[$part])) {
             throw new \InvalidArgumentException('没有这一块：' . $part . '（只有 ' . implode('、', array_keys(self::PARTS)) . '）');
         }
@@ -190,7 +207,80 @@ final class NormService {
             }
             $value = json_encode($content, JSON_UNESCAPED_UNICODE);
         }
+        $r = $this->fetch($uid, $id);
+        if ($r === null) {
+            throw new \InvalidArgumentException('没有这个空间');
+        }
+        $old = $r[$part] ?? null;
+        $same = $part === 'doc' ? (string)$old === $value
+            : json_decode((string)($old ?? ''), true) == $content;
+        if ($same) {
+            return;
+        }
+        $this->saveVersion($uid, $id, $part, $old, $who);
         $this->update($uid, $id, [$part => $value]);
+        $this->noteChange($uid, $id, $who . ' 改了「' . self::PARTS[$part] . '」。', $who);
+    }
+
+    /** @return array<string, list<array{id: int, who: string, created_at: int}>> 每一块最近几次改之前的版本，新的在前 */
+    public function versions(string $uid, string $id, int $limit = 5): array {
+        $q = $this->db->getQueryBuilder();
+        $rows = $q->select('id', 'part', 'who', 'created_at')->from('cognos_norm_part_versions')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($id)))
+            ->orderBy('id', 'DESC')->setMaxResults(200)->executeQuery()->fetchAll();
+        $out = [];
+        foreach ($rows as $r) {
+            $p = (string)$r['part'];
+            if (count($out[$p] ?? []) < $limit) {
+                $out[$p][] = ['id' => (int)$r['id'], 'who' => (string)($r['who'] ?? ''), 'created_at' => (int)$r['created_at']];
+            }
+        }
+        return $out;
+    }
+
+    /** 把一块换回某一版。换下来的现在这版也存起来，所以换回去也能再换回来。 */
+    public function restorePart(string $uid, string $id, int $versionId): string {
+        $q = $this->db->getQueryBuilder();
+        $v = $q->select('*')->from('cognos_norm_part_versions')
+            ->where($q->expr()->eq('id', $q->createNamedParameter($versionId, IQueryBuilder::PARAM_INT)))
+            ->andWhere($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($id)))
+            ->executeQuery()->fetch();
+        if ($v === false || !isset(self::PARTS[(string)$v['part']])) {
+            throw new \InvalidArgumentException('没有这一版');
+        }
+        $part = (string)$v['part'];
+        $r = $this->fetch($uid, $id);
+        if ($r === null) {
+            throw new \InvalidArgumentException('没有这个空间');
+        }
+        $this->saveVersion($uid, $id, $part, $r[$part] ?? null, '你');
+        $this->update($uid, $id, [$part => $v['content']]);
+        $this->addEvent($uid, $id, 'happened', '你把「' . self::PARTS[$part] . '」换回了 ' . date('n/j H:i', (int)$v['created_at']) . ' 改之前的那一版。', [], '你');
+        return $part;
+    }
+
+    private function saveVersion(string $uid, string $id, string $part, ?string $content, string $who): void {
+        $q = $this->db->getQueryBuilder();
+        $q->insert('cognos_norm_part_versions')->values([
+            'user_id' => $q->createNamedParameter($uid),
+            'space_id' => $q->createNamedParameter($id),
+            'part' => $q->createNamedParameter($part),
+            'content' => $q->createNamedParameter($content, $content === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR),
+            'who' => $q->createNamedParameter(mb_substr($who, 0, 64)),
+            'created_at' => $q->createNamedParameter(time(), IQueryBuilder::PARAM_INT),
+        ])->executeStatement();
+    }
+
+    /** 记一条「谁改了什么」；同一位十分钟内改同一块，不重复记。 */
+    private function noteChange(string $uid, string $id, string $text, string $who): void {
+        foreach ($this->events($uid, $id, 'happened', 5) as $e) {
+            if ($e['text'] === $text && $e['who'] === $who && time() - $e['created_at'] < 600) {
+                return;
+            }
+        }
+        $this->addEvent($uid, $id, 'happened', $text, [], $who);
     }
 
     /** 改它的样子：换成现成的 board，或带着自己的做法（board 为 null，parts 和 way 一起给）。 */
@@ -245,6 +335,14 @@ final class NormService {
             ->andWhere($q->expr()->eq('user_id', $q->createNamedParameter($uid)))->executeStatement();
     }
 
+    /** 撤回过的一条连线再接上（撤回「挪到别的空间」时，把原来那条接回去）。 */
+    public function relink(string $uid, int $linkId): void {
+        $q = $this->db->getQueryBuilder();
+        $q->update('cognos_norm_links')->set('undone_at', $q->createNamedParameter(null, IQueryBuilder::PARAM_NULL))
+            ->where($q->expr()->eq('id', $q->createNamedParameter($linkId, IQueryBuilder::PARAM_INT)))
+            ->andWhere($q->expr()->eq('user_id', $q->createNamedParameter($uid)))->executeStatement();
+    }
+
     /** 这段 Initium 对话现在连在哪个空间上（最近的一条没撤回的）。 */
     public function linkedSpace(string $uid, int $creationId): ?array {
         $q = $this->db->getQueryBuilder();
@@ -262,10 +360,10 @@ final class NormService {
         return $space === null ? null : ['link_id' => (int)$r['id'], 'space' => $space];
     }
 
-    /** @return list<array{creation_id: int, title: string}> */
+    /** @return list<array{creation_id: int, title: string, created_at: int}> */
     public function links(string $uid, string $spaceId): array {
         $q = $this->db->getQueryBuilder();
-        $rows = $q->select('l.creation_id', 'c.title')->from('cognos_norm_links', 'l')
+        $rows = $q->select('l.creation_id', 'l.created_at', 'c.title')->from('cognos_norm_links', 'l')
             ->leftJoin('l', 'cognos_creations', 'c', $q->expr()->eq('c.id', 'l.creation_id'))
             ->where($q->expr()->eq('l.user_id', $q->createNamedParameter($uid)))
             ->andWhere($q->expr()->eq('l.space_id', $q->createNamedParameter($spaceId)))
@@ -279,7 +377,7 @@ final class NormService {
                 continue;
             }
             $seen[$cid] = true;
-            $out[] = ['creation_id' => $cid, 'title' => (string)($r['title'] ?? '')];
+            $out[] = ['creation_id' => $cid, 'title' => (string)($r['title'] ?? ''), 'created_at' => (int)($r['created_at'] ?? 0)];
         }
         return $out;
     }
@@ -321,6 +419,9 @@ final class NormService {
             ->executeQuery()->fetch();
         if ($r === false || $r['kind'] !== 'decide') {
             throw new \InvalidArgumentException('没有这一件');
+        }
+        if ($r['answer'] !== null) {
+            throw new \InvalidArgumentException('这一件已经定过了：' . $r['answer']);
         }
         $answer = mb_substr(trim($answer), 0, 200);
         if ($answer === '') {
@@ -389,8 +490,12 @@ final class NormService {
                 }
             }
             $lines[] = '它用这几块：' . implode('、', array_map(static fn(string $p): string => self::PARTS[$p] . '（' . $p . '）', $space['parts'])) . '。';
-            foreach ($this->links($uid, $space['id']) as $l) {
-                $lines[] = '连着 Initium 里的对话「' . $l['title'] . '」（creation ' . $l['creation_id'] . '）。';
+            // 连着几十段时全列出来太长：只列最近几段，别的在 read_space 的目录里
+            $links = array_reverse($this->links($uid, $space['id']));
+            if ($links !== []) {
+                $lines[] = '这里连着 ' . count($links) . ' 段 Initium 对话。最近放进来的：'
+                    . implode('；', array_map(static fn(array $l): string => '「' . $l['title'] . '」（linked_id=' . $l['creation_id'] . '）', array_slice($links, 0, 5)))
+                    . '。原话你自己读得到：read_space 返回里有目录和最近一段的原话，别的段带 linked_id 读，读不完按 next_from 接着读。要接着做，先把原话读了再动手，不要只凭一句转述。';
             }
             foreach (array_slice(array_filter($this->events($uid, $space['id'], 'decide', 20), static fn(array $e): bool => $e['answer'] !== null), 0, 5) as $e) {
                 $lines[] = '交互对象定过：「' . $e['text'] . '」→ ' . $e['answer'];
@@ -413,6 +518,8 @@ final class NormService {
         $lines[] = 'read_space：读这个空间现在的样子和每一块的内容。write_part：改一块（先读再写，写的是改完的全部内容）。'
             . 'note_for_you：留给交互对象回来时看的一条，kind=happened 是你做了什么、发生了什么；kind=decide 是只有他能定的一件，给两三个选项。';
         $lines[] = '改理想、改目标、把一段理解改成新的、换这个空间的样子，这些不要直接改，用 note_for_you(kind=decide) 提出来，由交互对象定。';
+        $lines[] = 'kind=decide 只用在真要他拿主意的地方：方向、取舍、他的口味和范围。你自己该怎么工作、该读什么、工具够不够，这些不要问他：能做就直接做，做不到就在回答里说清卡在哪。';
+        $lines[] = '跟交互对象说话时用平常的话，不要提 linked_id、creation、#编号这类内部编号，他看不懂；说对话的题目。';
         return $lines;
     }
 

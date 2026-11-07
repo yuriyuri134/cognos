@@ -37,6 +37,27 @@ final class ClaudeBridgeService {
         return $this->config->getAppValue('cognos', 'claude_bridge_token', '') !== '';
     }
 
+    /** 桥记下的额度和这片空间最近一次用量；桥没开或出错时给 null，不挡页面。 */
+    public function usage(string $spaceType, string $spaceId): ?array {
+        $token = $this->config->getAppValue('cognos', 'claude_bridge_token', '');
+        $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
+        if ($token === '' || !str_ends_with($url, '/chat')) {
+            return null;
+        }
+        try {
+            $response = $this->http->newClient()->get(substr($url, 0, -5) . '/usage?' . http_build_query(['space_type' => $spaceType, 'space_id' => $spaceId]), [
+                'headers' => ['Accept' => 'application/json', 'X-Cognos-Bridge-Token' => $token],
+                'timeout' => 2,
+                'connect_timeout' => 1,
+                'nextcloud' => ['allow_local_address' => true],
+            ]);
+            $data = json_decode((string)$response->getBody(), true);
+            return is_array($data) ? $data : null;
+        } catch (\Throwable $error) {
+            return null;
+        }
+    }
+
     /** 在 Cognos 自己的空间里被叫来的叫 Cognos，在那里改的是 Cognos 自己的代码；别处是 Claude Code。 */
     public function subjectFor(string $spaceType, string $spaceId): string {
         return $this->isSelf($spaceType, $spaceId) ? 'Cognos' : 'Claude Code';

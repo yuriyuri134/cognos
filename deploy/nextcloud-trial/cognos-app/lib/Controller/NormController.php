@@ -87,6 +87,7 @@ final class NormController extends Controller {
             'drift' => $drift,
             'drift_done' => $drift !== null && $drift['state'] === 'done' ? $drift : $this->readers->lastDone($uid, 'drift', null, $projectId),
             'spaces' => $this->norm->projects($uid),
+            'versions' => $this->norm->versions($uid, $projectId),
             'parts' => NormService::PARTS,
             'boards' => array_map(static fn(array $b): string => $b['about'], NormService::BOARDS),
         ]);
@@ -113,6 +114,32 @@ final class NormController extends Controller {
             return new DataResponse(['message' => $e->getMessage()], 404);
         }
         return new DataResponse(['ok' => true]);
+    }
+
+    /** 把一块换回改之前的某一版。 */
+    #[NoAdminRequired]
+    public function restorePart(string $projectId, int $version = 0): DataResponse {
+        try {
+            $part = $this->norm->restorePart($this->uid(), $projectId, $version);
+        } catch (\InvalidArgumentException $e) {
+            return new DataResponse(['message' => $e->getMessage()], 422);
+        }
+        return new DataResponse(['part' => $part, 'project' => $this->norm->project($this->uid(), $projectId)]);
+    }
+
+    /** 撤回了、退回 Initium 的空间，放回 Norm。 */
+    #[NoAdminRequired]
+    public function restore(string $projectId): DataResponse {
+        $uid = $this->uid();
+        $space = $this->norm->project($uid, $projectId);
+        if ($space === null) {
+            return new DataResponse(['message' => '没有这个空间'], 404);
+        }
+        if ($space['state'] !== 'active') {
+            $this->norm->setState($uid, $projectId, 'active');
+            $this->norm->addEvent($uid, $projectId, 'happened', '你把它放回了 Norm。', [], '你');
+        }
+        return new DataResponse(['project' => $this->norm->project($uid, $projectId)]);
     }
 
     #[NoAdminRequired]
@@ -154,11 +181,14 @@ final class NormController extends Controller {
         if ($this->creations->get($id, $uid) === null) {
             return new DataResponse(['message' => '没有这段对话'], 404);
         }
-        return new DataResponse(['agent' => $this->config->getUserValue($uid, 'cognos', 'agent_c' . $id, 'claude')]);
+        return new DataResponse([
+            'agent' => $this->config->getUserValue($uid, 'cognos', 'agent_c' . $id, 'claude'),
+            'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', 'agent_effort_c' . $id, 'default'),
+        ]);
     }
 
     #[NoAdminRequired]
-    public function setAgent(int $id, string $agent = ''): DataResponse {
+    public function setAgent(int $id, string $agent = '', ?string $reasoning_effort = null): DataResponse {
         $uid = $this->uid();
         if ($this->creations->get($id, $uid) === null) {
             return new DataResponse(['message' => '没有这段对话'], 404);
@@ -166,8 +196,17 @@ final class NormController extends Controller {
         if (!in_array($agent, ['claude', 'gpt'], true)) {
             return new DataResponse(['message' => '只能选 claude 或 gpt'], 422);
         }
+        if ($reasoning_effort !== null && !in_array($reasoning_effort, ['default', 'low', 'medium', 'high', 'xhigh', 'max'], true)) {
+            return new DataResponse(['message' => '无效的思考强度'], 422);
+        }
         $this->config->setUserValue($uid, 'cognos', 'agent_c' . $id, $agent);
-        return new DataResponse(['agent' => $agent]);
+        if ($reasoning_effort !== null) {
+            $this->config->setUserValue($uid, 'cognos', 'agent_effort_c' . $id, $reasoning_effort);
+        }
+        return new DataResponse([
+            'agent' => $agent,
+            'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', 'agent_effort_c' . $id, 'default'),
+        ]);
     }
 
     #[NoAdminRequired]

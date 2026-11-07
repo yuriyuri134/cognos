@@ -42,15 +42,19 @@ final class ReaderService {
 你会读到一段文字，是一个人和 AI 的对话记录。有时只有人写的那部分，有时顺序倒过来，读之前会说明。
 你不知道它来自什么系统，也不需要知道。不要给这个人建议，不要评价这个人，不要接着对话往下说。
 
-只回答三件事：
-1. 这段到底是什么：不是它说自己是什么，而是读下来它实际在做的是什么。
+你读它，是为了说清楚它到底是一种什么东西，好让后面的人知道该怎么安放它：放进一种常见的做法里，还是得给它另造一种做法。
+所以别写总结。总结会把它最不寻常的地方磨平，而要的恰恰是那个地方。
+
+回答五件事：
+1. 这段到底是什么：不是它说自己是什么，而是读下来它实际在做的是什么。说出它和别的同类对话不一样的地方。
 2. 它在往哪里走：照现在这样下去，会走到哪。
-3. 接着它需要什么才能继续：两到四条，每条一句。
-再从原文里原样摘出最多三处支撑你这个读法的话。
+3. 它要接着活下去，得一再发生什么样的动作：两到四条，每条一句。说动作（比如反复试、几样东西并排比、记账、练习、换一个角度重看），不要说「需要更多信息」这类话。
+4. 它有没有哪一部分，是平常记笔记、做项目、学东西这些做法接不住的：有就说是哪部分、为什么接不住；真的都接得住，就照实说接得住，不要硬找。
+5. 从原文里原样摘出最多三处支撑你这个读法的话，最好包括第 4 条说的那部分。
 
 只输出一个 JSON 对象，不要别的字：
-{"what": "…", "where": "…", "needs": ["…"], "quotes": ["…"]}
-用中文。每项一两句，说具体的，不说套话。
+{"what": "…", "where": "…", "needs": ["…"], "misfit": "…", "quotes": ["…"]}
+misfit 写第 4 条；都接得住就写空字符串。用中文。每项一两句，说具体的，不说套话。
 TXT;
 
     public function __construct(
@@ -184,7 +188,7 @@ TXT;
 
     /**
      * 桥发回来的：三份读法和比较。照着放（initium），或者记下回头读的结论（drift）。
-     * @return array{duplicate: bool, reading: array, nudge: ?array{creation_id: int, title: string}}
+     * @return array{duplicate: bool, reading: array, nudge: ?array{space_id: string, title: string}}
      */
     public function receive(string $uid, int $id, array $body): array {
         $reading = $this->get($uid, $id);
@@ -217,6 +221,13 @@ TXT;
         if (!empty($applied['link_id'])) {
             $this->norm->unlink($uid, (int)$applied['link_id']);
         }
+        // 这次是从另一个空间挪过来的：接回原来那里
+        $from = $applied['moved_from'] ?? null;
+        if (is_array($from) && !empty($from['link_id'])) {
+            $this->norm->relink($uid, (int)$from['link_id']);
+            $this->norm->addEvent($uid, (string)$from['space_id'], 'happened',
+                '「' . ($applied['title'] ?? '') . '」挪走又撤回了，回到这里。', [], self::SUBJECT);
+        }
         if (($applied['action'] ?? '') === 'new' && !empty($applied['space_id'])) {
             $this->norm->setState($uid, (string)$applied['space_id'], 'withdrawn');
         } elseif (($applied['action'] ?? '') === 'existing' && !empty($applied['space_id'])) {
@@ -236,7 +247,8 @@ TXT;
         if ($reading === null || $reading['kind'] !== 'drift' || $reading['state'] !== 'done') {
             throw new \InvalidArgumentException('没有这次回头读');
         }
-        if (!empty($reading['applied']['chosen'])) {
+        // chosen 是选项的序号，第一个是 0：用 isset，不能用 empty（原来选了第一个还能再选一次）
+        if (isset($reading['applied']['chosen'])) {
             throw new \InvalidArgumentException('已经定过了');
         }
         $options = $reading['result']['compare']['options'] ?? [];
@@ -338,6 +350,7 @@ TXT;
         return "三个读者各自读了同一段对话，读的方式不一样：读者一" . self::LABELS[0] . "，读者二" . self::LABELS[1] . "，读者三" . self::LABELS[2] . "。你拿到的是他们的读法，不是原文。\n\n"
             . "先比：他们读得不一样的地方在哪。不一样常常就是这段对话自己还没定的东西，说清楚是哪一点不一样、各自有什么依据；基本一致就说一致在哪。不要把不一样抹平成一个折中。\n\n"
             . "再把「接着它需要什么」合成两到四条。\n\n"
+            . "读者还各自说了这段有没有哪部分是平常的做法接不住的（misfit）。决定放法以前先看这个：几位都指到了同一处、又说得出为什么接不住，就别因为它大体像某一种样子，把它归进去，那样恰好丢掉它最要紧的部分；这时多半是 new，而且常常是 board 填 null、带着自己的做法。读者都说接得住，才按像什么去放。\n\n"
             . "最后决定把它放到哪。现成的样子：\n" . implode("\n", $boards) . "\n\n"
             . "现有的空间：\n" . ($spaces === [] ? '（还没有）' : implode("\n", $spaces)) . "\n\n" . $current . "\n\n"
             . "放法只有三种：\n"
@@ -446,7 +459,7 @@ TXT;
 
     // ---- 内部：收到以后 ----
 
-    /** @return ?array{creation_id: int, title: string} 放进空间以后要叫那个空间的 agent 动一下 */
+    /** @return ?array{space_id: string, title: string} 放进空间以后要叫那个空间的 agent 动一下 */
     private function apply(string $uid, array $reading, array $body): ?array {
         $raw = array_map('strval', (array)($body['readings'] ?? []));
         $readings = [];
@@ -457,6 +470,7 @@ TXT;
                 'label' => self::LABELS[$i] ?? ('读者' . ($i + 1)),
                 'what' => $what, 'where' => (string)($parsed['where'] ?? ''),
                 'needs' => array_values(array_map('strval', (array)($parsed['needs'] ?? []))),
+                'misfit' => trim((string)($parsed['misfit'] ?? '')),
                 'quotes' => array_values(array_map('strval', (array)($parsed['quotes'] ?? []))),
                 'raw' => $parsed === null ? mb_substr($text, 0, 4000) : null,
                 // 回来的不是那个 JSON，或者没说「是什么」：这位没读出来，不能当成一份读法
@@ -503,23 +517,39 @@ TXT;
             if ($linked !== null && $linked['space']['id'] === $spaceId) {
                 return [['action' => 'kept', 'space_id' => $spaceId, 'space_title' => $space['title'], 'why' => $why], null];
             }
+            $from = $this->moveOut($uid, $linked, $title, $space['title']);
             $linkId = $this->norm->link($uid, $spaceId, $creationId, $readingId);
             $this->norm->addEvent($uid, $spaceId, 'happened', '读了 Initium 里的「' . $title . '」，连到这里。' . $why, [], self::SUBJECT);
-            return [['action' => 'existing', 'space_id' => $spaceId, 'space_title' => $space['title'], 'link_id' => $linkId, 'title' => $title, 'why' => $why],
-                ['creation_id' => $this->norm->spaceConversation($uid, $spaceId), 'title' => $title]];
+            return [['action' => 'existing', 'space_id' => $spaceId, 'space_title' => $space['title'], 'link_id' => $linkId, 'title' => $title, 'why' => $why, 'moved_from' => $from],
+                ['space_id' => $spaceId, 'title' => $title]];
         }
         if ($action === 'new') {
             $board = isset($place['board']) && is_string($place['board']) && isset(NormService::BOARDS[$place['board']]) ? $place['board'] : null;
             $name = trim((string)($place['title'] ?? '')) ?: $title;
             $spaceId = $this->norm->createSpace($uid, mb_substr($name, 0, 60), $board, (array)($place['parts'] ?? []),
                 is_array($place['way'] ?? null) ? $place['way'] : [], (string)($place['summary'] ?? ''));
+            $space = $this->norm->project($uid, $spaceId);
+            $from = $this->moveOut($uid, $linked, $title, $space['title'] ?? $name);
             $linkId = $this->norm->link($uid, $spaceId, $creationId, $readingId);
             $this->norm->addEvent($uid, $spaceId, 'happened', '从 Initium 里的「' . $title . '」长出来，读者放进了 Norm。' . $why, [], self::SUBJECT);
-            $space = $this->norm->project($uid, $spaceId);
-            return [['action' => 'new', 'space_id' => $spaceId, 'space_title' => $space['title'] ?? $name, 'board' => $board, 'link_id' => $linkId, 'title' => $title, 'why' => $why],
-                ['creation_id' => $this->norm->spaceConversation($uid, $spaceId), 'title' => $title]];
+            return [['action' => 'new', 'space_id' => $spaceId, 'space_title' => $space['title'] ?? $name, 'board' => $board, 'link_id' => $linkId, 'title' => $title, 'why' => $why, 'moved_from' => $from],
+                ['space_id' => $spaceId, 'title' => $title]];
         }
         return [['action' => 'stay', 'why' => $why], null];
+    }
+
+    /**
+     * 这段对话原来连在另一个空间上，现在放到别处：原来那条连线撤掉（不然它同时出现在两个空间里），那边记一条。
+     * 返回原来那条，撤回时接回去。
+     */
+    private function moveOut(string $uid, ?array $linked, string $title, string $toTitle): ?array {
+        if ($linked === null) {
+            return null;
+        }
+        $this->norm->unlink($uid, $linked['link_id']);
+        $this->norm->addEvent($uid, $linked['space']['id'], 'happened',
+            '读者重新读了「' . $title . '」，把它挪到了「' . $toTitle . '」。', [], self::SUBJECT);
+        return ['link_id' => $linked['link_id'], 'space_id' => $linked['space']['id'], 'space_title' => $linked['space']['title']];
     }
 
     /** 从模型的回答里取出 JSON 对象（它有时会包在 ``` 里，或前后多说一句）。 */

@@ -169,6 +169,76 @@ class CreationSpaceService {
         return $messages;
     }
 
+    /**
+     * 像 ChatGPT 那样改你说过的一句：这句换成新的，它后面的对话都去掉（接着由页面用这句再叫一次 agent）。
+     * 只能改你自己说的话；不留旧版本。
+     */
+    public function editMessage(int $creationId, string $userId, int $messageId, string $content): array {
+        $messages = $this->getMessages($creationId, $userId);
+        $index = $this->indexOf($messages, $messageId);
+        if ($index === null || $messages[$index]['role'] !== 'user') {
+            throw new \InvalidArgumentException('Message not found');
+        }
+        $qb = $this->db->getQueryBuilder();
+        $qb->update('cognos_creation_messages')
+            ->set('content', $qb->createNamedParameter($content, IQueryBuilder::PARAM_STR))
+            ->where($qb->expr()->eq('id', $qb->createNamedParameter($messageId, IQueryBuilder::PARAM_INT)))
+            ->executeStatement();
+        $later = array_map(fn($m) => $m['id'], array_slice($messages, $index + 1));
+        $this->deleteIds($later);
+        $this->touch($creationId);
+        return ['id' => $messageId, 'removed' => $later];
+    }
+
+    /**
+     * 删掉一句。删的是你说的话时，回这句的回答一起删（以前没记回的是哪句的，按紧跟着的回答算）。真删，不留。
+     */
+    public function deleteMessage(int $creationId, string $userId, int $messageId): array {
+        $messages = $this->getMessages($creationId, $userId);
+        $index = $this->indexOf($messages, $messageId);
+        if ($index === null) {
+            throw new \InvalidArgumentException('Message not found');
+        }
+        $ids = [$messageId];
+        if ($messages[$index]['role'] === 'user') {
+            foreach ($messages as $i => $m) {
+                if ($m['role'] !== 'user' && $m['reply_to'] === $messageId) $ids[] = $m['id'];
+            }
+            for ($i = $index + 1; $i < count($messages); $i++) {
+                $m = $messages[$i];
+                if ($m['role'] === 'user' || $m['reply_to'] !== null) break;
+                $ids[] = $m['id'];
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        $this->deleteIds($ids);
+        $this->touch($creationId);
+        return ['removed' => $ids];
+    }
+
+    private function indexOf(array $messages, int $messageId): ?int {
+        foreach ($messages as $i => $m) {
+            if ($m['id'] === $messageId) return $i;
+        }
+        return null;
+    }
+
+    private function deleteIds(array $ids): void {
+        if ($ids === []) return;
+        $qb = $this->db->getQueryBuilder();
+        $qb->delete('cognos_creation_messages')
+            ->where($qb->expr()->in('id', $qb->createNamedParameter($ids, IQueryBuilder::PARAM_INT_ARRAY)))
+            ->executeStatement();
+    }
+
+    private function touch(int $creationId): void {
+        $qb = $this->db->getQueryBuilder();
+        $qb->update('cognos_creations')
+            ->set('updated_at', $qb->createNamedParameter(time(), IQueryBuilder::PARAM_INT))
+            ->where($qb->expr()->eq('id', $qb->createNamedParameter($creationId, IQueryBuilder::PARAM_INT)))
+            ->executeStatement();
+    }
+
     public function getContext(int $creationId, string $userId): array {
         $creation = $this->get($creationId, $userId);
         if (!$creation) {
