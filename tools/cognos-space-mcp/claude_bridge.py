@@ -584,7 +584,10 @@ def codex_job(body: dict, job: dict) -> dict:
             raise ValueError("对话编号无效")
         if body.get("caller_uid") != COGNOS_USER:
             raise ValueError("聊天账号与本机 Codex 应用凭据账号不一致")
-        return {**job, "executor": "codex", "mode": "chat", "caller_uid": body["caller_uid"]}
+        effort = body.get("reasoning_effort", "default")
+        if effort not in ("default", "low", "medium", "high", "xhigh", "max"):
+            raise ValueError("无效的思考强度")
+        return {**job, "executor": "codex", "mode": "chat", "caller_uid": body["caller_uid"], "reasoning_effort": effort}
     if body.get("executor") != "codex" or body.get("subject") != "Codex" or body.get("space_type") != "creation":
         raise ValueError("Codex 只接收在项目位置登记的 Codex 委托")
     if not re.fullmatch(r"[1-9][0-9]*", job["space_id"]):
@@ -619,6 +622,7 @@ def run_codex(job: dict) -> str:
     output = RUN_LOG_DIR / ("codex-" + job["run_id"])
     result = run(job["space_id"], prompt, output, subject=job.get("subject") or "Codex", model=CODEX_MODEL or None,
                  timeout=TIMEOUT, run_id=job["run_id"], tools=tools,
+                 reasoning_effort=None if job.get("reasoning_effort", "default") == "default" else job["reasoning_effort"],
                  environment={"COGNOS_URL": COGNOS_URL, "COGNOS_USER": job["caller_uid"],
                               "COGNOS_APP_PASSWORD": CODEX_APP_PASSWORD})
     return result["content"]
