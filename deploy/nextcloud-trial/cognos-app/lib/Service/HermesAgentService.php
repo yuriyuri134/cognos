@@ -549,6 +549,18 @@ final class HermesAgentService {
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
         $delegatedExecutor = !empty($extra['delegation_id']) ? ($extra['executor'] ?? null) : null;
+        // 这段对话选了 GPT：走本机 Codex（你的 ChatGPT 账号），每次带全文，和 Claude 看到的是同一段
+        if ($delegatedExecutor === null && $this->config->getUserValue($user->getUID(), 'cognos', 'agent_c' . $creationId, 'claude') === 'gpt') {
+            $entry = $this->entries->entry($space, 'GPT', ['caller' => $caller, 'message' => $message],
+                array_merge([
+                    'enter_space / read_space：读这一处现在的样子；放进 Norm 的对话，read_space 里有它连着的空间和原话。',
+                    '你只能读，不能改 Cognos 里的东西；想做的事写在回答里。',
+                ], $this->norm->agentLines($user->getUID(), $creationId)));
+            $this->bridge->send('creation', (string)$creationId, 'GPT', $this->entries->renderText($entry), $history, $message, $caller,
+                array_merge($extra, ['executor' => 'codex', 'mode' => 'chat', 'reply_to' => $replyTo, 'caller_uid' => $user->getUID()]));
+            $this->spaces->markSeen('creation', (string)$creationId, 'GPT');
+            return null;
+        }
         if ($delegatedExecutor === 'codex' || $delegatedExecutor === 'claude-code'
             || $this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
             // 在 Cognos 自己的空间里，被叫来的是替 Cognos 说话的那位

@@ -215,3 +215,8 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
   .cg-drift, .cg-own, .cg-then-now { grid-template-columns: 1fr; }
   .cg-decide { flex-direction: column; align-items: flex-start; }
 }
+
+/* 谁来回：Claude / GPT */
+.cg-agent-pick { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 0 0 6px; color: inherit; opacity: .9; }
+.cg-agent-pick button { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 999px; padding: 2px 12px; min-height: 28px; cursor: pointer; opacity: .7; }
+.cg-agent-pick button.cg-on { opacity: 1; background: var(--cg-dark, #1C1B19); color: var(--cg-dark-ink, #F4F2EC); border-color: transparent; }

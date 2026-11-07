@@ -82,7 +82,8 @@ final class ClaudeBridgeService {
         if ($codex) {
             $default = str_ends_with($url, '/chat') ? substr($url, 0, -5) . '/codex' : '';
             $url = $this->config->getAppValue('cognos', 'codex_bridge_url', $default);
-            if (!str_ends_with($url, '/codex') || $subject !== 'Codex' || empty($extra['delegation_id']) || empty($extra['caller_uid'])) {
+            $chat = ($extra['mode'] ?? null) === 'chat' && $subject === 'GPT';
+            if (!str_ends_with($url, '/codex') || empty($extra['caller_uid']) || (!$chat && ($subject !== 'Codex' || empty($extra['delegation_id'])))) {
                 throw new \RuntimeException('Codex 委托需要有效的本机入口和账号', 422);
             }
         }

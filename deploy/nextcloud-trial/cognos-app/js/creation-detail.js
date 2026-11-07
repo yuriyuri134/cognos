@@ -33,6 +33,7 @@
     loadCreationsList();
     loadCreationAndMessages();
     window.CognosSpacePanel?.init(state.creationId);
+    window.CognosAgentPick?.mount(document.getElementById('chat-input-form'), state.creationId);
   }
 
   function cacheElements() {

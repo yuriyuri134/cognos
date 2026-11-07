@@ -12,6 +12,7 @@ use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\Http\TemplateResponse;
+use OCP\IConfig;
 use OCP\IRequest;
 use OCP\IUserSession;
 use OCP\Util;
@@ -28,6 +29,7 @@ final class NormController extends Controller {
         private NormService $norm,
         private ReaderService $readers,
         private CreationSpaceService $creations,
+        private IConfig $config,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -35,6 +37,7 @@ final class NormController extends Controller {
     #[NoAdminRequired]
     #[NoCSRFRequired]
     public function page(): TemplateResponse {
+        Util::addScript('cognos', 'agent-pick');
         Util::addScript('cognos', 'chat-box');
         Util::addScript('cognos', 'norm-nav');
         Util::addScript('cognos', 'norm');
@@ -45,6 +48,7 @@ final class NormController extends Controller {
     #[NoAdminRequired]
     #[NoCSRFRequired]
     public function projectPage(string $projectId): TemplateResponse {
+        Util::addScript('cognos', 'agent-pick');
         Util::addScript('cognos', 'chat-box');
         Util::addScript('cognos', 'norm-nav');
         Util::addScript('cognos', 'norm-project');
@@ -142,6 +146,29 @@ final class NormController extends Controller {
     }
 
     // ---- Initium 一段对话的读者 ----
+
+    /** 这段对话里回你的是谁：claude（本机 Claude Code）或 gpt（本机 Codex，用你的 ChatGPT 账号）。两边看到的是同一段全文。 */
+    #[NoAdminRequired]
+    public function agent(int $id): DataResponse {
+        $uid = $this->uid();
+        if ($this->creations->get($id, $uid) === null) {
+            return new DataResponse(['message' => '没有这段对话'], 404);
+        }
+        return new DataResponse(['agent' => $this->config->getUserValue($uid, 'cognos', 'agent_c' . $id, 'claude')]);
+    }
+
+    #[NoAdminRequired]
+    public function setAgent(int $id, string $agent = ''): DataResponse {
+        $uid = $this->uid();
+        if ($this->creations->get($id, $uid) === null) {
+            return new DataResponse(['message' => '没有这段对话'], 404);
+        }
+        if (!in_array($agent, ['claude', 'gpt'], true)) {
+            return new DataResponse(['message' => '只能选 claude 或 gpt'], 422);
+        }
+        $this->config->setUserValue($uid, 'cognos', 'agent_c' . $id, $agent);
+        return new DataResponse(['agent' => $agent]);
+    }
 
     #[NoAdminRequired]
     public function creationReaders(int $id): DataResponse {

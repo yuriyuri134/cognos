@@ -568,6 +568,15 @@ def codex_configured() -> bool:
 
 
 def codex_job(body: dict, job: dict) -> dict:
+    if body.get("mode") == "chat":
+        # 在一段对话里选了 GPT：普通聊天，每次带全文，只读
+        if body.get("executor") != "codex" or body.get("subject") != "GPT" or body.get("space_type") != "creation":
+            raise ValueError("GPT 聊天请求不对")
+        if not re.fullmatch(r"[1-9][0-9]*", job["space_id"]):
+            raise ValueError("对话编号无效")
+        if body.get("caller_uid") != COGNOS_USER:
+            raise ValueError("聊天账号与本机 Codex 应用凭据账号不一致")
+        return {**job, "executor": "codex", "mode": "chat", "caller_uid": body["caller_uid"]}
     if body.get("executor") != "codex" or body.get("subject") != "Codex" or body.get("space_type") != "creation":
         raise ValueError("Codex 只接收在项目位置登记的 Codex 委托")
     if not re.fullmatch(r"[1-9][0-9]*", job["space_id"]):
@@ -589,13 +598,18 @@ def codex_job(body: dict, job: dict) -> dict:
 def run_codex(job: dict) -> str:
     from codex_entry import delegation_tools, run
 
-    tools = delegation_tools(may_edit=job["may_edit"], may_adopt=job["may_adopt"], may_manage_work=job["may_manage_work"])
-    prompt = ("你在 Cognos 中收到一份已登记的委托。只处理当前委托与实际授予的范围。"
-              "需要时用 Cognos 工具读取当前信息，写出最终答复，桥会交回。\n"
-              f"工具绑定的实际运行编号：{job['run_id']}，位置会话编号：{job['space_id']}。\n\n"
-              + job["system"] + "\n\n" + job["prompt"])
+    if job.get("mode") == "chat":
+        tools = ("enter_space", "read_space", "check_changes", "list_attempts", "get_attempt")
+        prompt = ("你在 Cognos 的一段对话里，被交互对象选来回话。下面是这一处的说明，再往下是这段对话的全文和他刚说的话。"
+                  "像在对话里一样直接回他；需要时用 Cognos 工具读，但你不能改东西。\n\n" + job["system"] + "\n\n" + job["prompt"])
+    else:
+        tools = delegation_tools(may_edit=job["may_edit"], may_adopt=job["may_adopt"], may_manage_work=job["may_manage_work"])
+        prompt = ("你在 Cognos 中收到一份已登记的委托。只处理当前委托与实际授予的范围。"
+                  "需要时用 Cognos 工具读取当前信息，写出最终答复，桥会交回。\n"
+                  f"工具绑定的实际运行编号：{job['run_id']}，位置会话编号：{job['space_id']}。\n\n"
+                  + job["system"] + "\n\n" + job["prompt"])
     output = RUN_LOG_DIR / ("codex-" + job["run_id"])
-    result = run(job["space_id"], prompt, output, subject="Codex", model=CODEX_MODEL or None,
+    result = run(job["space_id"], prompt, output, subject=job.get("subject") or "Codex", model=CODEX_MODEL or None,
                  timeout=TIMEOUT, run_id=job["run_id"], tools=tools,
                  environment={"COGNOS_URL": COGNOS_URL, "COGNOS_USER": job["caller_uid"],
                               "COGNOS_APP_PASSWORD": CODEX_APP_PASSWORD})
@@ -800,7 +814,7 @@ def work(job: dict) -> None:
         except Exception as error:  # 出错也要让交互对象在对话里看到
             if job.get("executor") == "codex":
                 sys.stderr.write(f"[claude-bridge] Codex 运行 {job['run_id']} 未完成（{type(error).__name__}），请核对本机运行日志。\n")
-                content = "（Codex 这次没做完。请核对本机运行记录及已保存的变更，再决定如何继续。）"
+                content = f"（{subject} 这次没做完。本机运行记录在 runs/codex-{job['run_id']}。）"
             else:
                 content = f"（{subject} 这次没做完：{error}）"
         new_bridge = False

@@ -12,6 +12,8 @@ return ['routes' => [
     ['name'=>'norm#answer','url'=>'/norm/events/{eventId}/answer','verb'=>'POST','requirements'=>['eventId'=>'[0-9]+']],
     ['name'=>'norm#choose','url'=>'/readers/{readingId}/choose','verb'=>'POST','requirements'=>['readingId'=>'[0-9]+']],
     ['name'=>'norm#undo','url'=>'/readers/{readingId}/undo','verb'=>'POST','requirements'=>['readingId'=>'[0-9]+']],
+    ['name'=>'norm#agent','url'=>'/creations/{id}/agent','verb'=>'GET','requirements'=>['id'=>'[0-9]+']],
+    ['name'=>'norm#setAgent','url'=>'/creations/{id}/agent','verb'=>'POST','requirements'=>['id'=>'[0-9]+']],
     ['name'=>'norm#creationReaders','url'=>'/creations/{id}/readers','verb'=>'GET','requirements'=>['id'=>'[0-9]+']],
     ['name'=>'norm#readCreation','url'=>'/creations/{id}/readers','verb'=>'POST','requirements'=>['id'=>'[0-9]+']],
     ['name'=>'project#page','url'=>'/projects','verb'=>'GET'],

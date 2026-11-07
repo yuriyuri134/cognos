@@ -21,6 +21,7 @@
     const input = node('textarea'); input.rows = 3; input.placeholder = opts.placeholder || '和 agent 说点什么（Enter 发送，Shift+Enter 换行）'; input.setAttribute('aria-label', '和 agent 说的话');
     const send = node('button', '发送'); send.type = 'submit';
     form.append(input, send);
+    setTimeout(() => window.CognosAgentPick?.mount(form, creationId), 0);
     root.append(log, status, form);
     let waiting = false; let timer = null;
     function render(messages) {
