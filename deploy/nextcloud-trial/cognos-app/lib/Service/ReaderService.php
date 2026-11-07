@@ -240,7 +240,8 @@ TXT;
         if ($reading === null || $reading['kind'] !== 'drift' || $reading['state'] !== 'done') {
             throw new \InvalidArgumentException('没有这次回头读');
         }
-        if (!empty($reading['applied']['chosen'])) {
+        // chosen 是选项的序号，第一个是 0：用 isset，不能用 empty（原来选了第一个还能再选一次）
+        if (isset($reading['applied']['chosen'])) {
             throw new \InvalidArgumentException('已经定过了');
         }
         $options = $reading['result']['compare']['options'] ?? [];
