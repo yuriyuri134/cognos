@@ -157,7 +157,7 @@
       box.append(row);
       if (a.claim === 'mine' || a.claim === 'part') box.append(node('div', '「' + (a.space_title || '') + '」' + (a.claim === 'mine' ? '认领了它。' : '认领了它的一部分。'), 'cg-small'));
       if (a.why) box.append(node('div', a.why, 'cg-small'));
-      if (a.self && a.self.version) box.append(node('div', '它接下以后改了自己的自述（第 ' + a.self.version + ' 版）' + (a.self.changed ? '：' + a.self.changed : '') + (a.action !== 'kept' ? '。撤回时这一版会退回去。' : ''), 'cg-small'));
+      if (a.self && a.self.version) box.append(node('div', '它接下以后改了自己的自述（第 ' + a.self.version + ' 版）' + (a.self.changed ? '：' + a.self.changed.replace(/[。.\s]+$/, '') : '') + (a.action !== 'kept' ? '。撤回时这一版会退回去。' : ''), 'cg-small'));
       else if (a.self && a.self.skipped) box.append(node('div', a.self.skipped, 'cg-small'));
       box.append(go(a.space_id, a.action === 'new' && !a.board ? '现成的样子装不下，它带上了自己的做法' : '在 Norm 里接着'));
     } else {

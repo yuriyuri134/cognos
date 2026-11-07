@@ -6,7 +6,8 @@
  *    agent 用 write_part(part=self) 改，不写「这次什么没变」不收。
  * 2. 空间读自己：桥发回的自述（字符串里直接换了行也认得）写成新一版，来源「重读自己的经历」；旁观的那位说的记下；
  *    觉得不合身时给的办法能挑；同一个结果发两次只收一次。
- * 3. Initium 一段让空间认领：放进说「是我的」的空间，它照读的时候说的改了自述；撤回以后连线撤掉、自述退回（再追加一版）。
+ * 3. Initium 一段让空间认领：放进说「是我的」的空间，它照读的时候说的改了自述；比较的那位写的「读者几」换成名字；
+ *    撤回以后连线撤掉、自述退回（再追加一版）。
  *    读的这段时间自述又改过了，就不拿旧的那份去盖。
  * 会在库里留两个「验证：自述 <时间>」「验证：别的空间 <时间>」空间（最后撤回，不在 Norm 里显示）和两段「验证：认领 <时间>」Initium 对话，不删。
  */
@@ -100,12 +101,14 @@ $got2 = $readers->receive($uid, $rid2, body($runId2, [
     json_encode(['what' => '讲连续性的对话', 'claim' => 'mine', 'why' => '正是我放不下的', 'mine' => '全部', 'not_mine' => '',
         'change' => ['text' => $claimText, 'changed' => '放不下的事加了连续性', 'why' => '这段对话', 'unchanged' => '维持的还是那件'], 'disagree' => '它太抽象', 'quotes' => []], JSON_UNESCAPED_UNICODE),
     json_encode(['what' => '和我无关', 'claim' => 'not', 'why' => '我只放别的事', 'change' => ['text' => '']], JSON_UNESCAPED_UNICODE),
-], json_encode(['differ' => '一致', 'needs' => ['拿真例子试'], 'place' => ['action' => 'existing', 'space_id' => $a, 'why' => '跟「自述」的认领']], JSON_UNESCAPED_UNICODE)));
+], json_encode(['differ' => '读者1和读者2一致，读者 3 说不是它的', 'needs' => ['拿真例子试'], 'place' => ['action' => 'existing', 'space_id' => $a, 'why' => '跟读者2的认领']], JSON_UNESCAPED_UNICODE)));
 $ap = $got2['reading']['applied'] ?? [];
 $now = $norm->selfAccount($uid, $a);
 check(($ap['action'] ?? '') === 'existing' && $ap['space_id'] === $a && $ap['claim'] === 'mine' && ($ap['self']['version'] ?? 0) === 5 && $now['text'] === $claimText
     && str_contains($now['source'], '验证：认领'), '放进说「是我的」的空间，它照读的时候说的改了自述（第 5 版，来源写着接下了哪段）');
 check(($norm->linkedSpace($uid, $cid)['space']['id'] ?? '') === $a && $norm->selfAccount($uid, $bSpace) === null, '这段连到了认领它的空间；说「不是」的空间没被动');
+check(($got2['reading']['result']['compare']['differ'] ?? '') === '定性的读者和空间「验证：自述」一致，空间「验证：别的空间」说不是它的' && $ap['why'] === '跟空间「验证：自述」的认领',
+    '比较的那位写的「读者几」换成了名字（页面上的卡片写的是名字）');
 $u = $readers->undo($uid, $rid2);
 $now = $norm->selfAccount($uid, $a);
 check($u['undone_at'] !== null && $norm->linkedSpace($uid, $cid) === null && $now['version'] === 6 && $now['text'] === $selfText && count($norm->selfHistory($uid, $a, 50)) === 6,

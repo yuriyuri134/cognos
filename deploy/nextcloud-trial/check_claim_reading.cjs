@@ -5,7 +5,7 @@
  * 等它读完（最多约 12 分钟），看各空间说是不是自己的、放进了哪里、认领的空间有没有照它说的改自述；截 Initium 右边那栏（桌面、390px）。
  * 最后撤回这次放置（改过的自述退回去），撤掉验证空间；那段 Initium 对话留着，和别的「验证：」对话一样。
  * 这段讲的是读一本书，和 Cognos 无关：主项目应当说不是它的，不会被放进去，也不会改它的自述。
- * 报告 evidence/claim-reading.json；截图 evidence/claim-reading-desktop.png、claim-reading-placed.png、claim-reading-phone.png。
+ * 报告 evidence/claim-reading.json；截图 evidence/claim-reading-desktop.png、claim-reading-placed.png、claim-reading-phone.png、claim-reading-phone-claims.png。
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
@@ -79,6 +79,7 @@ live.run('claim-reading', async (checks, report) => {
     report.compare = {differ: res.compare && res.compare.differ, needs: res.compare && res.compare.needs};
     report.applied = a;
     assert(!owner.missed && owner.what, '定性的读者没读出东西');
+    assert(!/读者\s*\d/.test(JSON.stringify([res.compare && res.compare.differ, res.compare && res.compare.needs, a.why])), '比较的那位写的还是「读者几」，页面上对不上卡片');
     assert(claims.length === plan.filter(p => p.role === 'claim').length && claims.every(x => !x.missed), '有空间的认领没读出来：' + JSON.stringify(claims.map(x => [x.space_title, x.raw || ''])));
     checks.push('都回来了：' + claims.map(x => '「' + x.space_title + '」' + ({mine: '说是它的', part: '说部分是它的', not: '说不是它的'})[x.claim]).join('，')
       + '；放法：' + a.action + (a.space_title ? '「' + a.space_title + '」' : ''));
@@ -112,9 +113,13 @@ live.run('claim-reading', async (checks, report) => {
       if (await b.evaluate('document.querySelector(".cognos-chat-app").classList.contains("space-panel-collapsed")')) await b.click('#space-panel-toggle');
       await b.until(panel);
       assert(await b.noOverflow(), 'Initium 读者那栏在 390px 横向溢出');
-      await b.shoot('claim-reading-phone.png', '#space-panel-body .cg-claim');
+      // 读者那栏的收起按钮不被 Nextcloud 顶栏盖住，点得到
+      assert(await b.evaluate('(c => { const r = c.getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && c.contains(e); })(document.querySelector("#space-panel-close"))'),
+        '手机上读者那栏的收起按钮被顶栏盖住了');
+      await b.shoot('claim-reading-phone.png');
+      await b.shoot('claim-reading-phone-claims.png', '#space-panel-body .cg-claim');
       assert.deepEqual(b.errors, [], '页面没有未捕获的错误');
-      checks.push('登录后 Initium 右边那栏：定性的读者、' + claims.length + ' 张认领卡、放进了哪里和它改了自述，桌面和 390px 都显示，不溢出，没有页面错误');
+      checks.push('登录后 Initium 右边那栏：定性的读者、' + claims.length + ' 张认领卡、放进了哪里和它改了自述，桌面和 390px 都显示，不溢出，手机上收起按钮点得到，没有页面错误');
     } finally { b.close(); }
   } finally {
     // 收拾：撤回这次放置（改过的自述退回去），撤掉验证空间

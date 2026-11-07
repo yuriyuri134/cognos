@@ -480,6 +480,8 @@ TXT;
             . "- stay：它还没成形，或者太短还读不出是什么，先留在原处。\n\n"
             . "只输出一个 JSON 对象，不要别的字：\n"
             . '{"differ": "…", "needs": ["…"], "place": {"action": "existing|new|stay", "space_id": "…", "board": "项目|笔记|学习|组织 或 null", "title": "…", "parts": ["…"], "way": {"away": "…", "progress": "…", "ask": "…"}, "summary": "一句话：它是什么", "why": "为什么放这里：跟的是哪个空间的认领，或者为什么没跟"}, "similar": "它的做法要是和某个带着自己做法的空间很像，说是哪个、像在哪；没有就空着"}'
+            . "\ndiffer、needs、why、similar 是给人看的：说到哪一位，用它的名字（定性的读者，或者空间「名字」），不要写读者几；"
+            . "也不要写 mine、part、not、misfit 这些词，说成说是它的、说部分是它的、说不是它的、平常的做法接不住的。"
             . "\n用中文，说具体的。字符串里不要用英文双引号，要引用就用「」。";
     }
 
@@ -618,6 +620,9 @@ TXT;
         }
         $read = count(array_filter($readings, static fn(array $r): bool => !$r['missed']));
         $compare = self::json((string)($body['compare'] ?? '')) ?? [];
+        if ($reading['kind'] === 'initium' && $plan !== []) {
+            $compare = self::named($compare, $plan);
+        }
         $error = trim((string)($body['error'] ?? ''));
         $result = ['plan' => $plan, 'readings' => $readings, 'compare' => $compare, 'compare_raw' => $compare === [] ? mb_substr((string)($body['compare'] ?? ''), 0, 4000) : null];
         if ($reading['kind'] === 'drift' && $plan !== []) {
@@ -801,6 +806,37 @@ TXT;
      * 一位读者回来的话，按它在这次读里是谁（plan 的 role）取出要的几样：
      * reader 是定性的，claim 是来认领的空间，self 是空间读自己。没说「是什么」的（自己读的还要有自述）算没读出来。
      */
+    /**
+     * 比较的那位读到的是「读者1」「读者2」……，页面上的卡片写的是定性的读者、空间「名字」：
+     * 它给人看的那几句（differ、needs、similar、place.why）里换成名字。
+     */
+    public static function named(array $compare, array $plan): array {
+        $name = static function (string $v) use ($plan): string {
+            // 「读者 3 说」两边的空格一起换掉
+            $v = (string)preg_replace_callback('/(?:定性的)?读者(?:\s+([1-5])(?![0-9])\s?|([1-5])(?![0-9]))/u', static function (array $m) use ($plan): string {
+                $p = $plan[(int)($m[1] !== '' ? $m[1] : $m[2]) - 1] ?? null;
+                if (!is_array($p)) {
+                    return $m[0];
+                }
+                return ($p['role'] ?? '') === 'claim' ? '空间「' . ($p['space_title'] ?? '') . '」' : '定性的读者';
+            }, $v);
+            // 「cognos」（读者2）换完是「cognos」（空间「cognos」）：去掉重复的那半
+            return (string)preg_replace('/(「[^」]+」)\s*[（(]空间\1[）)]/u', '$1', $v);
+        };
+        foreach (['differ', 'similar'] as $k) {
+            if (is_string($compare[$k] ?? null)) {
+                $compare[$k] = $name($compare[$k]);
+            }
+        }
+        if (is_array($compare['needs'] ?? null)) {
+            $compare['needs'] = array_map(static fn($n) => is_string($n) ? $name($n) : $n, $compare['needs']);
+        }
+        if (is_array($compare['place'] ?? null) && is_string($compare['place']['why'] ?? null)) {
+            $compare['place']['why'] = $name($compare['place']['why']);
+        }
+        return $compare;
+    }
+
     public static function parse(string $text, array $plan, int $i): array {
         $d = self::json($text) ?? [];
         $str = static fn($v): string => is_scalar($v) ? trim((string)$v) : '';

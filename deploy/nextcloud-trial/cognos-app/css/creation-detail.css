@@ -1087,7 +1087,8 @@
 
   .space-panel {
     position: fixed;
-    top: 0;
+    /* 从 Nextcloud 顶栏下面开始：顶到 0 的话，标题和收起按钮被顶栏盖住，手机上关不掉 */
+    top: var(--header-height, 50px);
     right: 0;
     bottom: 0;
     width: min(var(--space-panel-width), 92vw);
