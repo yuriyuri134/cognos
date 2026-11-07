@@ -102,10 +102,11 @@
   // ---- 上面：回头读、刚带着做法进来、你不在时、只有你能定的 ----
   function renderTop(p) {
     if (editingWay && $('cg-space-top').querySelector('textarea')) return;
-    const version = JSON.stringify([arrived, data.events, data.drift, data.drift_done, p.board, data.messages < 2, p.way, p.parts, p.summary, editingWay]);
+    const version = JSON.stringify([p.state, arrived, data.events, data.drift, data.drift_done, p.board, data.messages < 2, p.way, p.parts, p.summary, editingWay]);
     if (version === topVersion) return;
     topVersion = version;
     const top = $('cg-space-top'); top.replaceChildren();
+    if (p.state !== 'active') top.append(goneBlock(p));
     const content = node('div'); const labels = [];
     const a = arrived;
     if (a && a.items && a.items.length) {
@@ -129,6 +130,22 @@
     if (!p.board && (data.messages || 0) < 2) { content.append(ownBlock(p)); labels.push('这个空间的做法'); }
     const must = [waiting.length ? 'decide-' + waiting[0].id : '', c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined) ? 'drift-' + drift.id : ''].filter(Boolean).join('|');
     if (labels.length) top.append(notice('activity', '正在发生 · ' + labels.join(' · '), content, must));
+  }
+
+  // 撤回了、退回 Initium 的空间：说清楚它现在不在 Norm 里，agent 在这里说话也不再当它是 Norm 空间；可以放回去。
+  function goneBlock(p) {
+    const box = node('section', undefined, 'cg-block');
+    box.append(node('p', p.state === 'back'
+      ? '它已经退回 Initium 重新长。这段对话现在在 Initium 里，agent 不再照这个空间的做法工作，读者也照 Initium 的对话读它。'
+      : '它已经撤回，不在 Norm 里了。下面的内容都还在。'));
+    const acts = node('div', undefined, 'cg-actions');
+    acts.append(button('放回 Norm', 'cg-btn-gold', async () => {
+      try { await api('/norm/projects/' + p.id + '/restore', {}); load(false); } catch (e) { alert(e.message); }
+    }));
+    if (p.state === 'back' && data.conversation_id) {
+      const a = node('a', '去 Initium 里接着', 'cg-btn'); a.href = app + '/creations/' + data.conversation_id; acts.append(a);
+    }
+    box.append(acts); return box;
   }
 
   function decideBlock(e, n) {
@@ -167,7 +184,8 @@
         if (o.kind === 'keep') { reason = prompt('说一句为什么，读者下次读的时候会带上：', '') || ''; }
         else if (!confirm('就这样：' + (o.label || '') + '？')) return;
         try { await api('/readers/' + reading.id + '/choose', { option: i, reason }); } catch (err) { alert(err.message); }
-        if (o.kind === 'back') location.href = app + '/norm'; else load(false);
+        // 退回 Initium：去它那段对话接着长
+        if (o.kind === 'back') location.href = app + '/creations/' + (data.conversation_id || ''); else load(false);
       });
       right.append(b);
     });

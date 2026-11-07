@@ -9,6 +9,7 @@ return ['routes' => [
     ['name'=>'norm#setWay','url'=>'/norm/projects/{projectId}/way','verb'=>'POST','requirements'=>['projectId'=>'[a-f0-9]{32}']],
     ['name'=>'norm#withdraw','url'=>'/norm/projects/{projectId}/withdraw','verb'=>'POST','requirements'=>['projectId'=>'[a-f0-9]{32}']],
     ['name'=>'norm#read','url'=>'/norm/projects/{projectId}/read','verb'=>'POST','requirements'=>['projectId'=>'[a-f0-9]{32}']],
+    ['name'=>'norm#restore','url'=>'/norm/projects/{projectId}/restore','verb'=>'POST','requirements'=>['projectId'=>'[a-f0-9]{32}']],
     ['name'=>'norm#answer','url'=>'/norm/events/{eventId}/answer','verb'=>'POST','requirements'=>['eventId'=>'[0-9]+']],
     ['name'=>'norm#choose','url'=>'/readers/{readingId}/choose','verb'=>'POST','requirements'=>['readingId'=>'[0-9]+']],
     ['name'=>'norm#undo','url'=>'/readers/{readingId}/undo','verb'=>'POST','requirements'=>['readingId'=>'[0-9]+']],

@@ -158,12 +158,16 @@ final class NormService {
         return $cid;
     }
 
-    /** 这段对话是哪个空间的（空间自己的那段）。 */
+    /**
+     * 这段对话是哪个还在 Norm 里的空间的（空间自己的那段）。
+     * 撤回了、退回 Initium 的空间不算：那段对话回到 Initium，agent 不再把它当成 Norm 空间去读写，读者照 Initium 的对话读它。
+     */
     public function spaceByConversation(string $uid, int $creationId): ?array {
         $q = $this->db->getQueryBuilder();
         $r = $q->select('*')->from('cognos_norm_projects')
             ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
             ->andWhere($q->expr()->eq('conversation_id', $q->createNamedParameter($creationId, IQueryBuilder::PARAM_INT)))
+            ->andWhere($q->expr()->orX($q->expr()->isNull('state'), $q->expr()->eq('state', $q->createNamedParameter('active'))))
             ->setMaxResults(1)->executeQuery()->fetch();
         return $r === false ? null : $this->row($r, true);
     }

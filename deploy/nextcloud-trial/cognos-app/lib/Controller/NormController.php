@@ -115,6 +115,21 @@ final class NormController extends Controller {
         return new DataResponse(['ok' => true]);
     }
 
+    /** 撤回了、退回 Initium 的空间，放回 Norm。 */
+    #[NoAdminRequired]
+    public function restore(string $projectId): DataResponse {
+        $uid = $this->uid();
+        $space = $this->norm->project($uid, $projectId);
+        if ($space === null) {
+            return new DataResponse(['message' => '没有这个空间'], 404);
+        }
+        if ($space['state'] !== 'active') {
+            $this->norm->setState($uid, $projectId, 'active');
+            $this->norm->addEvent($uid, $projectId, 'happened', '你把它放回了 Norm。', [], '你');
+        }
+        return new DataResponse(['project' => $this->norm->project($uid, $projectId)]);
+    }
+
     #[NoAdminRequired]
     public function answer(int $eventId, string $answer = ''): DataResponse {
         try {
