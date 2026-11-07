@@ -314,14 +314,23 @@
       .map((message, index) => createMessageBubble(message, isUnanswered(index)))
       .join('') + createStatusBubble();
 
-    // Scroll to bottom
+    // 从空间的「历史」点「到对话里看」进来（#m123）：第一次停到那一句，闪一下；别的时候照旧到最新
     requestAnimationFrame(() => {
       const container = document.getElementById('messages-container');
-      if (container) {
-        container.scrollTop = container.scrollHeight;
+      if (!container) return;
+      const want = !revealed && /^#m(\d+)$/.exec(location.hash);
+      const target = want && document.getElementById('m' + want[1]);
+      if (target) {
+        revealed = true;
+        container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 24;
+        target.classList.add('cognos-message-found');
+        setTimeout(() => target.classList.remove('cognos-message-found'), 2600);
+        return;
       }
+      container.scrollTop = container.scrollHeight;
     });
   }
+  let revealed = false;
 
   function isUnanswered(index) {
     // 你说的话没人回，而且现在没人在做。回答记着它回的是哪一句（reply_to）；
@@ -344,7 +353,7 @@
     });
 
     return `
-      <div class="cognos-message cognos-message-${role}">
+      <div class="cognos-message cognos-message-${role}" id="m${Number(message.id)}">
         <div class="cognos-message-header">
           <span class="cognos-message-sender">${role === 'user' ? '你' : escapeHtml(whoName(message.author))}</span>
           <span class="cognos-message-time">${timestamp}</span>

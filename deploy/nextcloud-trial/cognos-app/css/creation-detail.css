@@ -1117,3 +1117,5 @@
 @media (hover: none) { .msg-actions { opacity: 1; } }
 
 .cognos-usage-line { white-space: pre-line; font-size: 12px; color: var(--color-text-maxcontrast); margin: 6px 0 0; line-height: 1.5; }
+/* 从空间的「历史」点「到那段对话里看前后」进来：停到那一句，闪一下 */
+.cognos-message-found { box-shadow: 0 0 0 2px #0F5E57; border-radius: 12px; transition: box-shadow .3s; }

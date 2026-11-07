@@ -20,6 +20,12 @@ use OCP\IDBConnection;
  * 它变过什么、它放不下什么。自述只由它自己写（重读自己的经历时、认领 Initium 的一段时、在对话里），一版一版追加，
  * 旧的不改不删，存在 cognos_norm_events 里（kind=self，options 里是这一版改了什么、为什么、什么没变、从哪来）。
  * 它每次说话、读新东西之前先读最新的一版：它的目的从它自己的经历里来，不由别人从外面写进去。
+ *
+ * 还有它自己的历史和总观，也是它读自己全部的原话以后写的（ReaderService::readSpace），同样存在 cognos_norm_events 里：
+ * - 历史的条目（kind=hist_entry）：一处经历，那时在做什么、信什么、转在哪，指着几句原话（refs）和一字不差摘的几句（quotes）。只追加。
+ * - 历史的分段（kind=hist_stages）：每读一次存一版整的：哪几段，每段那时在做什么、什么让它转了、转完什么没变、放下了哪些路，
+ *   各有哪几条。已经转过的段不悄悄改：要改得写明为什么（corrections），没写为什么的不改。还没转的那段（现在这一段）可以接着写。
+ * - 总观（kind=overview）：每次读完重写一版：它现在是什么、手上几条线各停在哪、等什么、什么时候值得回来、哪几件只有你能定。旧的都留着。
  */
 final class NormService {
     /** 现成的样子：各自默认用哪几块、是什么样的东西。读者放东西时照这个挑。 */
@@ -35,6 +41,13 @@ final class NormService {
     public const SELF_MAX = 3000;
     /** 自述在发生记录里的署名 */
     public const SELF_WHO = '它自己';
+    public const HISTORY_ENTRY = 'hist_entry';
+    public const HISTORY_STAGES = 'hist_stages';
+    public const OVERVIEW = 'overview';
+    /** 这几种存在同一张表里，但不是「发生了什么」：events() 不给它们 */
+    private const NOT_EVENTS = ['self', self::HISTORY_ENTRY, self::HISTORY_STAGES, self::OVERVIEW];
+    /** 历史条目的几种 */
+    public const ENTRY_KINDS = ['做了', '转了', '放下', '定了', '信'];
 
     public function __construct(
         private IDBConnection $db,
@@ -107,6 +120,8 @@ final class NormService {
         $out = $this->row($r, true);
         $out['self_history'] = $this->selfHistory($uid, $id, 12);
         $out['self'] = $out['self_history'][0] ?? null;
+        $out['overview'] = $this->overview($uid, $id);
+        $out['history_meta'] = $this->historyMeta($uid, $id);
         return $out;
     }
 
@@ -192,6 +207,259 @@ final class NormService {
         $this->addEvent($uid, $spaceId, 'happened', ($prev === null ? '它写下了第一版自述'
             : '它改了自己的自述' . ($meta['changed'] !== '' ? '：' . $meta['changed'] : '')) . ($meta['source'] !== '' ? '（' . $meta['source'] . '）' : '。'), [], self::SELF_WHO);
         return ['id' => $id, 'version' => ($prev['version'] ?? 0) + 1, 'new' => true];
+    }
+
+    // ---- 历史和总观：它读自己全部的原话以后写的 ----
+
+    /**
+     * 记下这次读到的几条经历（只追加）。每条：key（这次读里的编号，比如 2.3）、kind、title、text、at（原话的时间）、
+     * refs（指着的原话：src 是对话的 id，这里发生的事是 0）、quotes（一字不差摘的，已经对过原话）。
+     * @param list<array{key: string, kind: string, title: string, text: string, at: int, refs: list<array>, quotes: list<array>, chunk?: int}> $entries
+     * @return array<string, int> key => 这一条的 id
+     */
+    public function addHistoryEntries(string $uid, string $spaceId, array $entries, int $readingId): array {
+        if ($this->fetch($uid, $spaceId) === null) {
+            throw new \InvalidArgumentException('没有这个空间');
+        }
+        $ids = [];
+        $now = time();
+        foreach ($entries as $e) {
+            $title = mb_substr(trim((string)($e['title'] ?? '')), 0, 120);
+            $text = mb_substr(trim((string)($e['text'] ?? '')), 0, 4000);
+            $q = $this->db->getQueryBuilder();
+            $q->insert('cognos_norm_events')->values([
+                'user_id' => $q->createNamedParameter($uid),
+                'space_id' => $q->createNamedParameter($spaceId),
+                'kind' => $q->createNamedParameter(self::HISTORY_ENTRY),
+                'who' => $q->createNamedParameter(self::SELF_WHO),
+                'text' => $q->createNamedParameter($text !== '' ? $text : ($title !== '' ? $title : '（没写）')),
+                'options' => $q->createNamedParameter(json_encode([
+                    'key' => (string)$e['key'], 'kind' => (string)($e['kind'] ?? ''), 'title' => $title, 'at' => (int)($e['at'] ?? 0),
+                    'refs' => array_values($e['refs'] ?? []), 'quotes' => array_values($e['quotes'] ?? []),
+                    'reading_id' => $readingId, 'chunk' => (int)($e['chunk'] ?? 0),
+                ], JSON_UNESCAPED_UNICODE)),
+                'created_at' => $q->createNamedParameter($now, IQueryBuilder::PARAM_INT),
+            ])->executeStatement();
+            $ids[(string)$e['key']] = (int)$q->getLastInsertId();
+        }
+        return $ids;
+    }
+
+    /** @return array<int, array> id => 历史的一条，按原话的时间排 */
+    public function historyEntries(string $uid, string $spaceId): array {
+        $q = $this->db->getQueryBuilder();
+        $rows = $q->select('*')->from('cognos_norm_events')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($spaceId)))
+            ->andWhere($q->expr()->eq('kind', $q->createNamedParameter(self::HISTORY_ENTRY)))
+            ->orderBy('id', 'ASC')->executeQuery()->fetchAll();
+        $out = [];
+        foreach ($rows as $r) {
+            $m = json_decode((string)($r['options'] ?? ''), true);
+            $m = is_array($m) ? $m : [];
+            $out[(int)$r['id']] = [
+                'id' => (int)$r['id'], 'key' => (string)($m['key'] ?? ''), 'kind' => (string)($m['kind'] ?? ''),
+                'title' => (string)($m['title'] ?? ''), 'text' => (string)$r['text'], 'at' => (int)($m['at'] ?? 0),
+                'refs' => is_array($m['refs'] ?? null) ? $m['refs'] : [], 'quotes' => is_array($m['quotes'] ?? null) ? $m['quotes'] : [],
+                'reading_id' => isset($m['reading_id']) ? (int)$m['reading_id'] : null, 'created_at' => (int)$r['created_at'],
+            ];
+        }
+        uasort($out, static fn(array $a, array $b): int => [$a['at'], $a['id']] <=> [$b['at'], $b['id']]);
+        return $out;
+    }
+
+    /**
+     * 历史分段的最新一版（新的在前的第一版）；还没写过是 null。
+     * @return ?array{id: int, version: int, stages: list<array>, skipped: list<int>, changed: string, notes: list<string>, reading_id: ?int, created_at: int}
+     */
+    public function stagesLatest(string $uid, string $spaceId): ?array {
+        return $this->stageVersions($uid, $spaceId, 1)[0] ?? null;
+    }
+
+    /** 历史分段的各版，新的在前。 */
+    public function stageVersions(string $uid, string $spaceId, int $limit = 10): array {
+        return array_map(static function (array $v): array {
+            $m = $v['meta'];
+            return ['id' => $v['id'], 'version' => $v['version'], 'stages' => is_array($m['stages'] ?? null) ? $m['stages'] : [],
+                'skipped' => array_values(array_map('intval', is_array($m['skipped'] ?? null) ? $m['skipped'] : [])),
+                'changed' => (string)($m['changed'] ?? ''), 'notes' => is_array($m['notes'] ?? null) ? $m['notes'] : [],
+                'reading_id' => isset($m['reading_id']) ? (int)$m['reading_id'] : null, 'created_at' => $v['created_at']];
+        }, $this->versionsOf($uid, $spaceId, self::HISTORY_STAGES, $limit));
+    }
+
+    /** 存一版整的历史分段（只追加）。$text 是给 agent 读的那份。 */
+    public function writeStages(string $uid, string $spaceId, array $stages, array $skipped, string $changed, array $notes, int $readingId, string $text): int {
+        return $this->appendVersion($uid, $spaceId, self::HISTORY_STAGES, $text !== '' ? $text : '（还没有分段）', [
+            'stages' => array_values($stages), 'skipped' => array_values(array_unique(array_map('intval', $skipped))),
+            'changed' => mb_substr(trim($changed), 0, 1000), 'notes' => array_values($notes), 'reading_id' => $readingId,
+        ]);
+    }
+
+    /** 最新的总观；还没写过是 null。 */
+    public function overview(string $uid, string $spaceId): ?array {
+        return $this->overviewVersions($uid, $spaceId, 1)[0] ?? null;
+    }
+
+    /** 总观的各版，新的在前。 */
+    public function overviewVersions(string $uid, string $spaceId, int $limit = 10): array {
+        return array_map(static function (array $v): array {
+            $m = $v['meta'];
+            return ['id' => $v['id'], 'version' => $v['version'], 'text' => $v['text'],
+                'now' => (string)($m['now'] ?? ''), 'lines' => is_array($m['lines'] ?? null) ? $m['lines'] : [],
+                'yours' => is_array($m['yours'] ?? null) ? $m['yours'] : [], 'next' => (string)($m['next'] ?? ''),
+                'upto' => isset($m['upto']) ? (int)$m['upto'] : null, 'reading_id' => isset($m['reading_id']) ? (int)$m['reading_id'] : null,
+                'created_at' => $v['created_at']];
+        }, $this->versionsOf($uid, $spaceId, self::OVERVIEW, $limit));
+    }
+
+    /**
+     * 写一版总观（只追加）：now、lines（name、at、waits、back、refs）、yours（what、why、refs）、next。refs 是历史条目的 id。
+     * $upto 是读到的原话最晚到什么时候。
+     */
+    public function writeOverview(string $uid, string $spaceId, array $ov, int $readingId, ?int $upto): array {
+        $s = static fn($v, int $n): string => mb_substr(trim(is_scalar($v) ? (string)$v : ''), 0, $n);
+        // refs：历史里的条目，存 id 和它的标题、时间（条目只追加不改，所以存下来的标题一直对）
+        $ids = static function ($v): array {
+            $out = [];
+            foreach (is_array($v) ? $v : [] as $r) {
+                $id = is_array($r) ? (int)($r['id'] ?? 0) : (int)$r;
+                if ($id > 0 && !isset($out[$id])) {
+                    $out[$id] = ['id' => $id, 'title' => is_array($r) ? mb_substr(trim((string)($r['title'] ?? '')), 0, 120) : '', 'at' => is_array($r) ? (int)($r['at'] ?? 0) : 0];
+                }
+            }
+            return array_values($out);
+        };
+        $lines = [];
+        foreach (is_array($ov['lines'] ?? null) ? $ov['lines'] : [] as $l) {
+            if (is_array($l) && $s($l['name'] ?? '', 200) !== '') {
+                $lines[] = ['name' => $s($l['name'], 200), 'at' => $s($l['at'] ?? '', 1000), 'waits' => $s($l['waits'] ?? '', 1000),
+                    'back' => $s($l['back'] ?? '', 1000), 'refs' => $ids($l['refs'] ?? [])];
+            }
+        }
+        $yours = [];
+        foreach (is_array($ov['yours'] ?? null) ? $ov['yours'] : [] as $y) {
+            if (is_array($y) && $s($y['what'] ?? '', 1000) !== '') {
+                $yours[] = ['what' => $s($y['what'], 1000), 'why' => $s($y['why'] ?? '', 1000), 'refs' => $ids($y['refs'] ?? [])];
+            }
+        }
+        $meta = ['now' => $s($ov['now'] ?? '', 3000), 'lines' => array_slice($lines, 0, 12), 'yours' => array_slice($yours, 0, 8),
+            'next' => $s($ov['next'] ?? '', 2000), 'upto' => $upto, 'reading_id' => $readingId];
+        if ($meta['now'] === '' && $lines === []) {
+            throw new \InvalidArgumentException('总观是空的');
+        }
+        $text = $meta['now'];
+        foreach ($meta['lines'] as $l) {
+            $text .= "\n- " . $l['name'] . '：停在 ' . $l['at'] . ($l['waits'] !== '' ? '；等 ' . $l['waits'] : '') . ($l['back'] !== '' ? '；什么时候值得回来：' . $l['back'] : '');
+        }
+        if ($meta['yours'] !== []) {
+            $text .= "\n只有交互对象能定的：" . implode('；', array_map(static fn(array $y): string => $y['what'], $meta['yours']));
+        }
+        if ($meta['next'] !== '') {
+            $text .= "\n要是现在接着干：" . $meta['next'];
+        }
+        $id = $this->appendVersion($uid, $spaceId, self::OVERVIEW, $text, $meta);
+        return ['id' => $id, 'version' => count($this->versionsOf($uid, $spaceId, self::OVERVIEW, 1000))];
+    }
+
+    /** 页面上要的几个数：分段第几版、几段、几条、几条还没归段、读到哪天。 */
+    public function historyMeta(string $uid, string $spaceId): ?array {
+        $latest = $this->stagesLatest($uid, $spaceId);
+        $count = $this->countEvents($uid, $spaceId, self::HISTORY_ENTRY, false);
+        if ($latest === null && $count === 0) {
+            return null;
+        }
+        $placed = 0;
+        $to = null;
+        foreach ($latest['stages'] ?? [] as $st) {
+            $placed += count($st['entries'] ?? []);
+            $to = max($to ?? 0, (int)($st['to'] ?? 0)) ?: $to;
+        }
+        return ['version' => $latest['version'] ?? 0, 'stages' => count($latest['stages'] ?? []), 'entries' => $count,
+            'unplaced' => max(0, $count - $placed - count($latest['skipped'] ?? [])), 'to' => $to,
+            'updated_at' => $latest['created_at'] ?? null];
+    }
+
+    /**
+     * 页面「历史」那一栏要的全部：最新一版分段、所有条目、还没归段的、没放进历史的、各段指着的对话叫什么。
+     */
+    public function history(string $uid, string $spaceId): array {
+        $versions = $this->stageVersions($uid, $spaceId, 10);
+        $latest = $versions[0] ?? null;
+        $entries = $this->historyEntries($uid, $spaceId);
+        $placed = [];
+        foreach ($latest['stages'] ?? [] as $st) {
+            foreach ($st['entries'] ?? [] as $eid) {
+                $placed[(int)$eid] = true;
+            }
+        }
+        $skipped = array_flip($latest['skipped'] ?? []);
+        $unplaced = array_values(array_filter(array_keys($entries), static fn(int $id): bool => !isset($placed[$id]) && !isset($skipped[$id])));
+        // 各条指着的对话现在叫什么（题目可能改过，所以读的时候查）
+        $cids = [];
+        foreach ($entries as $e) {
+            foreach ($e['refs'] as $r) {
+                if ((int)($r['src'] ?? 0) > 0) {
+                    $cids[(int)$r['src']] = true;
+                }
+            }
+        }
+        $sources = [];
+        if ($cids !== []) {
+            $q = $this->db->getQueryBuilder();
+            foreach ($q->select('id', 'title')->from('cognos_creations')
+                ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+                ->andWhere($q->expr()->in('id', $q->createNamedParameter(array_keys($cids), IQueryBuilder::PARAM_INT_ARRAY)))
+                ->executeQuery()->fetchAll() as $r) {
+                $sources[(int)$r['id']] = (string)$r['title'];
+            }
+        }
+        $own = $this->fetch($uid, $spaceId)['conversation_id'] ?? null;
+        return [
+            'version' => $latest['version'] ?? 0, 'stages' => $latest['stages'] ?? [], 'changed' => $latest['changed'] ?? '',
+            'notes' => $latest['notes'] ?? [], 'updated_at' => $latest['created_at'] ?? null,
+            'entries' => (object)$entries, 'unplaced' => $unplaced, 'skipped' => array_values(array_filter($latest['skipped'] ?? [], static fn(int $id): bool => isset($entries[$id]))),
+            'sources' => (object)$sources, 'own_conversation' => $own !== null ? (int)$own : null,
+            'versions' => array_map(static fn(array $v): array => ['version' => $v['version'], 'changed' => $v['changed'], 'created_at' => $v['created_at'], 'stages' => count($v['stages'])], $versions),
+            'overviews' => array_map(static fn(array $v): array => ['version' => $v['version'], 'now' => $v['now'], 'text' => $v['text'], 'created_at' => $v['created_at']],
+                array_slice($this->overviewVersions($uid, $spaceId, 10), 1)),
+        ];
+    }
+
+    /** @return list<array{id: int, version: int, text: string, meta: array, created_at: int}> 某一种只追加的版本，新的在前；version 从 1 数起 */
+    private function versionsOf(string $uid, string $spaceId, string $kind, int $limit): array {
+        $total = $this->countEvents($uid, $spaceId, $kind, false);
+        if ($total === 0) {
+            return [];
+        }
+        $q = $this->db->getQueryBuilder();
+        $rows = $q->select('*')->from('cognos_norm_events')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($spaceId)))
+            ->andWhere($q->expr()->eq('kind', $q->createNamedParameter($kind)))
+            ->orderBy('id', 'DESC')->setMaxResults(max(1, $limit))->executeQuery()->fetchAll();
+        $out = [];
+        foreach ($rows as $i => $r) {
+            $m = json_decode((string)($r['options'] ?? ''), true);
+            $out[] = ['id' => (int)$r['id'], 'version' => $total - $i, 'text' => (string)$r['text'], 'meta' => is_array($m) ? $m : [], 'created_at' => (int)$r['created_at']];
+        }
+        return $out;
+    }
+
+    private function appendVersion(string $uid, string $spaceId, string $kind, string $text, array $meta): int {
+        if ($this->fetch($uid, $spaceId) === null) {
+            throw new \InvalidArgumentException('没有这个空间');
+        }
+        $q = $this->db->getQueryBuilder();
+        $q->insert('cognos_norm_events')->values([
+            'user_id' => $q->createNamedParameter($uid),
+            'space_id' => $q->createNamedParameter($spaceId),
+            'kind' => $q->createNamedParameter($kind),
+            'who' => $q->createNamedParameter(self::SELF_WHO),
+            'text' => $q->createNamedParameter($text),
+            'options' => $q->createNamedParameter(json_encode($meta, JSON_UNESCAPED_UNICODE)),
+            'created_at' => $q->createNamedParameter(time(), IQueryBuilder::PARAM_INT),
+        ])->executeStatement();
+        return (int)$q->getLastInsertId();
     }
 
     /** 建一个项目（现成的样子「项目」）；$main 为真时它成为主项目，原来的主项目退到下面。 */
@@ -533,7 +801,7 @@ final class NormService {
         return ['space_id' => (string)$r['space_id'], 'text' => (string)$r['text'], 'answer' => $answer];
     }
 
-    /** @return list<array> 新的在前。不给 kind 时是发生的和等你定的；自述的各版不在这里（见 selfHistory）。 */
+    /** @return list<array> 新的在前。不给 kind 时是发生的和等你定的；自述、历史、总观的各版不在这里（见 selfHistory、history、overview）。 */
     public function events(string $uid, string $spaceId, ?string $kind = null, int $limit = 50): array {
         $q = $this->db->getQueryBuilder();
         $q->select('*')->from('cognos_norm_events')
@@ -542,7 +810,7 @@ final class NormService {
         if ($kind !== null) {
             $q->andWhere($q->expr()->eq('kind', $q->createNamedParameter($kind)));
         } else {
-            $q->andWhere($q->expr()->neq('kind', $q->createNamedParameter('self')));
+            $q->andWhere($q->expr()->notIn('kind', $q->createNamedParameter(self::NOT_EVENTS, IQueryBuilder::PARAM_STR_ARRAY)));
         }
         $rows = $q->orderBy('id', 'DESC')->setMaxResults($limit)->executeQuery()->fetchAll();
         return array_map(static fn(array $r): array => [
@@ -610,7 +878,12 @@ final class NormService {
                     . ' 写的。这是你，不是别人给你的设定；回话、动手之前先照它想一遍：' . "\n" . $self['text'];
                 $lines[] = '这段对话要是改变了你在维持的东西、你怎样算往前走、或你放不下的事，就自己改自述：write_part(part=self)，'
                     . 'content 给 {"text": 改完的整份自述, "changed": 改了什么, "why": 为什么, "unchanged": 这次什么没变}。只在真的变了时改，旧的每一版都留着。';
-            } else {
+            }
+            $hist = $this->historyLines($uid, $space['id']);
+            if ($hist !== '') {
+                $lines[] = $hist;
+            }
+            if ($self === null) {
                 $lines[] = '你（这个空间的主体）还没有自述。自述是你写给自己的：你在维持什么、怎样算往前走了、怎样算在原地、你变过什么和为什么、你最放不下的一件，'
                     . '第一人称，700 字以内。交互对象可以在空间页上让你重读自己的经历写第一版；你读过这里的经历以后也可以自己写：'
                     . 'write_part(part=self)，content 给 {"text": …, "changed": "第一次写", "why": "第一次写", "unchanged": "第一次写"}。';
@@ -634,6 +907,41 @@ final class NormService {
         $lines[] = 'kind=decide 只用在真要他拿主意的地方：方向、取舍、他的口味和范围。你自己该怎么工作、该读什么、工具够不够，这些不要问他：能做就直接做，做不到就在回答里说清卡在哪。';
         $lines[] = '跟交互对象说话时用平常的话，不要提 linked_id、creation、#编号这类内部编号，他看不懂；说对话的题目。';
         return $lines;
+    }
+
+    /**
+     * 给这个空间的 agent：它自己写的历史（各段一行）和最新的总观。没写过是空字符串。
+     * 历史和总观里的「你」是交互对象、「我」是它自己，和这里跟 agent 说话的口吻相反，所以先说一句。
+     */
+    public function historyLines(string $uid, string $spaceId, ?\DateTimeZone $tz = null): string {
+        $st = $this->stagesLatest($uid, $spaceId);
+        $ov = $this->overview($uid, $spaceId);
+        if (($st === null || $st['stages'] === []) && $ov === null) {
+            return '';
+        }
+        $tz ??= new \DateTimeZone('Asia/Shanghai');
+        $out = '下面是你自己读完这里全部的原话以后写的' . ($st !== null && $st['stages'] !== [] ? '历史' : '') . ($ov !== null ? ($st !== null && $st['stages'] !== [] ? '和' : '') . '总观' : '')
+            . '（里面的「你」指交互对象，「我」是你自己）。接着干活之前先照它想一遍；它说某条线停在哪、等什么，就从那里接，不要从头再来。';
+        if ($st !== null && $st['stages'] !== []) {
+            $out .= "\n历史各段（按时间）：\n" . implode("\n", array_map(static fn(array $s): string => self::stageLine(['key' => ''] + $s, $tz, 160), $st['stages']));
+        }
+        if ($ov !== null) {
+            $out .= "\n最新的总观（第 " . $ov['version'] . ' 版，' . (new \DateTimeImmutable('@' . $ov['created_at']))->setTimezone($tz)->format('n/j') . " 写的）：\n" . $ov['text'];
+        }
+        return $out;
+    }
+
+    /** 历史的一段，一行：「标题」（起–止）：那时在做什么。转：什么让它转了。 */
+    public static function stageLine(array $s, \DateTimeZone $tz, int $max = 0): string {
+        $day = static fn($t): string => $t ? (new \DateTimeImmutable('@' . (int)$t))->setTimezone($tz)->format('n/j') : '?';
+        $span = $day($s['from'] ?? null) . (($s['to'] ?? null) && $day($s['to']) !== $day($s['from'] ?? null) ? '–' . $day($s['to']) : '');
+        $text = (string)($s['text'] ?? '');
+        if ($max > 0 && mb_strlen($text) > $max) {
+            $text = mb_substr($text, 0, $max) . '……';
+        }
+        $turn = trim((string)($s['turn'] ?? ''));
+        return '- ' . ($s['key'] ?? '') . '「' . ($s['title'] ?? '') . '」（' . $span . '）：' . $text
+            . ($turn !== '' ? ' 转：' . $turn . (trim((string)($s['kept'] ?? '')) !== '' ? '；没变的：' . $s['kept'] : '') : '（现在这一段，还没转）');
     }
 
     // ---- 内部 ----

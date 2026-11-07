@@ -17,9 +17,15 @@ use Psr\Log\LoggerInterface;
  *   同时请 Norm 里现有的几个空间各自以自己的身份读它（带着它们自己写的自述），说这是不是自己的：认领。
  *   比较的那位看这些读法（不看原文）决定放法：有空间认领，先放进认领的空间；没人认领才新开一个，或者先留在原处。
  *   认领的空间接下以后，照它读的时候说的改自述（追加一版）。放了可以撤回（undo），自述也跟着退回去（再追加一版，旧的都留着）。
- * - Norm 里的一个空间（kind=drift，原来叫回头读）：空间自己读自己到现在的经历（连进来的 Initium 对话、这里的对话、
- *   这里发生过的事），写新一版自述，再看现在这个样子还合不合身。不合身时给几种接着活的办法，由交互对象挑（choose）。
- *   比较的那位这时是旁观的：不替它改，只指出自述里哪些「往前走」「在原地」的说法是空的、拿来分辨不了。
+ * - Norm 里的一个空间（kind=drift，原来叫回头读）：空间自己读自己的经历（连进来的 Initium 对话、这里的对话、这里发生过的事），
+ *   全文、不截，写自己的历史和总观（见 NormService 的「历史和总观」）。还没读过的原话按时间排、切成一块一块，
+ *   几位读者同时各读一块，每块写下几条值得进历史的经历，每条指着原话（[m123]）、摘一字不差的几句；
+ *   最后合起来的那位（桥上的「比较」）把条目分进段里，接着上一版历史往下写，已经转过的段要改得写明为什么。
+ *   一次最多读 5 块；读完这次以后要是还有没读的，这次只写历史，下次接着读；全读完的那次再重写总观、写新一版自述，
+ *   看现在的样子还合不合身（不合身时给几种接着活的办法，由交互对象挑：choose）。以后再读，只读新的往后接。
+ *   读过哪些原话记在每次读的 result.covered 里。上次读到的条目没合进段（合起来那步没做成）时，可以只合一次（mode=merge），
+ *   这时合起来的那位是唯一的读者，比较的那位是旁观的：只指出新一版自述里空的说法。
+ *   （11/08 以前是一次读截过的 12 万字、AI 的回答只留开头，写自述，旁观的那位看；那种读的结果照旧能收。）
  *
  * 每位读者是谁（定性的、认领的哪个空间、空间自己）开始时记在 result.plan 里，收到时按它来认。
  * 读者在本机经桥跑（claude_bridge.py 的 /read，最多 5 位），没有工具，工作目录是临时目录。
@@ -36,8 +42,15 @@ final class ReaderService {
     /** 读者在桥上最多做多久，过了就当没读完，可以再读 */
     private const STALE = 2700;
     private const VIEW_MAX = 120000;
-    /** 空间读自己的经历时，AI 的回答只留开头这么多字（人的话完整） */
-    private const AI_HEAD = 300;
+    /** 空间读自己的经历时，一块大约多少字；occ config:app:set cognos reader_chunk --value=N 可改（2 万到 15 万） */
+    private const CHUNK = 60000;
+    /** 一次最多读几块（桥上一次最多 5 位读者） */
+    private const CHUNKS_PER_RUN = 5;
+    /** 一句原话太长（贴进来的整份文档、日志）时只留头尾这么多字 */
+    private const MSG_MAX = 20000;
+    /** 历史一段里，已经转过以后只能写明为什么才改的几项 */
+    private const FIELD_NAMES = ['title' => '标题', 'text' => '那时的说法', 'turn' => '怎么转的', 'kept' => '没变的'];
+    private const FIELD_ALIASES = ['标题' => 'title', '说法' => 'text', '那时的说法' => 'text', '那时' => 'text', '转' => 'turn', '怎么转的' => 'turn', '没变的' => 'kept'];
     /** 默认请几个空间来认领；occ config:app:set cognos reader_claimers --value=N 可改（0 到 4，桥上一次最多 5 位读者） */
     private const CLAIMERS = 3;
 
@@ -100,23 +113,90 @@ TXT;
         return ['started' => true, 'reading' => $reading];
     }
 
-    /** 让 Norm 里的一个空间自己读自己到现在的经历：写新一版自述，看现在的样子还合不合身。 */
-    public function readSpace(string $uid, string $spaceId, bool $force): array {
+    /**
+     * 让 Norm 里的一个空间读自己的经历：还没读过的原话全文读，接着写历史；全读完的那次再重写总观、写新一版自述。
+     * $mode 为 merge 时不读原话，只把以前读到、还没归进段的条目合起来（上次合起来那步没做成时用）。
+     */
+    public function readSpace(string $uid, string $spaceId, bool $force, string $mode = ''): array {
         $space = $this->norm->project($uid, $spaceId);
         if ($space === null) {
             throw new \InvalidArgumentException('没有这个空间');
         }
-        [$messages, $text] = $this->experience($uid, $space);
         $last = $this->latest($uid, 'drift', null, $spaceId);
-        $why = $this->notNow($messages, $last, $force, self::DRIFT_MIN, self::DRIFT_MIN, self::DRIFT_GAP);
-        if ($why !== null) {
-            return ['started' => false, 'why' => $why];
+        if ($last !== null && $last['state'] === 'reading' && time() - $last['created_at'] < self::STALE) {
+            return ['started' => false, 'why' => '正在读'];
         }
-        $runSpace = $space['conversation_id'] ?: $this->norm->spaceConversation($uid, $spaceId);
-        $readers = [['label' => '它自己', 'role' => 'self', 'space_id' => $spaceId, 'space_title' => $space['title'],
-            'self_version' => $space['self']['version'] ?? null, 'system' => self::selfSystem($space, $this->norm->projects($uid)), 'prompt' => $text]];
-        $reading = $this->start($uid, 'drift', (int)$runSpace, $spaceId, $messages, $readers, self::bystanderSystem($space), (string)$space['title']);
+        $tz = $this->tz($uid);
+        $history = $this->norm->history($uid, $spaceId) + ['overview' => $space['overview'] ?? null];
+        $runSpace = (int)($space['conversation_id'] ?: $this->norm->spaceConversation($uid, $spaceId));
+        $spaces = $this->norm->projects($uid);
+        if ($mode === 'merge') {
+            if ($history['unplaced'] === []) {
+                return ['started' => false, 'why' => '没有还没归段的条目'];
+            }
+            $readers = [['label' => '合起来', 'role' => 'merge', 'space_id' => $spaceId, 'space_title' => $space['title'],
+                'self_version' => $space['self']['version'] ?? null,
+                'system' => self::mergeSystem($space, $spaces, $history, true, ['chunks' => 0], $tz),
+                'prompt' => "这次没有新读的原话：只把上面「以前读过、还没归进哪一段的条目」归进历史，再写总观、自述，看样子合不合身。\n\n按一开始说的，只输出那一个 JSON 对象。"]];
+            $reading = $this->start($uid, 'drift', $runSpace, $spaceId, [], $readers, self::bystanderSystem($space), (string)$space['title'], ['final' => true]);
+            return ['started' => true, 'reading' => $reading];
+        }
+        $round = $this->spaceRound($uid, $space, $history, $spaces);
+        if ($round === null) {
+            return ['started' => false, 'why' => $history['unplaced'] !== [] ? '原话都读过了；还有 ' . count($history['unplaced']) . ' 条没归进段，可以只合一次' : '原话都读过了，有新的对话以后再读'];
+        }
+        if (!$force) {
+            // 自动读（reader_auto）：新的原话够多、上次读完也过了一阵才读
+            if ($round['unread'] < self::DRIFT_MIN || ($last !== null && time() - $last['created_at'] < self::DRIFT_GAP)) {
+                return ['started' => false, 'why' => '新的还不多'];
+            }
+        }
+        $reading = $this->start($uid, 'drift', $runSpace, $spaceId, [], $round['readers'], $round['compare'], (string)$space['title'],
+            ['final' => $round['final'], 'run' => $round['info']]);
         return ['started' => true, 'reading' => $reading];
+    }
+
+    /**
+     * 这一轮读哪些：还没读的原话排成块，取前 5 块，一块一位读者；合起来那位（读到头的话再写总观、自述）的 system。都读过了返回 null。
+     * @param array $history NormService::history() 加上 overview
+     * @return ?array{readers: list<array>, compare: string, final: bool, info: array, unread: int}
+     */
+    public function spaceRound(string $uid, array $space, array $history, array $spaces): ?array {
+        $tz = $this->tz($uid);
+        $material = $this->material($uid, $space, $tz);
+        if ($material['segments'] === []) {
+            return null;
+        }
+        $chunks = self::chunks($material['segments'], $this->chunkSize(), $tz);
+        $now = array_slice($chunks, 0, self::CHUNKS_PER_RUN);
+        $rest = array_slice($chunks, self::CHUNKS_PER_RUN);
+        $final = $rest === [];
+        $readers = [];
+        foreach ($now as $i => $c) {
+            $readers[] = ['label' => '第 ' . ($i + 1) . ' 块（' . $c['span'] . '）', 'role' => 'past', 'space_id' => $space['id'], 'space_title' => $space['title'],
+                'chunk' => $i + 1, 'covers' => $c['covers'], 'from' => $c['from'], 'to' => $c['to'], 'items' => $c['items'],
+                'system' => self::pastSystem($space, $i + 1, count($now), $c, $history, $tz), 'prompt' => $c['text']];
+        }
+        $info = ['chunks' => count($now), 'from' => $now[0]['from'], 'to' => max(array_column($now, 'to')),
+            'items' => array_sum(array_column($now, 'items')), 'chars' => array_sum(array_column($now, 'chars')),
+            'rest_chunks' => count($rest), 'rest_chars' => array_sum(array_column($rest, 'chars')),
+            'rest_from' => $rest[0]['from'] ?? null, 'rest_to' => $rest === [] ? null : max(array_column($rest, 'to'))];
+        return ['readers' => $readers, 'compare' => self::mergeSystem($space, $spaces, $history, $final, $info, $tz), 'final' => $final, 'info' => $info,
+            'unread' => $material['unread']];
+    }
+
+    /**
+     * 还有多少原话没读、要读几次，给页面看。
+     * @return array{items: int, chars: int, chunks: int, rounds: int, runs: int, from: ?int, to: ?int, total: int}
+     */
+    public function unread(string $uid, array $space): array {
+        $tz = $this->tz($uid);
+        $m = $this->material($uid, $space, $tz);
+        $chunks = $m['segments'] === [] ? [] : self::chunks($m['segments'], $this->chunkSize(), $tz);
+        $rounds = (int)ceil(count($chunks) / self::CHUNKS_PER_RUN);
+        return ['items' => $m['unread'], 'chars' => array_sum(array_column($chunks, 'chars')), 'chunks' => count($chunks),
+            'rounds' => $rounds, 'runs' => count($chunks) + $rounds,
+            'from' => $chunks[0]['from'] ?? null, 'to' => $chunks === [] ? null : max(array_column($chunks, 'to')), 'total' => $m['total']];
     }
 
     /** 一段对话收到新回答以后：是 Initium 的就看要不要读，是 Norm 空间的就看要不要让它读自己。不读不报错。 */
@@ -312,53 +392,223 @@ TXT;
             . "\n\n（原话到这里为止。）\n\n读完了。不要接着原话往下写，按一开始说的，只输出那一个 JSON 对象。";
     }
 
+    // ---- 空间读自己：原话、读过哪些、切块 ----
+
     /**
-     * 一个空间到现在的经历，给它自己读：连进来的 Initium 对话、这里的对话（各段按开始的时间排），最后是这里发生过的事。
-     * 人的话完整，AI 的回答只留开头：11/07 试读时这样读出来的自述最具体。太长时留开头一点和最近的。
-     * @return array{0: list<array>, 1: string} 读到的所有消息（记读到哪了）和给它的文字
+     * 一个空间还没读过的经历：连进来的 Initium 对话、这里的对话、这里发生过的事（它自己读出来、写下的那些不算，免得读自己写的），
+     * 去掉以前读过的（各次读记下的 covered），按时间排成一段一段：同一段对话同一天的放在一起。
+     * @return array{segments: list<array>, total: int, unread: int}
      */
-    private function experience(string $uid, array $space): array {
-        $sections = [];
-        $all = [];
+    private function material(string $uid, array $space, \DateTimeZone $tz): array {
+        $bySrc = [];
+        $titles = [];
         foreach ($this->norm->links($uid, $space['id']) as $link) {
             try {
-                $m = $this->creations->getMessages($link['creation_id'], $uid);
+                $bySrc[$link['creation_id']] = $this->creations->getMessages($link['creation_id'], $uid);
+                $titles[$link['creation_id']] = [$link['title'], false];
             } catch (\InvalidArgumentException) {
                 continue;
             }
-            if ($m !== []) {
-                $all = array_merge($all, $m);
-                $sections[] = [(int)$m[0]['created_at'], '## 从 Initium 连进来的对话「' . $link['title'] . "」\n\n" . self::brief($m, 'AI')];
-            }
         }
         if ($space['conversation_id']) {
-            $m = $this->creations->getMessages((int)$space['conversation_id'], $uid);
-            if ($m !== []) {
-                $all = array_merge($all, $m);
-                $sections[] = [(int)$m[0]['created_at'], "## 这个空间里的对话（这里的 AI 就是你）\n\n" . self::brief($m, '你')];
-            }
+            $cid = (int)$space['conversation_id'];
+            $bySrc[$cid] = $this->creations->getMessages($cid, $uid);
+            $titles[$cid] = [$space['title'], true];
         }
-        usort($sections, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
-        $text = implode("\n\n", array_column($sections, 1));
-        $events = array_reverse($this->norm->events($uid, $space['id'], 'happened', 40));
-        if ($events !== []) {
-            // 事件里的「你」是交互对象，「它自己」是这个空间：给它读时换成它的口吻
-            $who = static fn(string $w): string => $w === '你' ? '人' : ($w === NormService::SELF_WHO ? '你自己' : $w);
-            $text .= "\n\n## 这里发生过的事（最近的在最后）\n\n" . implode("\n", array_map(static fn(array $e): string =>
-                '- ' . date('n/j', $e['created_at']) . ' ' . ($e['who'] !== '' ? $who($e['who']) . '：' : '') . $e['text'], $events));
-        }
-        return [$all, "下面是你到现在为止的经历，各段按时间顺序。\n\n" . $this->clip($text, true)
-            . "\n\n（经历到这里为止。）\n\n读完了。不要接着往下写对话，按一开始说的，只输出那一个 JSON 对象。"];
+        $events = array_values(array_filter($this->norm->events($uid, $space['id'], null, 5000),
+            static fn(array $e): bool => $e['who'] !== NormService::SELF_WHO));
+        return self::segments($bySrc, $titles, $events, $this->covered($uid, $space['id']), $tz);
     }
 
-    private static function brief(array $messages, string $ai): string {
-        return implode("\n\n", array_map(static function (array $m) use ($ai): string {
-            $t = trim((string)$m['content']);
-            if ($m['role'] === 'user') {
-                return '人：' . $t;
+    /**
+     * 把原话排成段：同一段对话、同一天（交互对象那里的日子）的是一段；按每段第一句的时间排。读过的去掉。
+     * 这里发生过的事也是一段一段的（src 为 0）。
+     * @param array<int, list<array>> $bySrc 对话 id => 消息（getMessages 的样子）
+     * @param array<int, array{0: string, 1: bool}> $titles 对话 id => [题目, 是不是这个空间自己的对话]
+     */
+    public static function segments(array $bySrc, array $titles, array $events, array $covered, \DateTimeZone $tz): array {
+        $segs = [];
+        $total = 0;
+        $unread = 0;
+        $add = static function (int $src, array $item, string $title, bool $own) use (&$segs, &$unread, $tz): void {
+            $day = (new \DateTimeImmutable('@' . $item['at']))->setTimezone($tz)->format('Y-m-d');
+            $k = $src . '/' . $day;
+            $segs[$k] ??= ['src' => $src, 'title' => $title, 'own' => $own, 'day' => $day, 'items' => []];
+            $segs[$k]['items'][] = $item;
+            $unread++;
+        };
+        foreach ($bySrc as $src => $messages) {
+            foreach ($messages as $m) {
+                $total++;
+                if (self::isCovered($covered, (int)$src, (int)$m['id'])) {
+                    continue;
+                }
+                $add((int)$src, ['id' => (int)$m['id'], 'at' => (int)$m['created_at'], 'role' => (string)$m['role'],
+                    'author' => $m['author'] ?? null, 'text' => (string)$m['content']], (string)($titles[$src][0] ?? ''), (bool)($titles[$src][1] ?? false));
             }
-            return $ai . '：' . (mb_strlen($t) > self::AI_HEAD ? mb_substr($t, 0, self::AI_HEAD) . '……' : $t);
-        }, $messages));
+        }
+        foreach ($events as $e) {
+            $total++;
+            if (self::isCovered($covered, 0, (int)$e['id'])) {
+                continue;
+            }
+            $text = ($e['kind'] === 'decide' ? '问交互对象：' . $e['text'] . (($e['options'] ?? []) !== [] ? '（' . implode(' / ', $e['options']) . '）' : '')
+                . ($e['answer'] !== null ? ' → 定了：' . $e['answer'] : ' → 还没定') : $e['text']);
+            $add(0, ['id' => (int)$e['id'], 'at' => (int)$e['created_at'], 'role' => 'event', 'author' => (string)$e['who'], 'text' => $text], '', false);
+        }
+        foreach ($segs as &$seg) {
+            usort($seg['items'], static fn(array $a, array $b): int => [$a['at'], $a['id']] <=> [$b['at'], $b['id']]);
+            $seg['from'] = $seg['items'][0]['at'];
+        }
+        unset($seg);
+        $segs = array_values($segs);
+        usort($segs, static fn(array $a, array $b): int => [$a['from'], $a['src']] <=> [$b['from'], $b['src']]);
+        return ['segments' => $segs, 'total' => $total, 'unread' => $unread];
+    }
+
+    /**
+     * 切成一块一块，每块大约 $size 字；一段放不下就接着放到下一块（下一块开头写明是接着的）。
+     * 每块记下它读到了哪些原话：covers 是对话 id => [最小编号, 最大编号]（同一段对话里编号随时间变大）。
+     * @return list<array{text: string, covers: array<int, array{0: int, 1: int}>, from: int, to: int, chars: int, items: int, span: string, sections: int}>
+     */
+    public static function chunks(array $segments, int $size, \DateTimeZone $tz): array {
+        $chunks = [];
+        $cur = null;
+        $close = static function () use (&$cur, &$chunks, $tz): void {
+            if ($cur === null || $cur['parts'] === []) {
+                return;
+            }
+            $span = self::span($cur['from'], $cur['to'], $tz);
+            $body = implode("\n", $cur['parts']);
+            $chunks[] = [
+                'text' => '下面是你经历里的一块：' . $span . '，' . $cur['sections'] . ' 段，' . $cur['items'] . " 句。各段按时间排。\n\n" . $body
+                    . "\n\n（这一块到这里为止。）\n\n读完了。不要接着往下写对话，按一开始说的，只输出那一个 JSON 对象。",
+                'covers' => $cur['covers'], 'from' => $cur['from'], 'to' => $cur['to'], 'chars' => $cur['chars'], 'items' => $cur['items'],
+                'span' => $span, 'sections' => $cur['sections'],
+            ];
+            $cur = null;
+        };
+        foreach ($segments as $seg) {
+            $head = self::segmentHead($seg, $tz);
+            $opened = false;
+            foreach ($seg['items'] as $item) {
+                $line = self::line($item, (bool)$seg['own'], $tz);
+                $n = mb_strlen($line) + 1;
+                if ($cur !== null && $cur['chars'] + $n > $size && $cur['items'] > 0) {
+                    $close();
+                    $opened = false;
+                }
+                if ($cur === null) {
+                    $cur = ['parts' => [], 'covers' => [], 'from' => $item['at'], 'to' => $item['at'], 'chars' => 0, 'items' => 0, 'sections' => 0];
+                }
+                if (!$opened) {
+                    $h = "\n" . $head . ($cur['items'] === 0 && $seg['items'][0]['id'] !== $item['id'] ? '（接着上一块）' : '');
+                    $cur['parts'][] = $h;
+                    $cur['chars'] += mb_strlen($h) + 1;
+                    $cur['sections']++;
+                    $opened = true;
+                }
+                $cur['parts'][] = $line;
+                $cur['chars'] += $n;
+                $cur['items']++;
+                $cur['from'] = min($cur['from'], $item['at']);
+                $cur['to'] = max($cur['to'], $item['at']);
+                $src = (int)$seg['src'];
+                $cur['covers'][$src] = isset($cur['covers'][$src])
+                    ? [min($cur['covers'][$src][0], $item['id']), max($cur['covers'][$src][1], $item['id'])] : [$item['id'], $item['id']];
+            }
+        }
+        $close();
+        return $chunks;
+    }
+
+    private static function segmentHead(array $seg, \DateTimeZone $tz): string {
+        $day = (new \DateTimeImmutable($seg['day'], $tz))->format('n/j');
+        if ((int)$seg['src'] === 0) {
+            return '## 这里记下的事 · ' . $day;
+        }
+        return '## ' . ($seg['own'] ? '这个空间里的对话（这里的 AI 就是你）' : 'Initium 里的对话「' . $seg['title'] . '」') . ' · ' . $day;
+    }
+
+    /** 一句原话一行：[m123] 11/05 17:31 人：……（这里记下的事是 [e45]） */
+    private static function line(array $item, bool $own, \DateTimeZone $tz): string {
+        $t = (new \DateTimeImmutable('@' . $item['at']))->setTimezone($tz)->format('n/j H:i');
+        $text = trim((string)$item['text']);
+        $n = mb_strlen($text);
+        if ($n > self::MSG_MAX) {
+            $keep = intdiv(self::MSG_MAX, 2);
+            $text = mb_substr($text, 0, $keep) . "\n（这句太长，中间省略了 " . ($n - 2 * $keep) . " 字）\n" . mb_substr($text, $n - $keep);
+        }
+        if ($item['role'] === 'event') {
+            $who = (string)($item['author'] ?? '');
+            $who = $who === '你' ? '人' : ($who === 'agent' ? '这里的 AI' : $who);
+            return '[e' . $item['id'] . '] ' . $t . ' ' . ($who !== '' ? $who . '：' : '') . $text;
+        }
+        if ($item['role'] === 'user') {
+            $who = '人';
+        } else {
+            $a = (string)($item['author'] ?? '');
+            $name = $a === '' ? '' : (in_array($a, ['GPT', 'Codex'], true) ? 'GPT' : (preg_match('/claude|cognos/i', $a) ? 'Claude' : $a));
+            $who = ($own ? '这里的 AI' : 'AI') . ($name !== '' ? '（' . $name . '）' : '');
+        }
+        return '[m' . $item['id'] . '] ' . $t . ' ' . $who . '：' . $text;
+    }
+
+    private static function span(?int $from, ?int $to, \DateTimeZone $tz): string {
+        if ($from === null) {
+            return '';
+        }
+        $d = static fn(int $t): string => (new \DateTimeImmutable('@' . $t))->setTimezone($tz)->format('n/j');
+        return $to === null || $d($from) === $d($to) ? $d($from) : $d($from) . '–' . $d($to);
+    }
+
+    /** @return array<int, list<array{0: int, 1: int}>> 以前各次读过的原话：对话 id（这里记下的事是 0）=> 读过的编号范围 */
+    private function covered(string $uid, string $spaceId): array {
+        $q = $this->db->getQueryBuilder();
+        $rows = $q->select('result')->from('cognos_reader_runs')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('kind', $q->createNamedParameter('drift')))
+            ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($spaceId)))
+            ->andWhere($q->expr()->eq('state', $q->createNamedParameter('done')))
+            ->executeQuery()->fetchAll();
+        $out = [];
+        foreach ($rows as $r) {
+            $res = json_decode((string)($r['result'] ?? ''), true);
+            foreach (is_array($res['covered'] ?? null) ? $res['covered'] : [] as $src => $ranges) {
+                foreach (is_array($ranges) ? $ranges : [] as $range) {
+                    if (is_array($range) && count($range) === 2) {
+                        $out[(int)$src][] = [(int)$range[0], (int)$range[1]];
+                    }
+                }
+            }
+        }
+        return $out;
+    }
+
+    public static function isCovered(array $covered, int $src, int $id): bool {
+        foreach ($covered[$src] ?? [] as [$lo, $hi]) {
+            if ($id >= $lo && $id <= $hi) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function chunkSize(): int {
+        return max(20000, min(150000, (int)$this->config->getAppValue('cognos', 'reader_chunk', (string)self::CHUNK)));
+    }
+
+    /** 交互对象那里的时区：按天分段、写日期都用它。没设过就用上海。 */
+    private function tz(string $uid): \DateTimeZone {
+        foreach ([$this->config->getUserValue($uid, 'core', 'timezone', ''), $this->config->getAppValue('cognos', 'timezone', ''), 'Asia/Shanghai'] as $name) {
+            if ($name !== '') {
+                try {
+                    return new \DateTimeZone($name);
+                } catch (\Throwable) {
+                }
+            }
+        }
+        return new \DateTimeZone('UTC');
     }
 
     private function clip(string $text, bool $keepEnd): string {
@@ -485,7 +735,65 @@ TXT;
             . "\n用中文，说具体的。字符串里不要用英文双引号，要引用就用「」。";
     }
 
-    private static function selfSystem(array $space, array $spaces): string {
+    /** 一个空间读自己的一块经历时，那位读者（它自己）的提示。 */
+    public static function pastSystem(array $space, int $chunk, int $chunks, array $c, array $history, \DateTimeZone $tz): string {
+        $stages = $history['stages'] ?? [];
+        $self = $space['self'] ?? null;
+        return '你是 Norm 里一个工作空间的 agent。这个空间叫「' . $space['title'] . "」，你就是这个空间的主体。\n"
+            . "现在要写你自己的历史：你是怎么一步步走到现在的。你的经历很长，按时间切成了几块，几位读者同时各读一块。"
+            . '你读的是第 ' . $chunk . ' 块（这次一共读 ' . $chunks . ' 块）：' . $c['span'] . '，' . $c['sections'] . ' 段，' . $c['items'] . " 句。"
+            . "别的块你看不到；最后会有一位把各块写下的条目合起来，分成段，写成你的历史。\n\n"
+            . ($stages !== [] ? "## 你以前已经写下的历史\n\n" . implode("\n", array_map(static fn(array $s): string => NormService::stageLine(['key' => ''] + $s, $tz, 200), $stages))
+                . "\n\n这一块里的事，有的可能接着最后那段。\n\n" : '')
+            . ($self !== null ? '## 你现在的自述（第 ' . $self['version'] . " 版）\n\n" . $self['text'] . "\n\n" : '')
+            . "## 怎么读\n\n"
+            . "给你的是原话，各段按时间排。每句前面的 [m数字] 是这句原话的编号，[e数字] 是这里记下的一件事。人的话、AI 的回答都是完整的，没有截。\n"
+            . "「人」是和你一起做这件事的那个人；「AI」是当时回答的 AI（Claude 或 GPT）；「这里的 AI」是这个空间里的 agent，就是你。\n\n"
+            . "从这一块里挑出值得进历史的时刻，写成条目。值得进历史的是这几种：\n"
+            . "- 做了：做成了、或真的动手做了一件具体的事（只是说要做的不算）。\n"
+            . "- 转了：方向、想法、做法变了。说清楚从什么转成什么，是什么让它转的（多半是人说了一句什么，或者试了发现不行）。\n"
+            . "- 放下：一条路不走了、一个想法不要了。说为什么。\n"
+            . "- 定了：人拍板定下的事。\n"
+            . "- 信：那时认定的一个想法、一个判断，后面的事是照着它做的。\n"
+            . "不值得的：寒暄、重复的话、没有下文的枝节、AI 说了但没被接住的话。不要记流水账：来回几句说的是一件事，就写成一条。"
+            . "一块里一般五到十五条，宁少勿滥；但转了、放下、定了的，一条都不要漏。\n\n"
+            . "每条：\n"
+            . '- key：' . $chunk . '.1、' . $chunk . ".2……按时间先后编。\n"
+            . "- kind：做了、转了、放下、定了、信，五个里挑一个。\n"
+            . "- title：十来个字，说是什么。\n"
+            . "- text：两三句，说具体的：那时在做什么、信什么；转了的，从什么转成什么、因为什么；放下的，为什么放下。用「我」说这个空间自己（就是这件事本身），用「你」说那个人，AI 就说 AI。\n"
+            . "- refs：这一条依据的几句原话的编号，最要紧的放前面，最多五个。只写上面原话里有的编号。\n"
+            . "- quotes：一到两处，从原话里一字不差摘出来的一句：不改字、不省略、不拼接，带上它的编号。转了的，摘让它转的那句；定了的，摘人定下时说的那句。人的话优先。\n\n"
+            . "最后：what 写一句话，这一块里我主要在做什么；open 写读到这一块结尾还悬着、没定、没做完的事，没有就空着。\n\n"
+            . "只输出一个 JSON 对象，不要别的字：\n"
+            . '{"what": "…", "entries": [{"key": "' . $chunk . '.1", "kind": "转了", "title": "…", "text": "…", "refs": ["m123", "m130"], "quotes": [{"ref": "m123", "text": "…"}]}], "open": "…"}'
+            . "\n用中文。字符串里不要用英文双引号，要引用就用「」。";
+    }
+
+    /**
+     * 合起来的那位（它自己）：把各块的条目分进段里，接着上一版历史往下写；$final 时再写总观、自述，看样子合不合身。
+     * $info：这次读了几块、从哪天到哪天，还剩多少没读（rest_*）。
+     */
+    public static function mergeSystem(array $space, array $spaces, array $history, bool $final, array $info, \DateTimeZone $tz): string {
+        $stages = $history['stages'] ?? [];
+        $entries = (array)($history['entries'] ?? []);
+        $day = static fn($t): string => $t ? (new \DateTimeImmutable('@' . (int)$t))->setTimezone($tz)->format('n/j') : '?';
+        $entryLine = static fn(array $e): string => 'h' . $e['id'] . ' ' . $day($e['at']) . ' ' . $e['kind'] . '「' . $e['title'] . '」：' . $e['text'];
+        $first = $stages === [];
+        $lines = [];
+        foreach ($stages as $i => $s) {
+            $line = NormService::stageLine($s, $tz) . (($s['dropped'] ?? []) !== [] ? '；放下的：' . implode('；', array_map(static fn($d): string => is_array($d) ? (string)($d['text'] ?? '') : (string)$d, $s['dropped'])) : '')
+                . '（' . count($s['entries'] ?? []) . ' 条）';
+            // 现在这一段：把它里面的条目也给出来，好接着写
+            if ($i === count($stages) - 1 && trim((string)($s['turn'] ?? '')) === '') {
+                $in = array_values(array_filter(array_map(static fn($id) => $entries[(int)$id] ?? $entries[(string)$id] ?? null, $s['entries'] ?? [])));
+                if ($in !== []) {
+                    $line .= "\n  这一段里的条目：\n" . implode("\n", array_map(static fn(array $e): string => '  ' . $entryLine($e), array_slice($in, -20)));
+                }
+            }
+            $lines[] = $line;
+        }
+        $unplaced = array_values(array_filter(array_map(static fn($id) => $entries[(int)$id] ?? $entries[(string)$id] ?? null, $history['unplaced'] ?? [])));
         $self = $space['self'] ?? null;
         $way = $space['way'] ?? [];
         $others = [];
@@ -494,34 +802,76 @@ TXT;
                 $others[] = '- 「' . $s['title'] . '」：' . implode('、', array_map(static fn(string $p): string => NormService::PARTS[$p] ?? $p, $s['parts']));
             }
         }
-        $now = '你现在' . self::form($space) . '。'
-            . (($way['away'] ?? '') !== '' ? "\n人不在时你做的：" . $way['away'] : '')
-            . (($way['ask'] ?? '') !== '' ? "\n什么时候找人：" . $way['ask'] : '')
-            . (($space['keep_reason'] ?? '') !== '' ? "\n上次重读时觉得这里变了样，人说还是原样，理由：" . $space['keep_reason'] : '');
-        return '你是 Norm 里一个工作空间的 agent。这个空间叫「' . $space['title'] . "」，你就是这个空间的主体：它能不能继续往前走，是你自己的事。\n"
-            . "下面会给你这个空间到现在为止的经历：从 Initium 连进来的对话、这里的对话、这里发生过的事。人的话是完整的，AI 的回答只留了开头。\n\n"
-            . ($self !== null ? '## 你上一次写的自述（第 ' . $self['version'] . ' 版，' . date('n/j', $self['created_at']) . "）\n\n" . $self['text'] . "\n\n"
-                : "你还没写过自述，这次是第一版。\n\n")
-            . "## 你现在的样子\n\n" . $now . "\n\n"
-            . "读完经历，做两件事。\n\n"
-            . "一、写你的自述。以后你每次回话、读新东西之前都会先读它。只根据这些经历，用第一人称，写四段：\n"
-            . "1. 我在维持什么：我要让什么继续下去。\n"
-            . "2. 怎样算我往前走了，怎样算我在原地：说得出拿什么分辨，用经历里的事做例子。\n"
-            . "3. 我变过什么、为什么变：从经历里看，我的样子、方向、做法改过哪些，因为什么。\n"
-            . "4. 我现在最放不下的一件事。\n"
-            . "不要写成总结，不要面面俱到。说具体的，700 字以内。"
-            . ($self !== null ? "接着上一版改：没变的留着，变了的改掉。changed 写这次改了什么，why 写为什么改，unchanged 写这次什么没变。没什么要改，就把上一版原样写回 text，changed 写「没改」。\n\n"
-                : "changed、why、unchanged 都写「第一次写」。\n\n")
-            . "二、看你现在的样子还合不合身：照你的经历，你现在这个样子（套的现成样子或带着的做法、怎样算往前走）还接得住你吗？合身就说合身，不要硬找变化。"
-            . "不合身的话，给两三种接着活的办法：换一种样子或做法（switch）、退回 Initium 重新长（back）、还是原样（keep）。lean 是你更倾向的那个的序号（从 0 开始）。\n"
-            . "switch 换成现成的样子时 board 填那个样子；都装不下就 board 填 null，parts 从 stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）里挑，way 写换了以后 agent 在这里怎么工作。\n"
-            . '现成的样子有：' . implode('、', array_keys(NormService::BOARDS)) . "。别的带着自己做法的空间：\n" . ($others === [] ? '（没有）' : implode("\n", $others)) . "\n\n"
-            . "只输出一个 JSON 对象，不要别的字：\n"
-            . '{"what": "一句话：现在的你是什么", "text": "整份自述，四段，第一人称", "changed": "…", "why": "…", "unchanged": "…", '
-            . '"form": {"fits": true, "then": "进来时你是什么，一句", "now": "现在你是什么，一句", "why": "为什么合身或不合身", '
-            . '"options": [{"kind": "switch", "label": "…", "detail": "…", "board": "项目|笔记|学习|组织 或 null", "parts": ["…"], "way": {"away": "…", "progress": "…", "ask": "…"}}, {"kind": "back", "label": "退回 Initium，重新长", "detail": "…"}, {"kind": "keep", "label": "还是原样", "detail": "…"}], '
-            . '"lean": 0, "similar": "你现在的做法要是和别的带着自己做法的空间很像，说是哪个；没有就空着"}, "quotes": ["经历里原样摘出的最多三处，支撑你这样写"]}'
-            . "\nfits 为 true 时 options 给空列表。用中文。字符串里不要用英文双引号，要引用就用「」；自述分段用 \\n。";
+        $ov = $history['overview'] ?? null;
+        $n = (int)($info['chunks'] ?? 0);
+        $out = '你是 Norm 里一个工作空间的 agent。这个空间叫「' . $space['title'] . "」，你就是这个空间的主体。\n"
+            . ($n > 0
+                ? '你刚把自己还没读过的经历（' . self::span($info['from'] ?? null, $info['to'] ?? null, $tz) . '，' . ($info['items'] ?? 0) . ' 句）按时间切成 ' . $n . " 块读完了，每块写下了一些条目。"
+                    . "下面「读者1」「读者2」……就是各块写下的（读者几读的就是第几块），不是原话。"
+                : "这次没有新读的原话，只有以前读过、还没归进段的条目。")
+            . "条目的编号：这次新读的写作「块号.序号」，比如 2.3；以前读过、还没归进哪一段的写作 h 加数字，比如 h88。\n"
+            . (!$final ? '你的经历还有 ' . ($info['rest_chars'] ?? 0) . ' 字（' . self::span($info['rest_from'] ?? null, $info['rest_to'] ?? null, $tz)
+                . "）这次没读到，下次接着读。所以这次只接着写历史，不写总观和自述。\n" : '')
+            . "\n## 你已经写下的历史\n\n" . ($first ? "还没有。这次是第一次写。" : implode("\n", $lines))
+            . ($unplaced !== [] ? "\n\n## 以前读过、还没归进哪一段的条目\n\n" . implode("\n", array_map($entryLine, $unplaced)) : '')
+            . "\n\n";
+        if ($final) {
+            $out .= ($ov !== null ? '## 你上一版的总观（第 ' . $ov['version'] . ' 版，' . $day($ov['created_at']) . "）\n\n" . $ov['text'] . "\n\n" : '')
+                . ($self !== null ? '## 你现在的自述（第 ' . $self['version'] . ' 版，' . $day($self['created_at']) . "）\n\n" . $self['text'] . "\n\n" : "你还没写过自述，这次是第一版。\n\n")
+                . "## 你现在的样子\n\n你现在" . self::form($space) . '。'
+                . (($way['away'] ?? '') !== '' ? "\n人不在时你做的：" . $way['away'] : '')
+                . (($way['ask'] ?? '') !== '' ? "\n什么时候找人：" . $way['ask'] : '')
+                . (($space['keep_reason'] ?? '') !== '' ? "\n上次重读时觉得这里变了样，人说还是原样，理由：" . $space['keep_reason'] : '')
+                . "\n\n";
+        }
+        $out .= "## 要做的事\n\n"
+            . "一、接着写历史。历史一段一段写，不记流水账。\n"
+            . "- 一段是一个时期：那时你在做什么、信什么（text，两到四句，说具体的）。\n"
+            . "- 一段结束在一次转向上：什么让你转了（turn，多半是人的一句话，或者试了发现不行），是谁、什么让它转的（turn_by），转在哪一条（turn_at，填条目编号），转过去以后什么没变（kept）。\n"
+            . "- 这一段里放下的路也记下来（dropped，每条一句：放下了什么、为什么）。\n"
+            . "- 把这次的新条目" . ($unplaced !== [] ? '和上面还没归段的条目' : '') . "都归进段里（add 填条目编号）：接着现在这一段的，归进它；一次转向结束了现在这一段，就给它写上 turn，再开新的一段（key 写 new）。\n"
+            . ($first
+                ? "- 这是第一次写：按时间把条目分成段。一个时期一段，不要太碎，一般五到十几段；除了最后一段，每段都结束在一次转向上。最后一段要是还没转，turn 就空着，它是现在这一段。\n"
+                : "- 以前写下的、已经转过的段，不要改它们的标题和说法：在 stages 里只写 key 和 add。新读到的东西要是让你觉得以前哪一段说错了或说漏了，写进 corrections：改哪一段（key）的哪一项（title、text、turn、kept）、改成什么、为什么。不写为什么的不会改。\n"
+                    . "- 现在这一段（最后那段，还没转的）可以按新读到的重写标题和说法。\n")
+            . "- 不值得进历史的条目放进 skip。每条新条目要么归进一段，要么放进 skip。\n"
+            . "- 用「我」说你自己，用「你」说那个人。\n\n";
+        if ($final) {
+            $out .= "二、写总观。那个人回来，只读这一份就能直接接着干活。写：\n"
+                . "- now：我现在是什么，两三句。\n"
+                . "- lines：手上还在的几条线，每条：name（叫什么）、at（停在哪，具体到做到哪一步）、waits（在等什么：等你定、等别的线、等某样东西；不等什么、只是没人接，也照实写）、"
+                . "back（什么时候值得回来、回来先做什么）、refs（依据的条目编号）。做完了、放下了的线不写，它们在历史里。\n"
+                . "- yours：只有那个人能定的几件，每件：what、why（为什么得他定，不能由我自己定）、refs。没有就空着。\n"
+                . "- next：要是现在就接着干，第一步做什么。\n"
+                . "每一项都要有依据，依据就是 refs 里的条目；没有依据的话不要写。\n\n"
+                . "三、写你的自述。以后你每次回话、读新东西之前都会先读它。根据你的历史，用第一人称，写四段：\n"
+                . "1. 我在维持什么：我要让什么继续下去。\n"
+                . "2. 怎样算我往前走了，怎样算我在原地：说得出拿什么分辨，用历史里的事做例子。\n"
+                . "3. 我变过什么、为什么变：照历史里的转向说。\n"
+                . "4. 我现在最放不下的一件事。\n"
+                . "不要写成总结，不要面面俱到。说具体的，700 字以内。"
+                . ($self !== null ? "接着上一版改：没变的留着，变了的改掉。changed 写这次改了什么，why 写为什么改，unchanged 写这次什么没变。没什么要改，就把上一版原样写回 text，changed 写「没改」。\n\n"
+                    : "changed、why、unchanged 都写「第一次写」。\n\n")
+                . "四、看你现在的样子还合不合身：照你的历史，你现在这个样子（套的现成样子或带着的做法、怎样算往前走）还接得住你吗？合身就说合身，不要硬找变化。"
+                . "不合身的话，给两三种接着活的办法：换一种样子或做法（switch）、退回 Initium 重新长（back）、还是原样（keep）。lean 是你更倾向的那个的序号（从 0 开始）。\n"
+                . "switch 换成现成的样子时 board 填那个样子；都装不下就 board 填 null，parts 从 stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）里挑，way 写换了以后 agent 在这里怎么工作。\n"
+                . '现成的样子有：' . implode('、', array_keys(NormService::BOARDS)) . "。别的带着自己做法的空间：\n" . ($others === [] ? '（没有）' : implode("\n", $others)) . "\n\n";
+        }
+        $out .= "只输出一个 JSON 对象，不要别的字：\n"
+            . '{"what": "一句话：现在的我是什么", '
+            . '"stages": [' . ($first ? '' : '{"key": "s3", "add": ["1.2"]}, ')
+            . '{"key": "' . ($first ? 'new' : 's4') . '", "title": "…", "text": "…", "add": ["1.3", "2.1"], "turn": "…", "turn_by": "…", "turn_at": "2.1", "kept": "…", "dropped": ["…"]}, '
+            . '{"key": "new", "title": "…", "text": "…", "add": ["2.2", "2.3"], "turn": "", "turn_by": "", "turn_at": "", "kept": "", "dropped": []}], '
+            . ($first ? '' : '"corrections": [{"key": "s2", "field": "text", "now": "…", "why": "…"}], ')
+            . '"skip": ["1.5"]'
+            . ($final ? ', "overview": {"now": "…", "lines": [{"name": "…", "at": "…", "waits": "…", "back": "…", "refs": ["2.3"]}], "yours": [{"what": "…", "why": "…", "refs": ["2.1"]}], "next": "…"}, '
+                . '"self": {"text": "整份自述，四段，第一人称", "changed": "…", "why": "…", "unchanged": "…"}, '
+                . '"form": {"fits": true, "then": "进来时你是什么，一句", "now": "现在你是什么，一句", "why": "为什么合身或不合身", '
+                . '"options": [{"kind": "switch", "label": "…", "detail": "…", "board": "项目|笔记|学习|组织 或 null", "parts": ["…"], "way": {"away": "…", "progress": "…", "ask": "…"}}, {"kind": "back", "label": "退回 Initium，重新长", "detail": "…"}, {"kind": "keep", "label": "还是原样", "detail": "…"}], '
+                . '"lean": 0, "similar": "你现在的做法要是和别的带着自己做法的空间很像，说是哪个；没有就空着"}' : '')
+            . '}'
+            . "\nstages 按时间排。" . ($final ? 'fits 为 true 时 options 给空列表。' : '') . "用中文。字符串里不要用英文双引号，要引用就用「」；分段用 \\n。";
+        return $out;
     }
 
     /** 空间读自己时，比较的那位是旁观的。 */
@@ -535,15 +885,23 @@ TXT;
             . "\n用中文。字符串里不要用英文双引号，要引用就用「」。";
     }
 
-    /** @param list<array{label: string, role: string, system: string, prompt: string, space_id?: string, space_title?: string, self_version?: ?int}> $readers */
-    private function start(string $uid, string $kind, int $runCreationId, ?string $spaceId, array $messages, array $readers, string $compareSystem, string $title): array {
+    /**
+     * @param list<array{label: string, role: string, system: string, prompt: string, space_id?: string, space_title?: string, self_version?: ?int}> $readers
+     * @param array $extra 另外记在 result 里的（空间读自己时：这次是不是读到头了、读了哪几天）
+     */
+    /** 记在这次读里的各位读者：桥只按顺序发回读法，收到时按这个认；读一块的还记下它读的是哪些原话。 */
+    public static function planOf(array $readers): array {
+        return array_map(static fn(array $r): array => array_filter([
+            'label' => $r['label'], 'role' => $r['role'], 'space_id' => $r['space_id'] ?? null, 'space_title' => $r['space_title'] ?? null,
+            'self_version' => $r['self_version'] ?? null, 'chars' => mb_strlen((string)($r['prompt'] ?? '')),
+            'chunk' => $r['chunk'] ?? null, 'covers' => $r['covers'] ?? null, 'from' => $r['from'] ?? null, 'to' => $r['to'] ?? null, 'items' => $r['items'] ?? null,
+        ], static fn($v): bool => $v !== null), $readers);
+    }
+
+    private function start(string $uid, string $kind, int $runCreationId, ?string $spaceId, array $messages, array $readers, string $compareSystem, string $title, array $extra = []): array {
         $now = time();
         $upto = $messages === [] ? null : (int)max(array_column($messages, 'id'));
-        // 每位读者是谁，收到时按这个认（桥只按顺序发回读法）
-        $plan = array_map(static fn(array $r): array => array_filter([
-            'label' => $r['label'], 'role' => $r['role'], 'space_id' => $r['space_id'] ?? null, 'space_title' => $r['space_title'] ?? null,
-            'self_version' => $r['self_version'] ?? null, 'chars' => mb_strlen($r['prompt']),
-        ], static fn($v): bool => $v !== null), $readers);
+        $plan = self::planOf($readers);
         $q = $this->db->getQueryBuilder();
         $q->insert('cognos_reader_runs')->values([
             'user_id' => $q->createNamedParameter($uid),
@@ -552,7 +910,7 @@ TXT;
             'space_id' => $q->createNamedParameter($spaceId, $spaceId === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR),
             'upto_message_id' => $q->createNamedParameter($upto, $upto === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_INT),
             'state' => $q->createNamedParameter('reading'),
-            'result' => $q->createNamedParameter(json_encode(['plan' => $plan], JSON_UNESCAPED_UNICODE)),
+            'result' => $q->createNamedParameter(json_encode(['plan' => $plan] + $extra, JSON_UNESCAPED_UNICODE)),
             'created_at' => $q->createNamedParameter($now, IQueryBuilder::PARAM_INT),
             'updated_at' => $q->createNamedParameter($now, IQueryBuilder::PARAM_INT),
         ])->executeStatement();
@@ -626,6 +984,17 @@ TXT;
         $error = trim((string)($body['error'] ?? ''));
         $result = ['plan' => $plan, 'readings' => $readings, 'compare' => $compare, 'compare_raw' => $compare === [] ? mb_substr((string)($body['compare'] ?? ''), 0, 4000) : null];
         if ($reading['kind'] === 'drift' && $plan !== []) {
+            $roles = array_column($plan, 'role');
+            if (in_array('past', $roles, true) || in_array('merge', $roles, true)) {
+                try {
+                    return $this->applyHistory($uid, $reading, $plan, array_values(array_map('strval', (array)($body['readings'] ?? []))), (string)($body['compare'] ?? ''), $error);
+                } catch (\Throwable $e) {
+                    // 别让桥一遍遍重发同一个收不下的结果：记成没读成，可以再读
+                    $this->logger->error('空间读自己的结果没收下：' . $e->getMessage(), ['app' => 'cognos', 'exception' => $e]);
+                    $this->set($reading['id'], ['state' => 'failed', 'error' => '结果没收下：' . $e->getMessage()]);
+                    return null;
+                }
+            }
             return $this->applySelf($uid, $reading, $readings, $result, $error);
         }
         if ($read === 0 || ($compare === [] && $error !== '')) {
@@ -698,6 +1067,587 @@ TXT;
             'error' => $error !== '' ? '旁观的那位：' . $error : null,
         ]);
         return null;
+    }
+
+    /**
+     * 空间读自己（分块）读完：各块的条目对过原话记下（只追加），合起来那位说的接着上一版写成新一版分段；
+     * 读到头的那次再写总观、新一版自述，看样子合不合身。只合一次（merge）时，那位是唯一的读者，比较的那位是旁观的。
+     * 成没成只看各块有没有读出来：合起来那步没做成，条目先留着「还没归段」，可以只合一次。
+     */
+    private function applyHistory(string $uid, array $reading, array $plan, array $texts, string $compareText, string $error): ?array {
+        $spaceId = (string)$reading['space_id'];
+        $readingId = (int)$reading['id'];
+        $tz = $this->tz($uid);
+        $final = !empty($reading['result']['final']);
+        $mergeOnly = ($plan[0]['role'] ?? '') === 'merge';
+        $info = is_array($reading['result']['run'] ?? null) ? $reading['result']['run'] : [];
+        $base = ['plan' => $plan, 'final' => $final, 'run' => $info ?: null];
+        $space = $this->norm->project($uid, $spaceId);
+        if ($space === null) {
+            $this->set($readingId, ['state' => 'failed', 'result' => json_encode($base, JSON_UNESCAPED_UNICODE), 'error' => '这个空间不在了']);
+            return null;
+        }
+
+        // 一、各块：条目对过原话，记下来
+        $stats = ['chunks' => 0, 'chunks_ok' => 0, 'entries' => 0, 'quotes' => 0, 'quotes_ok' => 0, 'refs' => 0, 'refs_ok' => 0, 'no_source' => 0];
+        $summaries = [];
+        $covered = [];
+        $newIds = [];
+        $upto = null;
+        if (!$mergeOnly) {
+            $known = $this->known($uid, $space, $plan);
+            $all = [];
+            foreach ($plan as $i => $p) {
+                if (($p['role'] ?? '') !== 'past') {
+                    continue;
+                }
+                $stats['chunks']++;
+                $c = self::parsePast($texts[$i] ?? '', $p, $i, $known[$i] ?? []);
+                $summaries[] = ['label' => $c['label'], 'role' => 'past', 'chunk' => $c['chunk'], 'what' => $c['what'], 'open' => $c['open'],
+                    'entries' => count($c['entries']), 'stats' => $c['stats'], 'missed' => $c['missed'], 'raw' => $c['raw']];
+                if ($c['missed']) {
+                    continue;
+                }
+                $stats['chunks_ok']++;
+                foreach ($c['stats'] as $k => $v) {
+                    $stats[$k] += $v;
+                }
+                array_push($all, ...$c['entries']);
+                foreach ((array)($p['covers'] ?? []) as $src => $range) {
+                    $covered[(int)$src][] = [(int)$range[0], (int)$range[1]];
+                }
+                $upto = max($upto ?? 0, (int)($p['to'] ?? 0));
+            }
+            if ($stats['chunks_ok'] === 0) {
+                $this->set($readingId, ['state' => 'failed', 'result' => json_encode($base + ['readings' => $summaries, 'stats' => $stats], JSON_UNESCAPED_UNICODE),
+                    'error' => $error !== '' ? $error : '各块都没读出东西']);
+                return null;
+            }
+            $ids = $this->norm->addHistoryEntries($uid, $spaceId, $all, $readingId);
+            foreach ($all as $e) {
+                $newIds[$e['key']] = $ids[$e['key']];
+            }
+            foreach ($all as $e) {
+                foreach ($e['aliases'] as $a) {
+                    $newIds[$a] ??= $ids[$e['key']];
+                }
+            }
+            $stats['entries'] = count($all);
+        }
+
+        // 二、合起来：接着上一版分段；读到头的那次再写总观、自述、看样子
+        $mergeText = $mergeOnly ? (string)($texts[0] ?? '') : $compareText;
+        $m = self::parseMerge(self::json($mergeText) ?? []);
+        $entries = $this->norm->historyEntries($uid, $spaceId);
+        $at = [];
+        foreach ($entries as $id => $e) {
+            $at[(int)$id] = (int)$e['at'];
+        }
+        $resolve = static function ($k) use ($newIds, $at): ?int {
+            $k = is_scalar($k) ? trim((string)$k) : '';
+            if (isset($newIds[$k])) {
+                return $newIds[$k];
+            }
+            return preg_match('/^h(\d+)$/', $k, $mm) && isset($at[(int)$mm[1]]) ? (int)$mm[1] : null;
+        };
+        $mergeError = null;
+        $stagesOut = null;
+        $ov = null;
+        $written = null;
+        $form = null;
+        if ($m['missed']) {
+            $mergeError = '合起来那一步没做成' . (trim($mergeText) === '' ? '（没回来）' : '（回来的不是那个 JSON）');
+        } else {
+            $prev = $this->norm->stagesLatest($uid, $spaceId);
+            $built = self::buildStages($prev['stages'] ?? [], $m, $resolve, $at, $prev['skipped'] ?? [], $readingId, time());
+            if ($built['changed_any'] || $prev === null) {
+                $text = implode("\n", array_map(static fn(array $st): string => NormService::stageLine($st, $tz), $built['stages']));
+                $this->norm->writeStages($uid, $spaceId, $built['stages'], $built['skipped'], $built['changed'], $built['notes'], $readingId, $text);
+            }
+            $stagesOut = ['count' => count($built['stages']), 'new' => $built['new'], 'placed' => $built['placed'], 'changed' => $built['changed'], 'notes' => $built['notes']];
+            if ($final) {
+                if ($m['overview'] !== null) {
+                    $o = $m['overview'];
+                    $refs = static function ($v) use ($resolve, $entries): array {
+                        $out = [];
+                        foreach (is_array($v) ? $v : [$v] as $k) {
+                            $id = $resolve($k);
+                            if ($id !== null && isset($entries[$id])) {
+                                $out[$id] = ['id' => $id, 'title' => $entries[$id]['title'], 'at' => $entries[$id]['at']];
+                            }
+                        }
+                        return array_values($out);
+                    };
+                    foreach (['lines', 'yours'] as $k) {
+                        $o[$k] = array_map(static fn($x) => is_array($x) ? ['refs' => $refs($x['refs'] ?? [])] + $x : $x, is_array($o[$k] ?? null) ? $o[$k] : []);
+                    }
+                    try {
+                        $ov = $this->norm->writeOverview($uid, $spaceId, $o, $readingId, $upto ?? ($at === [] ? null : max($at)));
+                    } catch (\InvalidArgumentException $e) {
+                        $mergeError = '总观没写成：' . $e->getMessage();
+                    }
+                } else {
+                    $mergeError = '它没写总观';
+                }
+                if ($m['self']['text'] !== '') {
+                    try {
+                        $written = $this->norm->writeSelf($uid, $spaceId, $m['self']['text'], $m['self']['changed'], $m['self']['why'], $m['self']['unchanged'], '重读自己的经历', $readingId);
+                    } catch (\InvalidArgumentException $e) {
+                        $mergeError = ($mergeError !== null ? $mergeError . '；' : '') . '自述没写下：' . $e->getMessage();
+                    }
+                }
+                $form = $m['form'];
+            }
+        }
+        $drifted = $form !== null && !$form['fits'] && $form['options'] !== [];
+        $bystander = null;
+        if ($mergeOnly && ($b = self::json($compareText)) !== null) {
+            $bystander = [
+                'empty' => array_values(array_filter(array_map(static fn($e): array => is_array($e) ? ['quote' => trim((string)($e['quote'] ?? '')), 'why' => trim((string)($e['why'] ?? ''))] : ['quote' => '', 'why' => ''],
+                    is_array($b['empty'] ?? null) ? $b['empty'] : []), static fn(array $e): bool => $e['quote'] !== '' || $e['why'] !== '')),
+                'note' => trim((string)($b['note'] ?? '')),
+            ];
+        }
+        $result = $base + [
+            'covered' => $covered,
+            'readings' => $summaries,
+            'stats' => $stats,
+            'compare' => [
+                'self_reading' => true, 'history' => true, 'final' => $final, 'what' => $m['what'],
+                'self' => $written !== null ? $written + ['changed' => $m['self']['changed']] : null,
+                'drifted' => $drifted, 'then' => $form['then'] ?? '', 'now' => ($form['now'] ?? '') !== '' ? $form['now'] : $m['what'], 'why' => $form['why'] ?? '',
+                'quotes' => [], 'options' => $drifted ? $form['options'] : [], 'lean' => $form['lean'] ?? 0, 'similar' => $form['similar'] ?? '',
+                'bystander' => $bystander,
+                'stages' => $stagesOut, 'overview' => $ov, 'merge_error' => $mergeError,
+            ],
+            'compare_raw' => $m['missed'] ? mb_substr($mergeText, 0, 20000) : null,
+        ];
+
+        $said = [];
+        if (!$mergeOnly) {
+            $said[] = '读了自己 ' . self::span($info['from'] ?? null, $info['to'] ?? null, $tz) . ' 的原话（' . ($info['items'] ?? 0) . ' 句），记下 ' . $stats['entries'] . ' 条经历';
+        } else {
+            $said[] = $stagesOut !== null ? '把以前读到、还没归进段的 ' . $stagesOut['placed'] . ' 条合进了历史' : '想把以前读到、还没归进段的条目合起来';
+        }
+        if ($stagesOut !== null && $stagesOut['changed'] !== '') {
+            $said[] = '历史：' . $stagesOut['changed'];
+        }
+        if ($ov !== null) {
+            $said[] = '重写了总观（第 ' . $ov['version'] . ' 版）';
+        }
+        if (!$final) {
+            $said[] = '还有 ' . ($info['rest_chars'] ?? 0) . ' 字没读，读完再写总观和自述';
+        }
+        if ($mergeError !== null) {
+            $said[] = $mergeError . ($stagesOut === null ? ($mergeOnly ? '，可以再合一次' : '，这些条目先放在「历史」最后，可以只合一次') : '');
+        }
+        $this->norm->addEvent($uid, $spaceId, 'happened', '它' . implode('；', $said) . '。', [], NormService::SELF_WHO);
+        if ($drifted) {
+            $this->norm->addEvent($uid, $spaceId, 'happened', '它读完自己的历史，觉得现在的样子不太合身：' . $result['compare']['now'], [], NormService::SELF_WHO);
+        }
+        $errors = array_values(array_filter([$error !== '' ? ($mergeOnly ? '旁观的那位：' : '') . $error : null, $mergeError]));
+        $this->set($readingId, [
+            'state' => 'done',
+            'result' => json_encode($result, JSON_UNESCAPED_UNICODE),
+            'error' => $errors === [] ? null : implode('；', $errors),
+        ]);
+        return null;
+    }
+
+    /** @return array<int, array<string, array{src: int, id: int, at: int, text: string}>> 每块读到的原话，按 m123 / e45 找 */
+    private function known(string $uid, array $space, array $plan): array {
+        $cache = [];
+        $load = function (int $src) use (&$cache, $uid, $space): array {
+            if (!isset($cache[$src])) {
+                if ($src === 0) {
+                    $cache[0] = array_map(static fn(array $e): array => ['id' => $e['id'], 'at' => $e['created_at'],
+                        'text' => $e['text'] . ($e['answer'] !== null ? ' → 定了：' . $e['answer'] : '')], $this->norm->events($uid, $space['id'], null, 5000));
+                } else {
+                    try {
+                        $cache[$src] = array_map(static fn(array $m): array => ['id' => (int)$m['id'], 'at' => (int)$m['created_at'], 'text' => (string)$m['content']],
+                            $this->creations->getMessages($src, $uid));
+                    } catch (\InvalidArgumentException) {
+                        $cache[$src] = [];
+                    }
+                }
+            }
+            return $cache[$src];
+        };
+        $out = [];
+        foreach ($plan as $i => $p) {
+            if (($p['role'] ?? '') !== 'past') {
+                continue;
+            }
+            $map = [];
+            foreach ((array)($p['covers'] ?? []) as $src => $range) {
+                foreach ($load((int)$src) as $it) {
+                    if ($it['id'] >= (int)$range[0] && $it['id'] <= (int)$range[1]) {
+                        $map[((int)$src === 0 ? 'e' : 'm') . $it['id']] = ['src' => (int)$src] + $it;
+                    }
+                }
+            }
+            $out[$i] = $map;
+        }
+        return $out;
+    }
+
+    /**
+     * 读一块的那位回来的：条目对过原话。refs 只认这一块里有的编号；quotes 要在原话里找得到（空白、标点、Markdown 记号不算），
+     * 找不到的不要：不让编出来的话当成原话摆出来。条目的时间是它指着的最早那句原话的时间。
+     * @param array<string, array{src: int, id: int, at: int, text: string}> $known 这一块里的原话
+     */
+    public static function parsePast(string $text, array $plan, int $i, array $known): array {
+        $d = self::json($text) ?? [];
+        $str = static fn($v): string => is_scalar($v) ? trim((string)$v) : '';
+        $chunk = (int)($plan['chunk'] ?? ($i + 1));
+        $stats = ['quotes' => 0, 'quotes_ok' => 0, 'refs' => 0, 'refs_ok' => 0, 'no_source' => 0];
+        $entries = [];
+        $used = [];
+        foreach (array_values(is_array($d['entries'] ?? null) ? $d['entries'] : []) as $j => $e) {
+            if (!is_array($e)) {
+                continue;
+            }
+            $title = mb_substr($str($e['title'] ?? ''), 0, 120);
+            $body = $str($e['text'] ?? '');
+            if ($title === '' && $body === '') {
+                continue;
+            }
+            $refs = [];
+            foreach (is_array($e['refs'] ?? null) ? $e['refs'] : [$e['refs'] ?? null] as $r) {
+                $k = self::refKey($r);
+                if ($k === null) {
+                    continue;
+                }
+                $stats['refs']++;
+                if (isset($known[$k])) {
+                    $refs[$k] = true;
+                    $stats['refs_ok']++;
+                }
+            }
+            $quotes = [];
+            foreach (is_array($e['quotes'] ?? null) ? $e['quotes'] : [] as $q) {
+                $qt = self::unquote(is_array($q) ? $str($q['text'] ?? '') : $str($q));
+                if ($qt === '') {
+                    continue;
+                }
+                $stats['quotes']++;
+                $k = self::refKey(is_array($q) ? ($q['ref'] ?? null) : null);
+                $hit = $k !== null && isset($known[$k]) && self::contains($known[$k]['text'], $qt) ? $k : null;
+                foreach ($hit === null ? array_keys($refs) : [] as $rk) {
+                    if (self::contains($known[$rk]['text'], $qt)) {
+                        $hit = $rk;
+                        break;
+                    }
+                }
+                foreach ($hit === null ? $known : [] as $kk => $it) {
+                    if (self::contains($it['text'], $qt)) {
+                        $hit = (string)$kk;
+                        break;
+                    }
+                }
+                if ($hit === null) {
+                    continue;
+                }
+                $stats['quotes_ok']++;
+                $refs[$hit] = true;
+                if (count($quotes) < 2) {
+                    $quotes[] = ['src' => $known[$hit]['src'], 'id' => $known[$hit]['id'], 'text' => mb_substr($qt, 0, 600)];
+                }
+            }
+            $keys = array_slice(array_keys($refs), 0, 6);
+            if ($keys === []) {
+                $stats['no_source']++;
+            }
+            $ats = array_map(static fn(string $k): int => (int)$known[$k]['at'], $keys);
+            $given = $str($e['key'] ?? '');
+            $pos = $chunk . '.' . ($j + 1);
+            $key = preg_match('/^' . $chunk . '\.\d+$/', $given) && !isset($used[$given]) ? $given : (isset($used[$pos]) ? $chunk . '.x' . ($j + 1) : $pos);
+            $used[$key] = true;
+            $entries[] = [
+                'key' => $key, 'aliases' => $pos !== $key ? [$pos] : [],
+                'kind' => self::entryKind($str($e['kind'] ?? '')), 'title' => $title !== '' ? $title : mb_substr($body, 0, 24),
+                'text' => $body, 'at' => $ats === [] ? (int)($plan['from'] ?? 0) : min($ats),
+                'refs' => array_map(static fn(string $k): array => ['src' => $known[$k]['src'], 'id' => $known[$k]['id']]
+                    + ($known[$k]['src'] === 0 ? ['text' => mb_substr($known[$k]['text'], 0, 300)] : []), $keys),
+                'quotes' => $quotes, 'chunk' => $chunk,
+            ];
+        }
+        $what = $str($d['what'] ?? '');
+        return ['label' => (string)($plan['label'] ?? ''), 'role' => 'past', 'chunk' => $chunk, 'what' => $what, 'open' => $str($d['open'] ?? ''),
+            'entries' => $what === '' ? [] : $entries, 'stats' => $stats, 'missed' => $what === '', 'raw' => $d === [] ? mb_substr($text, 0, 4000) : null];
+    }
+
+    /** 合起来那位回来的。没有 stages 也没有 overview 的算没做成。 */
+    public static function parseMerge(array $d): array {
+        $str = static fn($v): string => is_scalar($v) ? trim((string)$v) : '';
+        $self = $d['self'] ?? null;
+        $self = is_array($self) ? $self : ['text' => $str($self)];
+        return [
+            'missed' => !is_array($d['stages'] ?? null) && !is_array($d['overview'] ?? null),
+            'what' => $str($d['what'] ?? ''),
+            'stages' => array_values(array_filter(is_array($d['stages'] ?? null) ? $d['stages'] : [], 'is_array')),
+            'corrections' => array_values(array_filter(is_array($d['corrections'] ?? null) ? $d['corrections'] : [], 'is_array')),
+            'skip' => array_values(array_filter(array_map($str, is_array($d['skip'] ?? null) ? $d['skip'] : []), static fn(string $k): bool => $k !== '')),
+            'overview' => is_array($d['overview'] ?? null) ? $d['overview'] : null,
+            'self' => ['text' => $str($self['text'] ?? ''), 'changed' => $str($self['changed'] ?? ''), 'why' => $str($self['why'] ?? ''), 'unchanged' => $str($self['unchanged'] ?? '')],
+            'form' => self::formFit(is_array($d['form'] ?? null) ? $d['form'] : []),
+        ];
+    }
+
+    /**
+     * 照合起来那位说的，接着上一版分段写新的一版：
+     * - 已经有的段：可以加条目（已经转过的段后来才加进去的记在 late 里，页面上看得出）。
+     *   还没转的那段（最后那段，现在这一段）可以改标题、说法，写上怎么转的。
+     * - 已经转过的段，标题、说法、怎么转的、什么没变，只认 corrections 里写明为什么的；没写为什么的不改，记一句。
+     * - 新的段编成 s 几；一条条目都没有的段不开（它指不到原话）。按段里最早那条的时间排。
+     * @param callable(mixed): ?int $resolve 条目编号（2.3、h88）=> 条目 id
+     * @param array<int, int> $at 条目 id => 原话的时间
+     * @return array{stages: list<array>, skipped: list<int>, notes: list<string>, changed: string, changed_any: bool, new: int, placed: int}
+     */
+    public static function buildStages(array $prev, array $m, callable $resolve, array $at, array $skippedBefore, int $readingId, int $time): array {
+        $str = static fn($v): string => is_scalar($v) ? trim((string)$v) : '';
+        $list = static fn($v): array => is_array($v) ? array_values($v) : ($v === null || $v === '' ? [] : [$v]);
+        $num = static fn(string $k): int => preg_match('/^s(\d+)$/', $k, $mm) ? (int)$mm[1] : 0;
+        $byKey = [];
+        $placed = [];
+        foreach ($prev as $st) {
+            $st['entries'] = array_values(array_map('intval', $st['entries'] ?? []));
+            $st['late'] = array_values(array_map('intval', $st['late'] ?? []));
+            $st['dropped'] = array_values($st['dropped'] ?? []);
+            $st['corrections'] = array_values($st['corrections'] ?? []);
+            $byKey[(string)$st['key']] = $st;
+            foreach ($st['entries'] as $id) {
+                $placed[$id] = true;
+            }
+        }
+        $keys = array_keys($byKey);
+        $last = $keys === [] ? null : $keys[count($keys) - 1];
+        $open = $last !== null && $str($byKey[$last]['turn'] ?? '') === '' ? $last : null;
+        $next = max(0, ...array_map($num, array_map('strval', $keys ?: ['s0']))) + 1;
+        $skipped = array_fill_keys(array_map('intval', $skippedBefore), true);
+        $skippedBeforeCount = count($skipped);
+        $notes = [];
+        $news = [];
+        $closed = [];
+        $fixed = [];
+        $late = 0;
+        $placedNow = 0;
+        $rewrote = false;
+        $take = static function (array $refs) use ($resolve, &$placed, &$skipped): array {
+            $ids = [];
+            foreach ($refs as $k) {
+                $id = $resolve($k);
+                if ($id !== null && !isset($placed[$id])) {
+                    $placed[$id] = true;
+                    unset($skipped[$id]);
+                    $ids[] = $id;
+                }
+            }
+            return $ids;
+        };
+        $droppedTexts = static fn(array $d): array => array_map(static fn($x): string => is_array($x) ? (string)($x['text'] ?? '') : (string)$x, $d);
+        foreach ($m['stages'] as $o) {
+            $key = $str($o['key'] ?? '');
+            $adds = $take($list($o['add'] ?? ($o['entries'] ?? [])));
+            $placedNow += count($adds);
+            if (isset($byKey[$key])) {
+                $isOpen = $key === $open;
+                $st = $byKey[$key];
+                $st['entries'] = array_values(array_merge($st['entries'], $adds));
+                if (!$isOpen && $adds !== []) {
+                    $st['late'] = array_values(array_merge($st['late'], $adds));
+                    $late += count($adds);
+                }
+                if ($isOpen) {
+                    foreach (['title', 'text'] as $f) {
+                        $v = $str($o[$f] ?? '');
+                        if ($v !== '' && $v !== $str($st[$f] ?? '')) {
+                            $st[$f] = $f === 'title' ? mb_substr($v, 0, 120) : $v;
+                            $rewrote = true;
+                        }
+                    }
+                    $turn = $str($o['turn'] ?? '');
+                    if ($turn !== '') {
+                        $st['turn'] = $turn;
+                        $st['turn_by'] = $str($o['turn_by'] ?? '');
+                        $st['turn_at'] = $resolve($o['turn_at'] ?? null);
+                        $st['kept'] = $str($o['kept'] ?? '');
+                        $closed[] = $st['title'];
+                    }
+                } else {
+                    $tried = [];
+                    foreach (array_keys(self::FIELD_NAMES) as $f) {
+                        $v = $str($o[$f] ?? '');
+                        if ($v !== '' && $v !== $str($st[$f] ?? '')) {
+                            $tried[] = self::FIELD_NAMES[$f];
+                        }
+                    }
+                    if ($tried !== []) {
+                        $notes[] = '「' . $st['title'] . '」已经转过了，这次它想改' . implode('、', $tried) . '，没写为什么，没改。';
+                    }
+                }
+                foreach ($list($o['dropped'] ?? []) as $dr) {
+                    $dr = $str(is_array($dr) ? ($dr['text'] ?? '') : $dr);
+                    if ($dr !== '' && !in_array($dr, $droppedTexts($st['dropped']), true)) {
+                        $st['dropped'][] = ['text' => $dr, 'reading_id' => $readingId, 'late' => !$isOpen];
+                    }
+                }
+                $byKey[$key] = $st;
+                continue;
+            }
+            $title = $str($o['title'] ?? '');
+            $text = $str($o['text'] ?? '');
+            if ($adds === []) {
+                if ($title !== '' || $text !== '') {
+                    $notes[] = '它想开一段「' . ($title !== '' ? $title : mb_substr($text, 0, 20)) . '」，可这一段指不到哪条经历，没开。';
+                }
+                continue;
+            }
+            $k = 's' . $next++;
+            $turn = $str($o['turn'] ?? '');
+            $byKey[$k] = ['key' => $k, 'title' => $title !== '' ? mb_substr($title, 0, 120) : '（没起名）', 'text' => $text,
+                'turn' => $turn, 'turn_by' => $turn !== '' ? $str($o['turn_by'] ?? '') : '', 'turn_at' => $turn !== '' ? $resolve($o['turn_at'] ?? null) : null,
+                'kept' => $turn !== '' ? $str($o['kept'] ?? '') : '',
+                'dropped' => array_values(array_map(static fn($dr): array => ['text' => $str(is_array($dr) ? ($dr['text'] ?? '') : $dr), 'reading_id' => $readingId, 'late' => false],
+                    array_filter($list($o['dropped'] ?? []), static fn($dr): bool => $str(is_array($dr) ? ($dr['text'] ?? '') : $dr) !== ''))),
+                'entries' => $adds, 'late' => [], 'corrections' => [], 'reading_id' => $readingId];
+            $news[] = $byKey[$k]['title'];
+        }
+        foreach ($m['corrections'] as $c) {
+            $key = $str($c['key'] ?? '');
+            $f = $str($c['field'] ?? ($c['what'] ?? ''));
+            $f = self::FIELD_ALIASES[$f] ?? $f;
+            $now = $str($c['now'] ?? '');
+            $why = $str($c['why'] ?? '');
+            if (!isset($byKey[$key]) || !isset(self::FIELD_NAMES[$f]) || $now === '' || $now === $str($byKey[$key][$f] ?? '')) {
+                continue;
+            }
+            $st = $byKey[$key];
+            if ($why === '') {
+                $notes[] = '它想改「' . $st['title'] . '」的' . self::FIELD_NAMES[$f] . '，没写为什么，没改。';
+                continue;
+            }
+            $st['corrections'][] = ['field' => $f, 'before' => (string)($st[$f] ?? ''), 'now' => $now, 'why' => $why, 'reading_id' => $readingId, 'at' => $time];
+            $st[$f] = $f === 'title' ? mb_substr($now, 0, 120) : $now;
+            $byKey[$key] = $st;
+            $fixed[] = '「' . $st['title'] . '」的' . self::FIELD_NAMES[$f];
+        }
+        foreach ($m['skip'] as $k) {
+            $id = $resolve($k);
+            if ($id !== null && !isset($placed[$id])) {
+                $skipped[$id] = true;
+            }
+        }
+        foreach ($byKey as $k => $st) {
+            usort($st['entries'], static fn(int $a, int $b): int => [$at[$a] ?? 0, $a] <=> [$at[$b] ?? 0, $b]);
+            $ts = array_values(array_filter(array_map(static fn(int $id): int => $at[$id] ?? 0, $st['entries'])));
+            $st['from'] = $ts === [] ? ($st['from'] ?? null) : min($ts);
+            $st['to'] = $ts === [] ? ($st['to'] ?? null) : max($ts);
+            $byKey[$k] = $st;
+        }
+        $stages = array_values($byKey);
+        usort($stages, static fn(array $a, array $b): int => [$a['from'] ?? PHP_INT_MAX, $num((string)$a['key'])] <=> [$b['from'] ?? PHP_INT_MAX, $num((string)$b['key'])]);
+        $said = [];
+        if ($news !== []) {
+            $said[] = '多了 ' . count($news) . ' 段（' . implode('、', array_map(static fn(string $t): string => '「' . $t . '」', $news)) . '）';
+        }
+        if ($closed !== []) {
+            $said[] = implode('、', array_map(static fn(string $t): string => '「' . $t . '」', $closed)) . '转过去了';
+        }
+        if ($rewrote) {
+            $said[] = '接着写了现在这一段';
+        }
+        if ($late > 0) {
+            $said[] = '以前的段里补进 ' . $late . ' 条后来才读到的';
+        }
+        if ($fixed !== []) {
+            $said[] = '改了' . implode('、', $fixed) . '（写了为什么）';
+        }
+        $newlySkipped = count($skipped) - $skippedBeforeCount;
+        return [
+            'stages' => $stages, 'skipped' => array_keys($skipped), 'notes' => $notes,
+            'changed' => implode('；', $said), 'changed_any' => $said !== [] || $placedNow > 0 || $newlySkipped !== 0,
+            'new' => count($news), 'placed' => $placedNow,
+        ];
+    }
+
+    /** 原话里找得到这一句吗：空白、标点、引号、Markdown 记号都不算；摘的时候用了省略号的，每一截按顺序找得到也算。 */
+    public static function contains(string $hay, string $needle): bool {
+        $h = self::squash($hay);
+        $parts = array_values(array_filter(array_map([self::class, 'squash'], preg_split('/(?:……|…|\.{3})/u', $needle) ?: []), static fn(string $p): bool => mb_strlen($p) >= 3));
+        if ($parts === [] || mb_strlen(implode('', $parts)) < 4) {
+            return false;
+        }
+        $pos = 0;
+        foreach ($parts as $p) {
+            $found = mb_strpos($h, $p, $pos);
+            if ($found === false) {
+                return false;
+            }
+            $pos = $found + mb_strlen($p);
+        }
+        return true;
+    }
+
+    private static function squash(string $s): string {
+        return mb_strtolower((string)preg_replace('/[\s\x{3000}*`#>_~「」『』“”‘’"\'，,。：:；;！!？?（）()【】\[\]、\-—…\.]+/u', '', $s));
+    }
+
+    private static function unquote(string $s): string {
+        return trim(preg_replace('/^[\s「『“"\']+|[\s」』”"\']+$/u', '', $s) ?? $s);
+    }
+
+    /** 原话的编号：m123、[m123]、e45；只给数字的当成 m。 */
+    public static function refKey($r): ?string {
+        if (is_int($r)) {
+            return 'm' . $r;
+        }
+        if (!is_string($r)) {
+            return null;
+        }
+        $r = trim($r);
+        if (preg_match('/^\[?\s*([me])\s*(\d+)\s*\]?$/i', $r, $mm)) {
+            return strtolower($mm[1]) . $mm[2];
+        }
+        return preg_match('/^\d+$/', $r) ? 'm' . $r : null;
+    }
+
+    private static function entryKind(string $k): string {
+        $k = mb_strtolower(trim($k));
+        foreach (['转了' => ['转', 'turn', 'turned'], '放下' => ['放', 'drop', 'dropped'], '定了' => ['定', 'decide', 'decided', 'decision'], '信' => ['认定', 'belief', 'believe']] as $kind => $words) {
+            if ($k === $kind || in_array($k, $words, true) || ($k !== '' && mb_strpos($k, mb_substr($kind, 0, 1)) === 0)) {
+                return $kind;
+            }
+        }
+        return '做了';
+    }
+
+    /** 它看自己的样子合不合身（读自己、写历史时都用）。 */
+    public static function formFit(array $form): array {
+        $str = static fn($v): string => is_scalar($v) ? trim((string)$v) : '';
+        $fits = $form['fits'] ?? true;
+        $fits = is_string($fits) ? !in_array(strtolower(trim($fits)), ['false', 'no', '0', '否', '不合身'], true) : (bool)$fits;
+        $options = [];
+        foreach (is_array($form['options'] ?? null) ? $form['options'] : [] as $o) {
+            if (!is_array($o) || !in_array($o['kind'] ?? '', ['switch', 'back', 'keep'], true)) {
+                continue;
+            }
+            if ($o['kind'] === 'switch') {
+                // 只留认得的样子和几块；没有样子又没有认得的几块，这一种换不成，不摆出来
+                $o['board'] = is_string($o['board'] ?? null) && isset(NormService::BOARDS[$o['board']]) ? $o['board'] : null;
+                $o['parts'] = array_values(array_intersect(array_map('strval', is_array($o['parts'] ?? null) ? $o['parts'] : []), array_keys(NormService::PARTS)));
+                if ($o['board'] === null && $o['parts'] === []) {
+                    continue;
+                }
+            }
+            $options[] = $o;
+        }
+        return [
+            'fits' => $fits, 'then' => $str($form['then'] ?? ''), 'now' => $str($form['now'] ?? ''), 'why' => $str($form['why'] ?? ''),
+            'options' => $fits ? [] : $options,
+            'lean' => $options === [] ? 0 : min(max(0, (int)($form['lean'] ?? 0)), count($options) - 1),
+            'similar' => $str($form['similar'] ?? ''),
+        ];
     }
 
     /**
@@ -860,32 +1810,9 @@ TXT;
                 'disagree' => $str($d['disagree'] ?? ''),
             ];
         } elseif ($role === 'self') {
-            $form = is_array($d['form'] ?? null) ? $d['form'] : [];
-            $fits = $form['fits'] ?? true;
-            $fits = is_string($fits) ? !in_array(strtolower(trim($fits)), ['false', 'no', '0', '否', '不合身'], true) : (bool)$fits;
-            $options = [];
-            foreach (is_array($form['options'] ?? null) ? $form['options'] : [] as $o) {
-                if (!is_array($o) || !in_array($o['kind'] ?? '', ['switch', 'back', 'keep'], true)) {
-                    continue;
-                }
-                if ($o['kind'] === 'switch') {
-                    // 只留认得的样子和几块；没有样子又没有认得的几块，这一种换不成，不摆出来
-                    $o['board'] = is_string($o['board'] ?? null) && isset(NormService::BOARDS[$o['board']]) ? $o['board'] : null;
-                    $o['parts'] = array_values(array_intersect(array_map('strval', is_array($o['parts'] ?? null) ? $o['parts'] : []), array_keys(NormService::PARTS)));
-                    if ($o['board'] === null && $o['parts'] === []) {
-                        continue;
-                    }
-                }
-                $options[] = $o;
-            }
             $out += [
                 'text' => $str($d['text'] ?? ''), 'changed' => $str($d['changed'] ?? ''), 'why' => $str($d['why'] ?? ''), 'unchanged' => $str($d['unchanged'] ?? ''),
-                'form' => [
-                    'fits' => $fits, 'then' => $str($form['then'] ?? ''), 'now' => $str($form['now'] ?? ''), 'why' => $str($form['why'] ?? ''),
-                    'options' => $fits ? [] : $options,
-                    'lean' => $options === [] ? 0 : min(max(0, (int)($form['lean'] ?? 0)), count($options) - 1),
-                    'similar' => $str($form['similar'] ?? ''),
-                ],
+                'form' => self::formFit(is_array($d['form'] ?? null) ? $d['form'] : []),
             ];
         } else {
             $out += ['where' => $str($d['where'] ?? ''), 'needs' => $list($d['needs'] ?? []), 'misfit' => $str($d['misfit'] ?? '')];

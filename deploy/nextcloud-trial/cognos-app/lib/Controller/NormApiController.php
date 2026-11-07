@@ -83,6 +83,14 @@ final class NormApiController extends OCSController {
             'version' => $space['self']['version'], 'text' => $space['self']['text'], 'written' => date('n/j H:i', $space['self']['created_at']),
             'changed' => $space['self']['changed'], 'why' => $space['self']['why'], 'unchanged' => $space['self']['unchanged'],
         ];
+        // 你自己读完全部原话以后写的总观和历史各段（条目和原话在空间页「历史」那一栏）
+        $out['overview'] = $space['overview'] === null ? null : ['version' => $space['overview']['version'], 'written' => date('n/j H:i', $space['overview']['created_at']),
+            'now' => $space['overview']['now'], 'lines' => array_map(static fn(array $l): array => array_diff_key($l, ['refs' => 1]), $space['overview']['lines']),
+            'yours' => array_map(static fn(array $y): array => array_diff_key($y, ['refs' => 1]), $space['overview']['yours']), 'next' => $space['overview']['next']];
+        $stages = $this->norm->stagesLatest($uid, $space['id']);
+        $out['history'] = $stages === null ? null : array_map(static fn(array $s): array => ['title' => $s['title'],
+            'from' => isset($s['from']) ? date('n/j', (int)$s['from']) : null, 'to' => isset($s['to']) ? date('n/j', (int)$s['to']) : null,
+            'text' => $s['text'], 'turn' => $s['turn'], 'kept' => $s['kept'], 'entries' => count($s['entries'] ?? [])], $stages['stages']);
         $out['self_before'] = array_map(static fn(array $v): array => ['version' => $v['version'], 'written' => date('n/j H:i', $v['created_at']),
             'changed' => $v['changed'], 'why' => $v['why'], 'source' => $v['source']], array_slice($space['self_history'], 1, 5));
         $out['formats'] = [

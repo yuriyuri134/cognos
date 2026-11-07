@@ -207,8 +207,22 @@
       } finally { send.disabled = false; await load(); if (!waiting) setTimeout(load, 4000); }
     });
     input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
-    load();
-    return { reload: load, show() {
+    // 历史里点「到对话里看」：停到那一句，闪一下
+    const first = load();
+    async function reveal(id) {
+      await first;
+      if (!rows.has(Number(id))) await load();
+      const row = rows.get(Number(id));
+      if (!row || !log.clientHeight) return false;
+      followLatest = false;
+      log.scrollTop += row.element.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
+      readingTop = log.scrollTop;
+      row.element.classList.add('cg-msg-found');
+      setTimeout(() => row.element.classList.remove('cg-msg-found'), 2600);
+      updateLatest();
+      return true;
+    }
+    return { reload: load, reveal, show() {
       if (followLatest) showLatest(); else log.scrollTop = readingTop;
     } };
   }

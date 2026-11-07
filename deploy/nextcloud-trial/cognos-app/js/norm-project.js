@@ -9,6 +9,8 @@
   const WAY = [['away', '你不在的时候'], ['progress', '怎样算往前走了'], ['ask', '什么时候找你']];
   let data = null; let arrived = null; let chat = null; let editingWay = false; let readTimer = null;
   let currentView = 'conversation'; let viewKeys = ''; let topVersion = '';
+  // 历史（各段和全部条目）只在打开「历史」那一栏时拿；原话按对话拿一次，记着
+  let hist = null; let histLoading = null; const originals = new Map();
   const openNotices = new Set();
   const viewScroll = new Map();
 
@@ -36,14 +38,24 @@
     } catch (e) { $('cg-space-title').textContent = e.message; return; }
     // 你不在时发生的，只在刚打开时算一次；之后刷新不把它们记成看过，也不让它们消失
     if (first) arrived = data.arrive;
+    // 进来先看总观（写过的话）；从历史里点进对话的一句（#m123）、或者指着历史的一条（#h123），就先到那里
+    if (first) currentView = /^#m\d+$/.test(location.hash) ? 'conversation' : /^#h\d+$/.test(location.hash) ? 'history' : data.project.overview ? 'overview' : 'conversation';
     render();
     if (!chat && data.conversation_id) {
       chat = window.CognosChatBox.mount($('cg-space-chat'), data.conversation_id, { placeholder: '接着在「' + data.project.title + '」里说……', onChange: () => load(false) });
       renderAsk();
     }
+    if (first) followHash();
     clearTimeout(readTimer);
     if (data.drift && data.drift.state === 'reading') readTimer = setTimeout(() => load(false), 8000);
   }
+
+  function followHash() {
+    const m = /^#m(\d+)$/.exec(location.hash); const h = /^#h(\d+)$/.exec(location.hash);
+    if (m) { setView('conversation'); chat?.reveal(Number(m[1])); }
+    else if (h) openEntry(Number(h[1]));
+  }
+  window.addEventListener('hashchange', followHash);
 
   function render() {
     const p = data.project;
@@ -67,10 +79,11 @@
     for (const b of $('cg-space-views').children) b.setAttribute('aria-pressed', String(b.dataset.view === key));
     if (changed) $('cg-space-parts').scrollTop = viewScroll.get(key) || 0;
     if (key === 'conversation') chat?.show();
+    if (key === 'history' && histStale()) loadHistory();
   }
 
   function renderViews(p) {
-    const views = [['conversation', '对话'], ['self', '自述'], ...p.parts.map(k => [k, data.parts[k] || k]), ['about', '做法与来源']];
+    const views = [['overview', '总观'], ['history', '历史'], ['conversation', '对话'], ['self', '自述'], ...p.parts.map(k => [k, data.parts[k] || k]), ['about', '做法与来源']];
     const keys = JSON.stringify(views);
     if (keys !== viewKeys) {
       viewKeys = keys;
@@ -119,7 +132,7 @@
     }
     const drift = data.drift_done;
     const c = drift && drift.result && drift.result.compare;
-    if (data.drift && data.drift.state === 'reading') { content.append(node('p', '它正在读自己到现在的经历，读完会写新一版自述，放在「自述」那一栏。', 'cg-block cg-hint')); labels.push('它正在读自己'); }
+    if (data.drift && data.drift.state === 'reading') { content.append(node('p', readingNow(data.drift), 'cg-block cg-hint')); labels.push('它正在读自己'); }
     if (c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined)) { content.append(driftBlock(drift, c, p)); labels.push(c.self_reading ? '它觉得样子不合身' : '读者有新建议'); }
     if (!p.board && (data.messages || 0) < 2) { content.append(ownBlock(p)); labels.push('这个空间的做法'); }
     const suggest = !!(c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined));
@@ -271,8 +284,17 @@
     const hasWay = WAY.some(([k]) => (p.way || {})[k]);
     // 做法编辑期间，消息更新不覆盖正在输入的文本。
     contents.about = JSON.stringify([editingWay ? 'editing' : p.way, editingWay, p.board, data.messages < 2, data.links]);
-    contents.self = JSON.stringify([p.self_history || [], data.drift, data.drift_done && data.drift_done.id]);
+    contents.self = JSON.stringify([p.self_history || [], data.drift, data.drift_done && data.drift_done.id, data.unread, p.history_meta]);
+    contents.overview = JSON.stringify([p.overview, data.drift, data.unread, p.history_meta]);
+    contents.history = JSON.stringify([hist && [hist.version, Object.keys(hist.entries || {}).length], p.history_meta, data.drift, data.unread]);
     for (const panel of [...aside.children]) if (!(panel.dataset.view in contents)) panel.remove();
+    for (const [key, make] of [['overview', overviewPanel], ['history', historyPanel]]) {
+      const previous = $('cg-view-' + key);
+      if (previous && previous.dataset.version === contents[key]) continue;
+      const sec = make(p); sec.dataset.version = contents[key];
+      if (previous) previous.replaceWith(sec); else aside.append(sec);
+    }
+    if (currentView === 'history' && histStale()) loadHistory();
     const previousSelf = $('cg-view-self');
     if (!previousSelf || previousSelf.dataset.version !== contents.self) {
       const sec = selfPanel(p); sec.dataset.version = contents.self;
@@ -283,7 +305,7 @@
       if (previous && previous.dataset.version === contents[part]) continue;
       const sec = node('section'); const h = node('h2', data.parts[part] || part); sec.append(h);
       sec.id = 'cg-view-' + part; sec.dataset.view = part; sec.dataset.version = contents[part];
-      if (part === 'stages') sec.append(stages(p.stages || []));
+      if (part === 'stages') sec.append(node('p', '这是 agent 在对话里随手记的演变。它读原话写的、每条都有依据的，在「历史」那一栏。', 'cg-small'), stages(p.stages || []));
       else if (part === 'branches') sec.append(branches(p.branches || []));
       else if (part === 'relations') sec.append(relations(p.relations || {}, h));
       else if (part === 'compare') sec.append(compare(p.compare || []));
@@ -348,18 +370,11 @@
     }
     const act = node('div', undefined, 'cg-self-act');
     const reading = d && d.state === 'reading';
-    const status = reading ? '它正在读自己的经历，读完会写新一版，这里会自己更新。'
-      : d && d.state === 'failed' ? '上次没读完：' + (d.error || '不知道为什么')
-      : done ? '上次读自己在 ' + hm(done.created_at) + (c && c.self_reading ? (c.drifted ? '，它觉得现在的样子不太合身，见上面「正在发生」。' : '，它觉得现在的样子还合身。') : (c && c.drifted ? '，那时是读者替它回头读，觉得它变了样。' : '。'))
+    const status = reading ? ''
+      : done ? '上次读自己在 ' + hm(done.created_at) + (c && c.self_reading ? (c.final === false ? '，那次还没读到头，自述等读完再写。' : c.drifted ? '，它觉得现在的样子不太合身，见上面「正在发生」。' : '，它觉得现在的样子还合身。') : (c && c.drifted ? '，那时是读者替它回头读，觉得它变了样。' : '。'))
       : '';
     if (status) act.append(node('p', status, 'cg-hint'));
-    const go = button(reading ? '正在读…' : s ? '让它重读自己的经历' : '让它读自己的经历，写第一版', 'cg-btn-small', async ev => {
-      ev.target.disabled = true;
-      try { const r = await api('/norm/projects/' + p.id + '/read', {}); if (!r.started) alert(r.why || '没读'); } catch (e) { alert(e.message); }
-      load(false);
-    });
-    go.disabled = reading;
-    act.append(go, node('span', '读一次是 2 次运行：它自己读一次，旁观的看一次。', 'cg-small'));
+    act.append(node('p', '自述是它读完自己全部的原话、接着写完历史以后写的。', 'cg-small'), readBox(p));
     sec.append(act);
     const older = (p.self_history || []).slice(1);
     if (older.length) {
@@ -375,6 +390,281 @@
       sec.append(det);
     }
     return sec;
+  }
+
+  // ---- 读自己：还剩多少原话没读、读一次要几次运行、正在读到哪 ----
+  function day(ts) { const d = new Date(ts * 1000); return (d.getMonth() + 1) + '/' + d.getDate(); }
+  function span(a, b) { if (!a) return ''; const x = day(a); const y = b ? day(b) : x; return x === y ? x : x + '–' + y; }
+  function wan(n) { return n >= 10000 ? (Math.round(n / 1000) / 10) + ' 万字' : n + ' 字'; }
+
+  function readingNow(d) {
+    const r = d && d.result || {};
+    const run = r.run;
+    if (r.plan && r.plan[0] && r.plan[0].role === 'merge') return '它正在把以前读到、还没归进段的条目合起来，写总观和自述。这里会自己更新。';
+    if (!run) return '它正在读自己的经历，读完这里会自己更新。';
+    return '它正在读 ' + span(run.from, run.to) + ' 的原话（' + run.chunks + ' 块，' + run.items + ' 句），读完接着写历史'
+      + (r.final ? '，再重写总观、写新一版自述' : '；后面还有 ' + run.rest_chunks + ' 块，下一轮再读') + '。这里会自己更新。';
+  }
+
+  function readBox(p) {
+    const box = node('div', undefined, 'cg-read-box');
+    const d = data.drift; const u = data.unread; const meta = p.history_meta;
+    const reading = !!(d && d.state === 'reading');
+    const say = [];
+    if (reading) say.push(readingNow(d));
+    else if (d && d.state === 'failed') say.push('上次没读完：' + (d.error || '不知道为什么') + '。');
+    if (!reading && u) {
+      if (u.items > 0) {
+        say.push((meta ? '还有 ' : '它还没读过自己的原话：') + span(u.from, u.to) + ' 的 ' + u.items + ' 句（约 ' + wan(u.chars) + '）' + (meta ? '没读。' : '。')
+          + '读完要 ' + u.runs + ' 次运行' + (u.rounds > 1 ? '，分 ' + u.rounds + ' 轮：一轮最多读 5 块，读完一轮再按一次' : '') + '。');
+      } else say.push('原话都读过了' + (meta && meta.to ? '（读到 ' + day(meta.to) + '）' : '') + '，有新的对话以后再读。');
+    }
+    if (say.length) box.append(node('p', say.join(' '), 'cg-hint'));
+    const acts = node('div', undefined, 'cg-actions');
+    if (reading) { const b = button('正在读…', 'cg-btn-small', () => {}); b.disabled = true; acts.append(b); }
+    else if (u && u.items > 0) acts.append(button(meta ? '接着读' + (u.rounds > 1 ? '这一轮' : '') : '让它读自己全部的原话', 'cg-btn-gold cg-btn-small', ev => startRead(ev, '')));
+    if (!reading && u && u.items === 0 && meta && meta.unplaced > 0) acts.append(button('把还没归段的 ' + meta.unplaced + ' 条合起来（2 次运行）', 'cg-btn-small', ev => startRead(ev, 'merge')));
+    if (acts.childNodes.length) box.append(acts);
+    return box;
+  }
+
+  async function startRead(ev, mode) {
+    ev.target.disabled = true;
+    try { const r = await api('/norm/projects/' + id + '/read', mode ? { mode } : {}); if (!r.started) alert(r.why || '没读'); } catch (e) { alert(e.message); }
+    load(false);
+  }
+
+  // ---- 总观：它读完全部原话以后写的，你进来先看这个 ----
+  function overviewPanel(p) {
+    const sec = node('section'); sec.id = 'cg-view-overview'; sec.dataset.view = 'overview';
+    sec.append(node('h2', '总观'));
+    const o = p.overview;
+    if (!o) {
+      sec.append(node('p', '它还没写过总观。总观是它读完自己全部的原话以后写的：它现在是什么，手上几条线各停在哪、等什么、什么时候值得回来，哪几件只有你能定。你读完能直接接着干活。', 'cg-hint'));
+      sec.append(readBox(p));
+      return sec;
+    }
+    const head = node('div', undefined, 'cg-ov-meta');
+    head.append(node('strong', '第 ' + o.version + ' 版'), document.createTextNode(' · ' + hm(o.created_at) + ' 写的' + (o.upto ? ' · 原话读到 ' + day(o.upto) : '')));
+    sec.append(head);
+    if (o.now) sec.append(node('p', o.now, 'cg-ov-now'));
+    if ((o.lines || []).length) {
+      sec.append(node('h3', '手上的几条线'));
+      const list = node('div', undefined, 'cg-ov-lines');
+      for (const l of o.lines) {
+        const it = node('div', undefined, 'cg-ov-line');
+        it.append(node('strong', l.name));
+        const dl = node('dl');
+        for (const [k, label] of [['at', '停在哪'], ['waits', '等什么'], ['back', '什么时候值得回来']]) if (l[k]) dl.append(node('dt', label), node('dd', l[k]));
+        it.append(dl);
+        if ((l.refs || []).length) it.append(refLinks(l.refs));
+        list.append(it);
+      }
+      sec.append(list);
+    }
+    if ((o.yours || []).length) {
+      sec.append(node('h3', '只有你能定的'));
+      const list = node('div', undefined, 'cg-ov-yours');
+      for (const y of o.yours) {
+        const it = node('div', undefined, 'cg-ov-your');
+        it.append(node('strong', y.what));
+        if (y.why) it.append(node('p', y.why, 'cg-small'));
+        if ((y.refs || []).length) it.append(refLinks(y.refs));
+        list.append(it);
+      }
+      sec.append(list);
+    }
+    if (o.next) sec.append(node('h3', '要是现在接着干'), node('p', o.next, 'cg-ov-next'));
+    sec.append(readBox(p));
+    return sec;
+  }
+
+  // 总观每一项依据的是历史里的哪几条：点了到「历史」那一栏，停到那一条
+  function refLinks(refs) {
+    const row = node('div', undefined, 'cg-ov-refs');
+    row.append(node('span', '依据', 'cg-small'));
+    for (const r of refs) {
+      const rid = typeof r === 'object' ? r.id : r;
+      const label = typeof r === 'object' && r.title ? (r.at ? day(r.at) + ' ' : '') + r.title : '历史里的一条';
+      const b = node('button', label, 'cg-link-btn cg-ref'); b.type = 'button';
+      b.addEventListener('click', () => openEntry(rid));
+      row.append(b);
+    }
+    return row;
+  }
+
+  // ---- 历史：一段一段，每条指着原话 ----
+  function histStale() {
+    const meta = data && data.project.history_meta;
+    if (!meta) return false;
+    return !hist || hist.version !== meta.version || Object.keys(hist.entries || {}).length !== meta.entries;
+  }
+
+  function loadHistory() {
+    if (histLoading) return histLoading;
+    histLoading = api('/norm/projects/' + id + '/data?history=1').then(d => {
+      hist = d.history; data = d; renderParts(data.project); setView(currentView);
+    }).catch(e => {
+      const sec = $('cg-view-history'); if (sec) sec.append(node('p', '历史没拿到：' + e.message, 'cg-hint'));
+    }).finally(() => { histLoading = null; });
+    return histLoading;
+  }
+
+  async function openEntry(eid) {
+    setView('history');
+    if (histStale() || !hist) await loadHistory();
+    const it = document.getElementById('cg-h-' + eid);
+    if (!it) return;
+    const det = it.closest('details'); if (det) det.open = true;
+    it.scrollIntoView({ block: 'center' });
+    it.classList.add('cg-entry-found');
+    setTimeout(() => it.classList.remove('cg-entry-found'), 2600);
+  }
+
+  const FIELDS = { title: '标题', text: '那时的说法', turn: '怎么转的', kept: '没变的' };
+
+  function historyPanel(p) {
+    const sec = node('section'); sec.id = 'cg-view-history'; sec.dataset.view = 'history';
+    sec.append(node('h2', '历史'), node('p', '它自己读原话写的，一段一段：那时在做什么、信什么，什么让它转了，转过去以后什么没变，放下了哪些路。每条都指着原话，点开就看得到。已经转过的段不悄悄改：改过的写着原来是什么、为什么改。', 'cg-small'));
+    const meta = p.history_meta;
+    if (!meta) { sec.append(node('p', '还没有。让它读一遍自己全部的原话，就有了。', 'cg-hint'), readBox(p)); return sec; }
+    const h = hist;
+    if (!h) { sec.append(node('p', '正在拿历史……', 'cg-hint')); return sec; }
+    const head = node('div', undefined, 'cg-ov-meta');
+    head.append(node('strong', '第 ' + h.version + ' 版'), document.createTextNode(' · ' + h.stages.length + ' 段 · ' + Object.keys(h.entries).length + ' 条经历' + (h.updated_at ? ' · ' + hm(h.updated_at) + ' 写的' : '')));
+    sec.append(head);
+    if (h.changed) sec.append(node('p', '这一版：' + h.changed, 'cg-small'));
+    for (const n of h.notes || []) sec.append(node('p', n, 'cg-small cg-warn'));
+    const list = node('div', undefined, 'cg-stages');
+    h.stages.forEach((st, i) => list.append(stageEl(st, h, i === h.stages.length - 1 && !st.turn)));
+    sec.append(list);
+    if ((h.unplaced || []).length) {
+      const box = node('section', undefined, 'cg-stage cg-stage-loose');
+      box.append(node('h3', '还没归进哪一段的 ' + h.unplaced.length + ' 条'), node('p', '读到了，但合起来那一步还没把它们分进段里。', 'cg-small'));
+      for (const eid of h.unplaced) if (h.entries[eid]) box.append(entryEl(h.entries[eid], h, false));
+      list.append(box);
+    }
+    if ((h.skipped || []).length) {
+      const det = node('details', undefined, 'cg-stage-skipped');
+      det.append(node('summary', '读到了、它觉得不必进历史的 ' + h.skipped.length + ' 条'));
+      for (const eid of h.skipped) if (h.entries[eid]) det.append(entryEl(h.entries[eid], h, false));
+      sec.append(det);
+    }
+    sec.append(readBox(p));
+    const older = (h.versions || []).slice(1);
+    if (older.length) {
+      const det = node('details', undefined, 'cg-self-older');
+      det.append(node('summary', '以前的 ' + older.length + ' 版分段'));
+      for (const v of older) det.append(node('p', '第 ' + v.version + ' 版 · ' + hm(v.created_at) + ' · ' + v.stages + ' 段' + (v.changed ? ' · ' + v.changed : ''), 'cg-small'));
+      sec.append(det);
+    }
+    if ((h.overviews || []).length) {
+      const det = node('details', undefined, 'cg-self-older');
+      det.append(node('summary', '以前的 ' + h.overviews.length + ' 版总观'));
+      for (const v of h.overviews) { const one = node('details'); one.append(node('summary', '第 ' + v.version + ' 版 · ' + hm(v.created_at)), md(v.text, 'cg-self-text')); det.append(one); }
+      sec.append(det);
+    }
+    return sec;
+  }
+
+  function stageEl(st, h, now) {
+    const art = node('article', undefined, 'cg-stage' + (now ? ' cg-stage-now' : ''));
+    const head = node('header', undefined, 'cg-stage-head');
+    head.append(node('span', span(st.from, st.to), 'cg-small'), node('h3', st.title));
+    if (now) head.append(node('span', '现在这一段', 'cg-tag'));
+    art.append(head);
+    if (st.text) art.append(node('p', st.text, 'cg-stage-text'));
+    for (const c of st.corrections || []) {
+      const fix = node('p', undefined, 'cg-stage-fix');
+      const before = String(c.before || '').replace(/[。．.！!？?；;，,\s]+$/, '');
+      const why = String(c.why || '').replace(/^因为/, '').replace(/[。．.！!？?；;，,\s]+$/, '');
+      fix.append(node('strong', (FIELDS[c.field] || c.field) + '改过'), document.createTextNode('：原来是「' + before + '」。' + hm(c.at) + ' 改的' + (why ? '，因为' + why : '') + '。'));
+      art.append(fix);
+    }
+    const ids = st.entries || [];
+    if (ids.length) {
+      const late = new Set(st.late || []);
+      const det = node('details', undefined, 'cg-stage-entries'); det.open = now;
+      det.append(node('summary', ids.length + ' 条经历' + (late.size ? '（' + late.size + ' 条是后来才读到的）' : '')));
+      for (const eid of ids) if (h.entries[eid]) det.append(entryEl(h.entries[eid], h, late.has(eid)));
+      art.append(det);
+    }
+    if ((st.dropped || []).length) {
+      const dr = node('div', undefined, 'cg-stage-dropped');
+      dr.append(node('div', '放下的路', 'cg-small'));
+      const ul = node('ul');
+      for (const x of st.dropped) ul.append(node('li', (typeof x === 'object' ? x.text : x) + (x && x.late ? '（后来补的）' : '')));
+      dr.append(ul); art.append(dr);
+    }
+    if (st.turn) {
+      const t = node('div', undefined, 'cg-stage-turn');
+      const line = node('p'); line.append(node('strong', '转：'), document.createTextNode(st.turn + (st.turn_by ? '（' + st.turn_by + '）' : '')));
+      t.append(line);
+      const te = st.turn_at && h.entries[st.turn_at];
+      if (te && (te.quotes || []).length) t.append(quoteEl(te.quotes[0], h));
+      if (st.kept) t.append(node('p', '转过去以后没变的：' + st.kept, 'cg-small'));
+      art.append(t);
+    }
+    return art;
+  }
+
+  function entryEl(e, h, late) {
+    const it = node('div', undefined, 'cg-entry'); it.id = 'cg-h-' + e.id;
+    const head = node('div', undefined, 'cg-entry-head');
+    head.append(node('time', hm(e.at)), node('span', e.kind, 'cg-entry-kind'), node('strong', e.title));
+    if (late) head.append(node('span', '后来读到的', 'cg-tag'));
+    it.append(head);
+    if (e.text && e.text !== e.title) it.append(node('p', e.text));
+    for (const q of e.quotes || []) it.append(quoteEl(q, h));
+    const rest = (e.refs || []).filter(r => !(e.quotes || []).some(q => q.src === r.src && q.id === r.id));
+    if (rest.length) {
+      const row = node('div', undefined, 'cg-entry-refs');
+      row.append(node('span', (e.quotes || []).length ? '还依据' : '依据', 'cg-small'));
+      for (const r of rest) row.append(origEl(r, h));
+      it.append(row);
+    }
+    if (!(e.refs || []).length) it.append(node('p', '这一条没指到原话。', 'cg-small cg-warn'));
+    return it;
+  }
+
+  function quoteEl(q, h) {
+    const box = node('div', undefined, 'cg-hq');
+    box.append(node('div', '「' + q.text + '」', 'cg-quote'), origEl(q, h));
+    return box;
+  }
+
+  // 原话：点一下在这里展开那一句（整句），还能到那段对话里看前后
+  function origEl(r, h) {
+    const wrap = node('div', undefined, 'cg-orig');
+    const own = h.own_conversation !== null && Number(r.src) === Number(h.own_conversation);
+    const where = Number(r.src) === 0 ? '这里记下的事' : own ? '这里的对话' : '「' + ((h.sources || {})[r.src] || '一段对话') + '」';
+    const b = node('button', '原话 · ' + where, 'cg-link-btn cg-orig-btn'); b.type = 'button'; b.setAttribute('aria-expanded', 'false');
+    wrap.append(b);
+    b.addEventListener('click', async () => {
+      const open = wrap.querySelector('.cg-orig-box');
+      if (open) { open.remove(); wrap.classList.remove('cg-orig-open'); b.setAttribute('aria-expanded', 'false'); return; }
+      const box = node('div', undefined, 'cg-orig-box'); wrap.append(box); wrap.classList.add('cg-orig-open'); b.setAttribute('aria-expanded', 'true');
+      if (Number(r.src) === 0) { box.append(node('p', r.text || '（这件事没留下原话）')); return; }
+      box.append(node('p', '正在拿原话……', 'cg-small'));
+      let m = null;
+      try { m = await originalOf(Number(r.src), Number(r.id)); } catch (e) { box.replaceChildren(node('p', '拿不到：' + e.message, 'cg-small')); return; }
+      box.replaceChildren();
+      if (!m) { box.append(node('p', '这一句已经不在了（删掉了，或者改过以后后面的去掉了）。', 'cg-small')); return; }
+      box.append(node('div', (m.role === 'user' ? '你' : (m.author || 'AI')) + ' · ' + hm(m.created_at), 'cg-small'));
+      if (m.role === 'user') box.append(node('p', m.content, 'cg-orig-text'));
+      else box.append(md(m.content, 'cg-orig-text'));
+      const a = node('a', own ? '到对话里看前后' : '到那段对话里看前后'); a.className = 'cg-small';
+      a.href = own ? '#m' + r.id : app + '/creations/' + r.src + '#m' + r.id;
+      if (!own) { a.target = '_blank'; a.rel = 'noopener'; }
+      box.append(a);
+    });
+    return wrap;
+  }
+
+  async function originalOf(src, mid) {
+    if (!originals.has(src)) originals.set(src, api('/creations/' + src + '/messages').then(b => b.messages || []));
+    try { return (await originals.get(src)).find(m => Number(m.id) === mid) || null; }
+    catch (e) { originals.delete(src); throw e; }
   }
 
   // 这一块上次是谁什么时候改的；改得不对可以换回改之前那一版（换回也会留一版，能再换回来）
