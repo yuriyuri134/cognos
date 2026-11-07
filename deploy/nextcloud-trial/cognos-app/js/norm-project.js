@@ -86,7 +86,9 @@
   // 只有你能定的（等你定的一件、读者的建议）在时，默认展开；你收起以后，同一件不再自己打开，来了新的一件才再打开。
   function notice(key, label, content, mustSee) {
     const details = node('details', undefined, 'cg-notice' + (mustSee ? ' cg-notice-must' : ''));
-    details.open = openNotices.has(key) || (mustSee !== '' && mustSee !== undefined && !closedNotices.has(mustSee));
+    // 手机上不自己展开（真实页面里展开后对话只剩一百来像素），只把这一行标亮，点开再看
+    const wide = !window.matchMedia || window.matchMedia('(min-width: 761px)').matches;
+    details.open = openNotices.has(key) || (wide && mustSee !== '' && mustSee !== undefined && !closedNotices.has(mustSee));
     const summary = node('summary', label); let byHand = false;
     // 一开始自动展开也会触发 toggle；只记你亲手点的
     summary.addEventListener('click', () => { byHand = true; });
