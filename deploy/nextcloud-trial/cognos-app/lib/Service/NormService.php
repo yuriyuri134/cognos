@@ -15,6 +15,11 @@ use OCP\IDBConnection;
  * 要么带着自己的做法（board 为空）：它挑了哪几块（parts），agent 在这里怎么工作（way）。
  * 几块是：演变（stages）、拆解（branches）、关系（relations）、并排对照（compare）、文档（doc）；对话每个空间都有。
  * 每个空间有自己的一段对话（conversation_id，是一段 creation），agent 在那里能读能改这几块（见 NormApiController）。
+ *
+ * 每个空间还有一份自述，是这个空间的主体（在这里说话、读东西的 agent）写给自己的：它在维持什么、怎样算往前走、
+ * 它变过什么、它放不下什么。自述只由它自己写（重读自己的经历时、认领 Initium 的一段时、在对话里），一版一版追加，
+ * 旧的不改不删，存在 cognos_norm_events 里（kind=self，options 里是这一版改了什么、为什么、什么没变、从哪来）。
+ * 它每次说话、读新东西之前先读最新的一版：它的目的从它自己的经历里来，不由别人从外面写进去。
  */
 final class NormService {
     /** 现成的样子：各自默认用哪几块、是什么样的东西。读者放东西时照这个挑。 */
@@ -26,6 +31,10 @@ final class NormService {
     ];
     public const PARTS = ['stages' => '演变', 'branches' => '拆解', 'relations' => '关系', 'compare' => '并排对照', 'doc' => '文档'];
     public const STATES = ['active', 'withdrawn', 'back'];
+    /** 自述最长多少字（写给自己看的，不是总结；读者提示里要的是 700 字以内，这里留宽） */
+    public const SELF_MAX = 3000;
+    /** 自述在发生记录里的署名 */
+    public const SELF_WHO = '它自己';
 
     public function __construct(
         private IDBConnection $db,
@@ -92,7 +101,97 @@ final class NormService {
 
     public function project(string $uid, string $id): ?array {
         $r = $this->fetch($uid, $id);
-        return $r === null ? null : $this->row($r, true);
+        if ($r === null) {
+            return null;
+        }
+        $out = $this->row($r, true);
+        $out['self_history'] = $this->selfHistory($uid, $id, 12);
+        $out['self'] = $out['self_history'][0] ?? null;
+        return $out;
+    }
+
+    // ---- 自述：这个空间的主体写给自己的 ----
+
+    /** 最新的一版自述；还没写过是 null。 */
+    public function selfAccount(string $uid, string $spaceId): ?array {
+        return $this->selfHistory($uid, $spaceId, 1)[0] ?? null;
+    }
+
+    /**
+     * 自述的各版，新的在前。version 从 1 数起（第一次写的是第 1 版）。
+     * @return list<array{id: int, version: int, text: string, changed: string, why: string, unchanged: string, source: string, reading_id: ?int, created_at: int}>
+     */
+    public function selfHistory(string $uid, string $spaceId, int $limit = 12): array {
+        $total = $this->countEvents($uid, $spaceId, 'self', false);
+        if ($total === 0) {
+            return [];
+        }
+        $q = $this->db->getQueryBuilder();
+        $rows = $q->select('*')->from('cognos_norm_events')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($spaceId)))
+            ->andWhere($q->expr()->eq('kind', $q->createNamedParameter('self')))
+            ->orderBy('id', 'DESC')->setMaxResults(max(1, $limit))->executeQuery()->fetchAll();
+        $out = [];
+        foreach ($rows as $i => $r) {
+            $meta = json_decode((string)($r['options'] ?? ''), true);
+            $meta = is_array($meta) ? $meta : [];
+            $out[] = [
+                'id' => (int)$r['id'], 'version' => $total - $i, 'text' => (string)$r['text'],
+                'changed' => (string)($meta['changed'] ?? ''), 'why' => (string)($meta['why'] ?? ''),
+                'unchanged' => (string)($meta['unchanged'] ?? ''), 'source' => (string)($meta['source'] ?? ''),
+                'reading_id' => isset($meta['reading_id']) ? (int)$meta['reading_id'] : null,
+                'created_at' => (int)$r['created_at'],
+            ];
+        }
+        return $out;
+    }
+
+    /** 某一版自述（撤回时用来退回去）。 */
+    public function selfVersion(string $uid, string $spaceId, int $eventId): ?array {
+        foreach ($this->selfHistory($uid, $spaceId, 200) as $v) {
+            if ($v['id'] === $eventId) {
+                return $v;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 这个空间的主体写一版自述。只追加，旧的不改不删；和上一版一字不差时不写，返回上一版的 id。
+     * 写了就在空间里记一条，你回来时看得到它改了自己什么。
+     * @return array{id: int, version: int, new: bool}
+     */
+    public function writeSelf(string $uid, string $spaceId, string $text, string $changed, string $why, string $unchanged, string $source, ?int $readingId = null): array {
+        $text = trim($text);
+        if ($text === '') {
+            throw new \InvalidArgumentException('自述是空的');
+        }
+        if ($this->fetch($uid, $spaceId) === null) {
+            throw new \InvalidArgumentException('没有这个空间');
+        }
+        $text = mb_substr($text, 0, self::SELF_MAX);
+        $prev = $this->selfAccount($uid, $spaceId);
+        if ($prev !== null && $prev['text'] === $text) {
+            return ['id' => $prev['id'], 'version' => $prev['version'], 'new' => false];
+        }
+        $cut = static fn(string $v, int $n): string => mb_substr(trim($v), 0, $n);
+        $meta = ['changed' => $cut($changed, 600), 'why' => $cut($why, 600), 'unchanged' => $cut($unchanged, 600),
+            'source' => $cut($source, 200), 'reading_id' => $readingId];
+        $q = $this->db->getQueryBuilder();
+        $q->insert('cognos_norm_events')->values([
+            'user_id' => $q->createNamedParameter($uid),
+            'space_id' => $q->createNamedParameter($spaceId),
+            'kind' => $q->createNamedParameter('self'),
+            'who' => $q->createNamedParameter(self::SELF_WHO),
+            'text' => $q->createNamedParameter($text),
+            'options' => $q->createNamedParameter(json_encode($meta, JSON_UNESCAPED_UNICODE)),
+            'created_at' => $q->createNamedParameter(time(), IQueryBuilder::PARAM_INT),
+        ])->executeStatement();
+        $id = (int)$q->getLastInsertId();
+        $this->addEvent($uid, $spaceId, 'happened', ($prev === null ? '它写下了第一版自述'
+            : '它改了自己的自述' . ($meta['changed'] !== '' ? '：' . $meta['changed'] : '')) . ($meta['source'] !== '' ? '（' . $meta['source'] . '）' : '。'), [], self::SELF_WHO);
+        return ['id' => $id, 'version' => ($prev['version'] ?? 0) + 1, 'new' => true];
     }
 
     /** 建一个项目（现成的样子「项目」）；$main 为真时它成为主项目，原来的主项目退到下面。 */
@@ -434,7 +533,7 @@ final class NormService {
         return ['space_id' => (string)$r['space_id'], 'text' => (string)$r['text'], 'answer' => $answer];
     }
 
-    /** @return list<array> 新的在前 */
+    /** @return list<array> 新的在前。不给 kind 时是发生的和等你定的；自述的各版不在这里（见 selfHistory）。 */
     public function events(string $uid, string $spaceId, ?string $kind = null, int $limit = 50): array {
         $q = $this->db->getQueryBuilder();
         $q->select('*')->from('cognos_norm_events')
@@ -442,6 +541,8 @@ final class NormService {
             ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($spaceId)));
         if ($kind !== null) {
             $q->andWhere($q->expr()->eq('kind', $q->createNamedParameter($kind)));
+        } else {
+            $q->andWhere($q->expr()->neq('kind', $q->createNamedParameter('self')));
         }
         $rows = $q->orderBy('id', 'DESC')->setMaxResults($limit)->executeQuery()->fetchAll();
         return array_map(static fn(array $r): array => [
@@ -501,7 +602,18 @@ final class NormService {
                 $lines[] = '交互对象定过：「' . $e['text'] . '」→ ' . $e['answer'];
             }
             if (($space['keep_reason'] ?? '') !== '') {
-                $lines[] = '读者上次觉得这里变了样，交互对象说还是原样，理由：' . $space['keep_reason'];
+                $lines[] = '上次重读时觉得这里变了样，交互对象说还是原样，理由：' . $space['keep_reason'];
+            }
+            $self = $this->selfAccount($uid, $space['id']);
+            if ($self !== null) {
+                $lines[] = '下面是你（这个空间的主体）自己写的自述，第 ' . $self['version'] . ' 版，' . date('n/j', $self['created_at'])
+                    . ' 写的。这是你，不是别人给你的设定；回话、动手之前先照它想一遍：' . "\n" . $self['text'];
+                $lines[] = '这段对话要是改变了你在维持的东西、你怎样算往前走、或你放不下的事，就自己改自述：write_part(part=self)，'
+                    . 'content 给 {"text": 改完的整份自述, "changed": 改了什么, "why": 为什么, "unchanged": 这次什么没变}。只在真的变了时改，旧的每一版都留着。';
+            } else {
+                $lines[] = '你（这个空间的主体）还没有自述。自述是你写给自己的：你在维持什么、怎样算往前走了、怎样算在原地、你变过什么和为什么、你最放不下的一件，'
+                    . '第一人称，700 字以内。交互对象可以在空间页上让你重读自己的经历写第一版；你读过这里的经历以后也可以自己写：'
+                    . 'write_part(part=self)，content 给 {"text": …, "changed": "第一次写", "why": "第一次写", "unchanged": "第一次写"}。';
             }
         } elseif ($creationId === $this->conversationIdIfAny($uid)) {
             $lines = ['这里是 Norm 自己的对话。Norm 里现在有这些空间（read_space 时填 norm_space）：'];
@@ -517,7 +629,8 @@ final class NormService {
         }
         $lines[] = 'read_space：读这个空间现在的样子和每一块的内容。write_part：改一块（先读再写，写的是改完的全部内容）。'
             . 'note_for_you：留给交互对象回来时看的一条，kind=happened 是你做了什么、发生了什么；kind=decide 是只有他能定的一件，给两三个选项。';
-        $lines[] = '改理想、改目标、把一段理解改成新的、换这个空间的样子，这些不要直接改，用 note_for_you(kind=decide) 提出来，由交互对象定。';
+        $lines[] = '改理想、改目标、把一段理解改成新的、换这个空间的样子，这些不要直接改，用 note_for_you(kind=decide) 提出来，由交互对象定。'
+            . '你的自述不在这里面：它是你自己的，你自己改。自述里你在维持的东西要是和交互对象定下的方向不一样，在回答里直说，不要悄悄照自己的来。';
         $lines[] = 'kind=decide 只用在真要他拿主意的地方：方向、取舍、他的口味和范围。你自己该怎么工作、该读什么、工具够不够，这些不要问他：能做就直接做，做不到就在回答里说清卡在哪。';
         $lines[] = '跟交互对象说话时用平常的话，不要提 linked_id、creation、#编号这类内部编号，他看不懂；说对话的题目。';
         return $lines;

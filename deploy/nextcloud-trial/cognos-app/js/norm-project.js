@@ -70,7 +70,7 @@
   }
 
   function renderViews(p) {
-    const views = [['conversation', '对话'], ...p.parts.map(k => [k, data.parts[k] || k]), ['about', '做法与来源']];
+    const views = [['conversation', '对话'], ['self', '自述'], ...p.parts.map(k => [k, data.parts[k] || k]), ['about', '做法与来源']];
     const keys = JSON.stringify(views);
     if (keys !== viewKeys) {
       viewKeys = keys;
@@ -95,7 +95,7 @@
     return details;
   }
 
-  // ---- 上面：回头读、刚带着做法进来、你不在时、只有你能定的 ----
+  // ---- 上面：它读过自己觉得样子不合身、刚带着做法进来、你不在时 ----
   function renderTop(p) {
     if (editingWay && $('cg-space-top').querySelector('textarea')) return;
     const version = JSON.stringify([p.state, arrived, data.drift, data.drift_done, p.board, data.messages < 2, p.way, p.parts, p.summary, editingWay]);
@@ -119,8 +119,8 @@
     }
     const drift = data.drift_done;
     const c = drift && drift.result && drift.result.compare;
-    if (data.drift && data.drift.state === 'reading') { content.append(node('p', '读者正在回头读这里，读完会放在这里。', 'cg-block cg-hint')); labels.push('读者正在读'); }
-    if (c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined)) { content.append(driftBlock(drift, c, p)); labels.push('读者有新建议'); }
+    if (data.drift && data.drift.state === 'reading') { content.append(node('p', '它正在读自己到现在的经历，读完会写新一版自述，放在「自述」那一栏。', 'cg-block cg-hint')); labels.push('它正在读自己'); }
+    if (c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined)) { content.append(driftBlock(drift, c, p)); labels.push(c.self_reading ? '它觉得样子不合身' : '读者有新建议'); }
     if (!p.board && (data.messages || 0) < 2) { content.append(ownBlock(p)); labels.push('这个空间的做法'); }
     const suggest = !!(c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined));
     if (labels.length) top.append(notice('activity', '正在发生 · ' + labels.join(' · '), content, suggest));
@@ -188,27 +188,29 @@
     box.append(head, text, acts); return box;
   }
 
+  // 它读过自己的经历，觉得现在的样子不合身（c.self_reading）；改版以前是读者替它回头读，文字照旧
   function driftBlock(reading, c, p) {
-    const box = node('section', undefined, 'cg-drift'); box.setAttribute('aria-label', '读者回头读');
+    const own = !!c.self_reading;
+    const box = node('section', undefined, 'cg-drift'); box.setAttribute('aria-label', own ? '它读过自己' : '读者回头读');
     const head = node('div', undefined, 'cg-drift-head');
-    head.append(node('div', '读者只读原话，不看这里是什么样子 · ' + hm(reading.created_at), 'cg-small'),
-      node('h2', '「' + p.title + '」已经不太像进来时的样子了'), node('p', c.now || ''));
+    head.append(node('div', (own ? '它自己读了到现在的经历 · ' : '读者只读原话，不看这里是什么样子 · ') + hm(reading.created_at), 'cg-small'),
+      node('h2', own ? '「' + p.title + '」觉得现在的样子不太合身了' : '「' + p.title + '」已经不太像进来时的样子了'), node('p', (own ? c.why : '') || c.now || ''));
     const left = node('div', undefined, 'cg-block'); left.style.margin = '0';
     left.append(node('h2', '进来时 和 现在'));
     const tn = node('div', undefined, 'cg-then-now');
     const then = node('div', undefined, 'cg-then'); then.append(node('div', '进来时', 'cg-small'), node('div', c.then || ''));
-    const now = node('div', undefined, 'cg-now'); now.append(node('div', '现在读到的', 'cg-small'), node('div', c.now || ''));
+    const now = node('div', undefined, 'cg-now'); now.append(node('div', own ? '它现在觉得自己是' : '现在读到的', 'cg-small'), node('div', c.now || ''));
     tn.append(then, now); left.append(tn);
-    if ((c.quotes || []).length) { left.append(node('div', '读者依据的几处原话', 'cg-small')); for (const q of c.quotes) left.append(node('div', '「' + q + '」', 'cg-quote')); }
+    if ((c.quotes || []).length) { left.append(node('div', own ? '它依据的几处经历' : '读者依据的几处原话', 'cg-small')); for (const q of c.quotes) left.append(node('div', '「' + q + '」', 'cg-quote')); }
     const right = node('div', undefined, 'cg-ways');
     right.append(node('h2', '它可以怎么接着活'));
     (c.options || []).forEach((o, i) => {
       const b = node('button', undefined, 'cg-way-opt' + (i === c.lean ? ' cg-lean' : '')); b.type = 'button';
-      if (i === c.lean) b.append(node('span', '读者更倾向这个', 'cg-lean-tag'));
+      if (i === c.lean) b.append(node('span', own ? '它更倾向这个' : '读者更倾向这个', 'cg-lean-tag'));
       b.append(node('strong', o.label || ''), node('span', o.detail || ''));
       b.addEventListener('click', async () => {
         let reason = '';
-        if (o.kind === 'keep') { reason = prompt('说一句为什么，读者下次读的时候会带上：', '') || ''; }
+        if (o.kind === 'keep') { reason = prompt(own ? '说一句为什么，它下次读自己的时候会带上：' : '说一句为什么，读者下次读的时候会带上：', '') || ''; }
         else if (!confirm('就这样：' + (o.label || '') + '？')) return;
         try { await api('/readers/' + reading.id + '/choose', { option: i, reason }); } catch (err) { alert(err.message); }
         // 退回 Initium：去它那段对话接着长
@@ -268,8 +270,14 @@
     for (const part of p.parts) contents[part] = JSON.stringify([p[part], versions[part] || []]);
     const hasWay = WAY.some(([k]) => (p.way || {})[k]);
     // 做法编辑期间，消息更新不覆盖正在输入的文本。
-    contents.about = JSON.stringify([editingWay ? 'editing' : p.way, editingWay, p.board, data.messages < 2, data.drift, data.drift_done, data.links]);
+    contents.about = JSON.stringify([editingWay ? 'editing' : p.way, editingWay, p.board, data.messages < 2, data.links]);
+    contents.self = JSON.stringify([p.self_history || [], data.drift, data.drift_done && data.drift_done.id]);
     for (const panel of [...aside.children]) if (!(panel.dataset.view in contents)) panel.remove();
+    const previousSelf = $('cg-view-self');
+    if (!previousSelf || previousSelf.dataset.version !== contents.self) {
+      const sec = selfPanel(p); sec.dataset.version = contents.self;
+      if (previousSelf) previousSelf.replaceWith(sec); else aside.append(sec);
+    }
     for (const part of p.parts) {
       const previous = $('cg-view-' + part);
       if (previous && previous.dataset.version === contents[part]) continue;
@@ -292,22 +300,81 @@
     const about = node('section'); about.id = 'cg-view-about'; about.dataset.view = 'about'; about.dataset.version = contents.about;
     about.append(node('h2', '做法与来源'));
     if (hasWay && (p.board || (data.messages || 0) >= 2)) about.append(howCard(p, false));
-    const tail = node('section');
-    tail.append(node('h2', '读者'));
-    const d = data.drift;
-    tail.append(node('p', d && d.state === 'reading' ? '正在回头读。' : d && d.state === 'failed' ? '上次没读完：' + (d.error || '') : data.drift_done ? '上次回头读在 ' + hm(data.drift_done.created_at) + (data.drift_done.result?.compare?.drifted ? '，觉得它变了样。' : '，觉得它还是进来时的样子。') : '还没回头读过。对话多起来以后会自己来读。', 'cg-hint'));
-    tail.append(button('让读者现在回头读', 'cg-btn-small', async ev => {
-      ev.target.disabled = true;
-      try { const r = await api('/norm/projects/' + p.id + '/read', {}); if (!r.started) alert(r.why || '没读'); } catch (e) { alert(e.message); }
-      load(false);
-    }));
-    about.append(tail);
     if (data.links.length) {
       const src = node('section', undefined, 'cg-sources'); src.append(node('h2', '从 Initium 来'));
       for (const l of data.links) { const a = node('a', l.title || ('对话 ' + l.creation_id)); a.href = app + '/creations/' + l.creation_id; src.append(a); }
       about.append(src);
     }
     if (previousAbout) previousAbout.replaceWith(about); else aside.append(about);
+  }
+
+  // ---- 自述：这个空间的主体写给自己的。agent 每次在这里回话前先读它；它自己改，旧的每一版都留着 ----
+  function md(text, cls) {
+    const d = node('div', undefined, cls + ' cg-md');
+    if (window.CognosMd) d.append(window.CognosMd.render(text)); else d.textContent = text;
+    return d;
+  }
+
+  function selfPanel(p) {
+    const sec = node('section'); sec.id = 'cg-view-self'; sec.dataset.view = 'self';
+    sec.append(node('h2', '自述'), node('p', '这个空间的主体写给自己的：它在维持什么、怎样算往前走了、变过什么、最放不下什么。agent 每次在这里回话前先读它；它自己改，旧的每一版都留着。', 'cg-small'));
+    const s = p.self; const d = data.drift; const done = data.drift_done;
+    const c = done && done.result && done.result.compare;
+    if (s) {
+      const head = node('div', undefined, 'cg-self-meta');
+      head.append(node('strong', '第 ' + s.version + ' 版'), document.createTextNode(' · ' + hm(s.created_at) + (s.source ? ' · ' + s.source : '')));
+      sec.append(head, md(s.text, 'cg-self-text'));
+      if (s.version > 1) {
+        const dl = node('dl', undefined, 'cg-self-change');
+        for (const [k, label] of [['changed', '这次改了什么'], ['why', '为什么改'], ['unchanged', '这次什么没变']]) if (s[k]) dl.append(node('dt', label), node('dd', s[k]));
+        if (dl.childNodes.length) sec.append(dl);
+      }
+      // 旁观的那位说的，只在它看的正是现在这一版时放出来
+      const b = c && c.self_reading && c.self && c.self.id === s.id ? c.bystander : null;
+      if (b && (b.note || (b.empty || []).length)) {
+        const box = node('div', undefined, 'cg-self-bystander');
+        box.append(node('div', '旁观的读者看这一版：只找说了往前、原地，却没说拿什么分辨的地方', 'cg-small'));
+        if (b.note) box.append(node('p', b.note));
+        for (const e of b.empty || []) {
+          const it = node('div', undefined, 'cg-self-empty');
+          if (e.quote) it.append(node('div', '「' + e.quote + '」', 'cg-quote'));
+          if (e.why) it.append(node('div', e.why, 'cg-small'));
+          box.append(it);
+        }
+        sec.append(box);
+      }
+    } else {
+      sec.append(node('p', '它还没有自述。让它把自己到现在的经历读一遍（连进来的 Initium 对话、这里的对话、这里发生过的事），写第一版。', 'cg-hint'));
+    }
+    const act = node('div', undefined, 'cg-self-act');
+    const reading = d && d.state === 'reading';
+    const status = reading ? '它正在读自己的经历，读完会写新一版，这里会自己更新。'
+      : d && d.state === 'failed' ? '上次没读完：' + (d.error || '不知道为什么')
+      : done ? '上次读自己在 ' + hm(done.created_at) + (c && c.self_reading ? (c.drifted ? '，它觉得现在的样子不太合身，见上面「正在发生」。' : '，它觉得现在的样子还合身。') : (c && c.drifted ? '，那时是读者替它回头读，觉得它变了样。' : '。'))
+      : '';
+    if (status) act.append(node('p', status, 'cg-hint'));
+    const go = button(reading ? '正在读…' : s ? '让它重读自己的经历' : '让它读自己的经历，写第一版', 'cg-btn-small', async ev => {
+      ev.target.disabled = true;
+      try { const r = await api('/norm/projects/' + p.id + '/read', {}); if (!r.started) alert(r.why || '没读'); } catch (e) { alert(e.message); }
+      load(false);
+    });
+    go.disabled = reading;
+    act.append(go, node('span', '读一次是 2 次运行：它自己读一次，旁观的看一次。', 'cg-small'));
+    sec.append(act);
+    const older = (p.self_history || []).slice(1);
+    if (older.length) {
+      const det = node('details', undefined, 'cg-self-older');
+      det.append(node('summary', '以前的 ' + older.length + ' 版'));
+      for (const v of older) {
+        const one = node('details');
+        one.append(node('summary', '第 ' + v.version + ' 版 · ' + hm(v.created_at) + (v.source ? ' · ' + v.source : '') + (v.changed ? ' · ' + v.changed : '')));
+        one.append(md(v.text, 'cg-self-text'));
+        if (v.why && v.version > 1) one.append(node('p', '为什么改：' + v.why, 'cg-small'));
+        det.append(one);
+      }
+      sec.append(det);
+    }
+    return sec;
   }
 
   // 这一块上次是谁什么时候改的；改得不对可以换回改之前那一版（换回也会留一版，能再换回来）

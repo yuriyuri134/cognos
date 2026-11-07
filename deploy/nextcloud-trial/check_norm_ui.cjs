@@ -18,7 +18,14 @@ const project = {id: 'fixture', title: 'Cognos · 对话与历史', board: '项�
   relations: {nodes: [{id: 'p', label: 'Cognos', kind: 'project'}, {id: 'b', label: '界面', kind: 'branch'}], edges: [{from: 'p', to: 'b'}]},
   compare: [{title: '比较', text: '可读的主区'}], doc: '文档正文'};
 let events = [{id: 1, kind: 'decide', text: long, answer: null, options: ['继续', '暂缓']}];
+// 自述：它自己写的两版；最近一次读自己时旁观的那位指出一处空话
+const selfV2 = {id: 31, version: 2, text: '**我在维持什么。** 让 Cognos 不停。\n\n**怎样算往前。** 每一步留下能检验的东西。', changed: '尝试不再是核心',
+  why: '读了「完整的主体」那段', unchanged: '还是要碰到现实', source: '接下 Initium 里的「GPT 总结」', created_at: 1794000300};
+const selfV1 = {id: 21, version: 1, text: '第一版：尝试是核心。', changed: '第一次写', why: '第一次写', unchanged: '第一次写', source: '重读自己的经历', created_at: 1794000000};
+Object.assign(project, {self: selfV2, self_history: [selfV2, selfV1]});
 let drift = null;
+const driftDone = {id: 5, kind: 'drift', state: 'done', created_at: 1794000300, result: {compare: {self_reading: true, drifted: false, self: {id: 31, version: 2, new: true},
+  bystander: {empty: [{quote: '往前走', why: '没说拿什么分辨'}], note: '大体说得出拿什么分辨'}}}};
 let versions = {stages: [{id: 9, who: 'Claude', created_at: 1794000200}]};
 const arrived = {since: 1794000000, items: [{created_at: 1794000100, text: '发生了变化', who: 'Claude'}]};
 const posts = [];
@@ -30,7 +37,8 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (url.pathname === app + '/norm/projects/fixture/data') return res.end(JSON.stringify({project, conversation_id: 7, spaces: [project],
     parts: {stages: '演变', branches: '拆解', relations: '关系', compare: '并排对照', doc: '文档'}, messages: messages.length,
-    links: [{creation_id: 42, title: 'Initium 原始讨论'}], events, arrive: arrived, drift, drift_done: null, versions}));
+    links: [{creation_id: 42, title: 'Initium 原始讨论'}], events, arrive: arrived, drift, drift_done: driftDone, versions}));
+  if (url.pathname === app + '/norm/projects/fixture/read') { drift = {id: 6, kind: 'drift', state: 'reading', created_at: 1794000400, result: {plan: [{label: '它自己', role: 'self'}]}}; return res.end('{"started":true}'); }
   if (url.pathname === app + '/norm/projects/fixture/part-version') { versions = {}; project.stages = [{when: '11/06', title: '换回来的阶段', text: '旧的'}]; return res.end('{"part":"stages"}'); }
   if (url.pathname === app + '/norm/projects/fixture/restore') { project.state = 'active'; return res.end('{}'); }
   const one = url.pathname.match(/^\/index\.php\/apps\/cognos\/creations\/7\/messages\/(\d+)$/);
@@ -128,6 +136,18 @@ live.run('norm-ui-offline', async checks => {
     assert.equal(project.way.away, '正在编辑，保留这句话');
     checks.push('Real Initium URL preserved; items without source addresses remain text; message refresh preserves unsaved way edits.');
 
+    // 自述一栏：现在这版按 Markdown 显示，这次改了什么、旁观的读者指出的空话，以前的版本收着；可以让它重读自己的经历
+    await view('self');
+    assert(await b.evaluate('(s => !s.hidden && !!s.querySelector(".cg-self-text strong") && s.textContent.includes("第 2 版") && s.textContent.includes("尝试不再是核心") && s.querySelector(".cg-self-bystander").textContent.includes("没说拿什么分辨"))(document.querySelector("#cg-view-self"))'));
+    await b.click('#cg-view-self .cg-self-older > summary');
+    assert(await b.evaluate('(d => d.open && d.textContent.includes("第 1 版"))(document.querySelector("#cg-view-self .cg-self-older"))'));
+    await b.shoot('norm-ui-self.png');
+    await b.click('#cg-view-self .cg-self-act button');
+    await b.until('document.querySelector("#cg-view-self .cg-self-act button").disabled && document.querySelector("#cg-view-self").textContent.includes("它正在读自己的经历")');
+    assert(posts.some(x => x.url.endsWith('/norm/projects/fixture/read')));
+    assert(await b.evaluate('document.querySelector(".cg-notice summary").textContent.includes("它正在读自己")'));
+    checks.push('Self-account view shows the current version (Markdown), what changed, the bystander note and older versions; asking it to re-read posts /read and shows it reading.');
+
     await b.phone(); await view('conversation');
     assert(await b.noOverflow());
     assert(await b.evaluate('historyLog.clientHeight>200 && document.querySelector(".cg-chat-form").getBoundingClientRect().bottom<=innerHeight'));
@@ -146,7 +166,7 @@ live.run('norm-ui-offline', async checks => {
     await b.until('document.querySelectorAll(".cg-msg").length===' + (msgsBefore + 2));
     assert(posts.some(x => x.url.endsWith('/messages') && x.body.message === '新问题'));
     checks.push('390px has no page overflow; composer visible, jump-to-latest works, decisions remain usable, Enter sends through existing API.');
-    for (const key of ['stages', 'branches', 'compare', 'doc', 'about']) { await view(key); assert(await b.noOverflow()); }
+    for (const key of ['self', 'stages', 'branches', 'compare', 'doc', 'about']) { await view(key); assert(await b.noOverflow()); if (key === 'self') await b.shoot('norm-ui-phone-self.png'); }
     await view('relations'); await b.click('.cg-rel-mini'); assert(await b.noOverflow());
     assert(await b.evaluate('(() => {const r=document.querySelector("#cg-map-full .cg-node-project").getBoundingClientRect();return r.left>=0 && r.right<=innerWidth})()'));
     await b.shoot('norm-ui-phone-map.png'); await b.click('#cg-map-close');
@@ -183,11 +203,13 @@ live.run('norm-ui-offline', async checks => {
     assert(posts.some(x => x.url.endsWith('/restore')));
     checks.push('A withdrawn space says so and can be put back into Norm.');
 
-    messages = []; events = []; arrived.items = []; project.parts = []; project.board = null; project.way = {};
+    messages = []; events = []; arrived.items = []; project.parts = []; project.board = null; project.way = {}; project.self = null; project.self_history = []; drift = null;
     await b.go(url); await b.until('!!window.testChat && !!document.querySelector(".cg-chat-log .cg-hint")');
     assert(await b.evaluate('!document.querySelector(".cg-ask") && !document.querySelector("#cg-space-conversation").hidden'));
     assert(await b.noOverflow());
-    checks.push('Empty conversation, no decisions, and custom space with no supplied parts keep conversation available.');
+    await view('self');
+    assert(await b.evaluate('document.querySelector("#cg-view-self .cg-self-act button").textContent==="让它读自己的经历，写第一版" && !document.querySelector("#cg-view-self .cg-self-older")'));
+    checks.push('Empty conversation, no decisions, and custom space with no supplied parts keep conversation available; a space without a self-account offers to write the first one.');
     assert.deepEqual(b.errors, []);
   } finally { b?.close(); await new Promise(resolve => server.close(resolve)); }
 });

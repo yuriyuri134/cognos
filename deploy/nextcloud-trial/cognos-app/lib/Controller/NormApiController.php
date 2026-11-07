@@ -78,12 +78,20 @@ final class NormApiController extends OCSController {
             return new DataResponse(['space' => ['id' => $space['id'], 'title' => $space['title'], 'linked' => $this->linkedText($uid, $space['id'], $linked_id, $from)]]);
         }
         $out['linked'] = $this->linkedText($uid, $space['id']);
+        // 你（这个空间的主体）自己写的自述，最新一版；以前几版只给改了什么，要看全文在空间页上
+        $out['self'] = $space['self'] === null ? null : [
+            'version' => $space['self']['version'], 'text' => $space['self']['text'], 'written' => date('n/j H:i', $space['self']['created_at']),
+            'changed' => $space['self']['changed'], 'why' => $space['self']['why'], 'unchanged' => $space['self']['unchanged'],
+        ];
+        $out['self_before'] = array_map(static fn(array $v): array => ['version' => $v['version'], 'written' => date('n/j H:i', $v['created_at']),
+            'changed' => $v['changed'], 'why' => $v['why'], 'source' => $v['source']], array_slice($space['self_history'], 1, 5));
         $out['formats'] = [
             'stages' => '[{"when": "时间", "title": "这一段叫什么", "text": "发生了什么", "current": true 只给现在这段, "proposed": true 是你提出、等人定的}]',
             'branches' => '[{"title": "分支", "parts": [{"title": "部分", "text": "说明"}]}]',
             'relations' => '{"nodes": [{"id": "…", "label": "…", "kind": "project|branch|attempt", "state": "…"}], "edges": [{"from": "…", "to": "…", "label": "可选"}]}',
             'compare' => '[{"title": "办法 A", "text": "它是什么", "result": "试下来怎样", "state": "在试|有结果|放下了"}]',
             'doc' => '一段文字（可以用 Markdown）',
+            'self' => '{"text": "改完以后的整份自述，第一人称，700 字以内", "changed": "这次改了什么", "why": "为什么改", "unchanged": "这次什么没变"}',
         ];
         return new DataResponse(['space' => $out]);
     }
@@ -95,12 +103,46 @@ final class NormApiController extends OCSController {
         if ($space === null) {
             return new DataResponse(['message' => '这段对话还没放进 Norm 的任何空间'], 404);
         }
+        if ($part === 'self') {
+            return $this->writeSelf($uid, $space, $content, $subject);
+        }
         try {
             $this->norm->writePart($uid, $space['id'], $part, $content, trim($subject) !== '' ? $subject : 'agent');
         } catch (\InvalidArgumentException $e) {
             return new DataResponse(['message' => $e->getMessage()], 422);
         }
         return new DataResponse(['message' => '改好了「' . $space['title'] . '」的' . NormService::PARTS[$part] . '。']);
+    }
+
+    /** 这个空间的主体在对话里改自己的自述（write_part 的 part=self）。只追加一版，旧的都留着。 */
+    private function writeSelf(string $uid, array $space, mixed $content, string $subject): DataResponse {
+        if (is_string($content)) {
+            $decoded = json_decode($content, true);
+            $content = is_array($decoded) ? $decoded : ['text' => $content];
+        }
+        if (!is_array($content)) {
+            return new DataResponse(['message' => '自述的 content 要是 {"text": …, "changed": …, "why": …, "unchanged": …}'], 422);
+        }
+        $text = trim((string)($content['text'] ?? ''));
+        if ($text === '') {
+            return new DataResponse(['message' => 'text 是空的：给改完以后的整份自述'], 422);
+        }
+        if (mb_strlen($text) > NormService::SELF_MAX) {
+            return new DataResponse(['message' => '自述有 ' . mb_strlen($text) . ' 字，太长了：缩到 ' . NormService::SELF_MAX . ' 字以内（700 字左右最好），它是写给你自己看的，不是总结'], 422);
+        }
+        $first = $space['self'] === null;
+        $unchanged = trim((string)($content['unchanged'] ?? ''));
+        if (!$first && $unchanged === '') {
+            return new DataResponse(['message' => '写一句 unchanged：这次什么没变。改了以后你还是你，靠的就是这一句'], 422);
+        }
+        try {
+            $v = $this->norm->writeSelf($uid, $space['id'], $text, (string)($content['changed'] ?? ($first ? '第一次写' : '')),
+                (string)($content['why'] ?? ''), $first && $unchanged === '' ? '第一次写' : $unchanged,
+                '在对话里' . (trim($subject) !== '' ? '（' . trim($subject) . '）' : ''));
+        } catch (\InvalidArgumentException $e) {
+            return new DataResponse(['message' => $e->getMessage()], 422);
+        }
+        return new DataResponse(['message' => $v['new'] ? '记下了你的自述，第 ' . $v['version'] . ' 版。旧的每一版都还在。' : '和上一版一字不差，没有另记一版。']);
     }
 
     #[NoAdminRequired]
@@ -192,7 +234,8 @@ final class NormApiController extends OCSController {
         }
         $space = $this->norm->spaceByConversation($uid, $cid);
         if ($space !== null) {
-            return $space;
+            // project() 才带着自述
+            return $this->norm->project($uid, $space['id']);
         }
         $linked = $this->norm->linkedSpace($uid, $cid);
         return $linked === null ? null : $this->norm->project($uid, $linked['space']['id']);

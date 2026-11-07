@@ -316,3 +316,29 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
   /* 额度在手机上只留一行，点开对话页电脑上看全 */
   .cg-project .cg-usage { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* 自述：这个空间的主体写给自己的，一版一版留着 */
+.cg-self-meta { font-size: 13px; color: var(--cg-muted); margin-bottom: 8px; }
+.cg-self-meta strong { color: var(--cg-ink); }
+.cg-self-text { padding: 14px 16px; border-radius: 12px; background: var(--cg-card); border: 1px solid var(--cg-line); color: var(--cg-ink); white-space: normal; }
+.cg-self-change { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 12px 0 0; font-size: 13px; }
+.cg-self-change dt { color: var(--cg-muted); }
+.cg-self-change dd { margin: 0; color: var(--cg-ink-2); }
+.cg-self-bystander { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--cg-warm-bg); border: 1px solid var(--cg-warm-line); color: var(--cg-warm-text); }
+.cg-self-bystander .cg-small { color: var(--cg-warm-ink); }
+.cg-self-bystander p { margin: 6px 0 0; }
+.cg-self-empty { margin-top: 8px; }
+.cg-self-empty .cg-quote { border-color: var(--cg-warm-line); }
+.cg-self-act { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; }
+.cg-self-act p { flex-basis: 100%; margin: 0; }
+.cg-self-older { margin-top: 18px; }
+.cg-self-older summary { cursor: pointer; }
+.cg-self-older > summary { color: var(--cg-muted); }
+.cg-self-older details { margin-top: 10px; }
+.cg-self-older details > summary { font-size: 13px; color: var(--cg-ink-2); }
+.cg-self-older .cg-self-text { margin-top: 8px; }
+
+/* Initium 右边：来认领的空间，是不是它的 */
+.cg-claim-tag { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-weight: 400; background: var(--cg-chip); color: var(--cg-ink-2); }
+.cg-claim-mine .cg-claim-tag { background: var(--cg-accent); color: var(--cg-accent-ink); }
+.cg-claim-part .cg-claim-tag { background: var(--cg-warm-bg); color: var(--cg-warm-ink); box-shadow: inset 0 0 0 1px var(--cg-warm-line); }

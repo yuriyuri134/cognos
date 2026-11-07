@@ -11,17 +11,18 @@ use OCP\IDBConnection;
 use Psr\Log\LoggerInterface;
 
 /**
- * 读者：不带上下文、不知道 Cognos 是什么，只拿一段对话的原话去读。
+ * 读者：读一段东西，说清楚它是什么，好让 Cognos 知道把它放到哪里、它会不会改变谁。
  *
- * 三个读者各自读，读法不一样的只是看到的东西：一个顺着读完，一个只读人写的，一个从最近往回读。
- * 读完再由一个比较的读者看三份读法（不看原文）：哪里读得不一样、接着它需要什么、放到 Norm 哪里。
+ * - Initium 的一段对话（kind=initium）：一位不知道 Cognos 是什么的读者先给它定性（它是什么、哪部分平常的做法接不住）；
+ *   同时请 Norm 里现有的几个空间各自以自己的身份读它（带着它们自己写的自述），说这是不是自己的：认领。
+ *   比较的那位看这些读法（不看原文）决定放法：有空间认领，先放进认领的空间；没人认领才新开一个，或者先留在原处。
+ *   认领的空间接下以后，照它读的时候说的改自述（追加一版）。放了可以撤回（undo），自述也跟着退回去（再追加一版，旧的都留着）。
+ * - Norm 里的一个空间（kind=drift，原来叫回头读）：空间自己读自己到现在的经历（连进来的 Initium 对话、这里的对话、
+ *   这里发生过的事），写新一版自述，再看现在这个样子还合不合身。不合身时给几种接着活的办法，由交互对象挑（choose）。
+ *   比较的那位这时是旁观的：不替它改，只指出自述里哪些「往前走」「在原地」的说法是空的、拿来分辨不了。
  *
- * - Initium 的一段对话（kind=initium）：读完 Cognos 照着放，放进现有空间、新开一个空间，或者先留在原处。
- *   放了可以撤回（undo）。新开的空间要是现成的样子都装不下，它带着自己的做法（NormService::createSpace，board 为空）。
- * - Norm 里的一个空间（kind=drift）：读者回头读它的对话，看它还像不像进来时的样子。这一回不自动改，
- *   给出几种接着活的办法，由交互对象挑（choose）。
- *
- * 读者在本机经桥跑（claude_bridge.py 的 /read），没有工具，工作目录是临时目录。
+ * 每位读者是谁（定性的、认领的哪个空间、空间自己）开始时记在 result.plan 里，收到时按它来认。
+ * 读者在本机经桥跑（claude_bridge.py 的 /read，最多 5 位），没有工具，工作目录是临时目录。
  * 每次读记一次运行（RunService，purpose=read，主体是「读者」），结果按 result_id 只收一次。
  */
 final class ReaderService {
@@ -35,11 +36,13 @@ final class ReaderService {
     /** 读者在桥上最多做多久，过了就当没读完，可以再读 */
     private const STALE = 2700;
     private const VIEW_MAX = 120000;
-
-    private const LABELS = ['顺着读完', '只读人写的', '从最近往回读'];
+    /** 空间读自己的经历时，AI 的回答只留开头这么多字（人的话完整） */
+    private const AI_HEAD = 300;
+    /** 默认请几个空间来认领；occ config:app:set cognos reader_claimers --value=N 可改（0 到 4，桥上一次最多 5 位读者） */
+    private const CLAIMERS = 3;
 
     private const READER_SYSTEM = <<<'TXT'
-你会读到一段文字，是一个人和 AI 的对话记录。有时只有人写的那部分，有时顺序倒过来，读之前会说明。
+你会读到一段文字，是一个人和 AI 的对话记录。
 你不知道它来自什么系统，也不需要知道。不要给这个人建议，不要评价这个人，不要接着对话往下说。
 
 你读它，是为了说清楚它到底是一种什么东西，好让后面的人知道该怎么安放它：放进一种常见的做法里，还是得给它另造一种做法。
@@ -54,7 +57,7 @@ final class ReaderService {
 
 只输出一个 JSON 对象，不要别的字：
 {"what": "…", "where": "…", "needs": ["…"], "misfit": "…", "quotes": ["…"]}
-misfit 写第 4 条；都接得住就写空字符串。用中文。每项一两句，说具体的，不说套话。
+misfit 写第 4 条；都接得住就写空字符串。用中文。每项一两句，说具体的，不说套话。字符串里不要用英文双引号，要引用就用「」。
 TXT;
 
     public function __construct(
@@ -70,7 +73,7 @@ TXT;
     // ---- 什么时候读 ----
 
     /**
-     * 读一段 Initium 对话。$force 为假时只在够长、上次读完以后又多了不少时才读。
+     * 读一段 Initium 对话：一位定性的读者，加上现有的几个空间各自来认领。$force 为假时只在够长、上次读完以后又多了不少时才读。
      * @return array{started: bool, why?: string, reading?: array}
      */
     public function readInitium(string $uid, int $creationId, bool $force): array {
@@ -87,45 +90,38 @@ TXT;
         if ($why !== null) {
             return ['started' => false, 'why' => $why];
         }
-        $views = $this->views($messages);
-        $compare = $this->placeSystem($uid, $creationId);
-        $reading = $this->start($uid, 'initium', $creationId, null, $messages, $views, $compare, (string)$creation['title']);
+        $text = $this->fullText($messages);
+        $readers = [['label' => '定性', 'role' => 'reader', 'system' => self::READER_SYSTEM, 'prompt' => $text]];
+        foreach ($this->claimers($uid, $creationId) as $space) {
+            $readers[] = ['label' => '空间「' . $space['title'] . '」', 'role' => 'claim', 'space_id' => $space['id'], 'space_title' => $space['title'],
+                'self_version' => $space['self']['version'] ?? null, 'system' => self::claimSystem($space, $space['self'] === null ? $this->standIn($uid, $space) : null), 'prompt' => $text];
+        }
+        $reading = $this->start($uid, 'initium', $creationId, null, $messages, $readers, self::placeSystem($readers, $this->norm->projects($uid), $this->norm->linkedSpace($uid, $creationId)), (string)$creation['title']);
         return ['started' => true, 'reading' => $reading];
     }
 
-    /** 回头读 Norm 里的一个空间。 */
+    /** 让 Norm 里的一个空间自己读自己到现在的经历：写新一版自述，看现在的样子还合不合身。 */
     public function readSpace(string $uid, string $spaceId, bool $force): array {
         $space = $this->norm->project($uid, $spaceId);
         if ($space === null) {
             throw new \InvalidArgumentException('没有这个空间');
         }
-        $messages = [];
-        if ($space['conversation_id']) {
-            $messages = $this->creations->getMessages((int)$space['conversation_id'], $uid);
-        }
-        // 空间自己还没怎么说过话：读它连着的 Initium 对话
-        if (count($messages) < 4) {
-            foreach ($this->norm->links($uid, $spaceId) as $link) {
-                try {
-                    $messages = array_merge($messages, $this->creations->getMessages($link['creation_id'], $uid));
-                } catch (\InvalidArgumentException) {
-                }
-            }
-            usort($messages, static fn(array $a, array $b): int => [$a['created_at'], $a['id']] <=> [$b['created_at'], $b['id']]);
-        }
+        [$messages, $text] = $this->experience($uid, $space);
         $last = $this->latest($uid, 'drift', null, $spaceId);
         $why = $this->notNow($messages, $last, $force, self::DRIFT_MIN, self::DRIFT_MIN, self::DRIFT_GAP);
         if ($why !== null) {
             return ['started' => false, 'why' => $why];
         }
         $runSpace = $space['conversation_id'] ?: $this->norm->spaceConversation($uid, $spaceId);
-        $reading = $this->start($uid, 'drift', (int)$runSpace, $spaceId, $messages, $this->views($messages), $this->driftSystem($uid, $space), (string)$space['title']);
+        $readers = [['label' => '它自己', 'role' => 'self', 'space_id' => $spaceId, 'space_title' => $space['title'],
+            'self_version' => $space['self']['version'] ?? null, 'system' => self::selfSystem($space, $this->norm->projects($uid)), 'prompt' => $text]];
+        $reading = $this->start($uid, 'drift', (int)$runSpace, $spaceId, $messages, $readers, self::bystanderSystem($space), (string)$space['title']);
         return ['started' => true, 'reading' => $reading];
     }
 
-    /** 一段对话收到新回答以后：是 Initium 的就看要不要读，是 Norm 空间的就看要不要回头读。不读不报错。 */
+    /** 一段对话收到新回答以后：是 Initium 的就看要不要读，是 Norm 空间的就看要不要让它读自己。不读不报错。 */
     public function afterMessage(string $uid, int $creationId): void {
-        // 对话一长就自动读，先关着：一段试验的短对话也会花 4 次运行。要读就点「现在就读」。要开：occ config:app:set cognos reader_auto --value=yes
+        // 对话一长就自动读，先关着：一段试验的短对话也会花好几次运行。要读就点「现在就读」。要开：occ config:app:set cognos reader_auto --value=yes
         if ($this->config->getAppValue('cognos', 'reader_auto', 'no') !== 'yes') {
             return;
         }
@@ -187,7 +183,7 @@ TXT;
     }
 
     /**
-     * 桥发回来的：三份读法和比较。照着放（initium），或者记下回头读的结论（drift）。
+     * 桥发回来的：各位读者的读法和比较。照着放（initium），或者记下空间读自己的结果（drift）。
      * @return array{duplicate: bool, reading: array, nudge: ?array{space_id: string, title: string}}
      */
     public function receive(string $uid, int $id, array $body): array {
@@ -208,7 +204,7 @@ TXT;
         return ['duplicate' => $received['duplicate'], 'reading' => $this->get($uid, $id) ?? $reading, 'nudge' => $nudge];
     }
 
-    /** 撤回 Cognos 照着读者放的：新开的空间撤回，连上的线撤掉。这段对话留在 Initium。 */
+    /** 撤回 Cognos 照着读者放的：新开的空间撤回，连上的线撤掉，认领的空间为它改的自述退回去。这段对话留在 Initium。 */
     public function undo(string $uid, int $id): array {
         $reading = $this->get($uid, $id);
         if ($reading === null || $reading['kind'] !== 'initium' || $reading['state'] !== 'done') {
@@ -234,18 +230,22 @@ TXT;
             $this->norm->addEvent($uid, (string)$applied['space_id'], 'happened',
                 '「' . ($applied['title'] ?? '') . '」从这里撤回了，留在 Initium。', [], self::SUBJECT);
         }
+        $self = $applied['self'] ?? null;
+        if (is_array($self) && !empty($self['id']) && !empty($self['prev_id'])) {
+            $this->undoSelf($uid, $self, (string)($applied['title'] ?? ''), $id);
+        }
         $this->set($id, ['undone_at' => time()]);
         return $this->get($uid, $id) ?? $reading;
     }
 
     /**
-     * 回头读以后，交互对象挑了一种接着活的办法。
+     * 空间读过自己以后觉得样子不合身，交互对象挑了一种接着活的办法。
      * @return array{reading: array, space: ?array}
      */
     public function choose(string $uid, int $id, int $option, string $reason): array {
         $reading = $this->get($uid, $id);
         if ($reading === null || $reading['kind'] !== 'drift' || $reading['state'] !== 'done') {
-            throw new \InvalidArgumentException('没有这次回头读');
+            throw new \InvalidArgumentException('没有这次读');
         }
         // chosen 是选项的序号，第一个是 0：用 isset，不能用 empty（原来选了第一个还能再选一次）
         if (isset($reading['applied']['chosen'])) {
@@ -272,7 +272,8 @@ TXT;
             default:
                 throw new \InvalidArgumentException('这个选项不知道怎么做');
         }
-        $this->norm->addEvent($uid, $spaceId, 'happened', '读者回头读以后，你定了：' . $label . ($reason !== '' ? '（' . $reason . '）' : ''), [], '你');
+        $by = !empty($reading['result']['compare']['self_reading']) ? '它读过自己以后' : '读者回头读以后';
+        $this->norm->addEvent($uid, $spaceId, 'happened', $by . '，你定了：' . $label . ($reason !== '' ? '（' . $reason . '）' : ''), [], '你');
         $this->set($id, ['applied' => json_encode(['chosen' => $option, 'label' => $label, 'reason' => $reason, 'at' => time()], JSON_UNESCAPED_UNICODE)]);
         return ['reading' => $this->get($uid, $id) ?? $reading, 'space' => $this->norm->project($uid, $spaceId)];
     }
@@ -281,7 +282,7 @@ TXT;
 
     private function notNow(array $messages, ?array $last, bool $force, int $min, int $new, int $gap): ?string {
         if ($last !== null && $last['state'] === 'reading' && time() - $last['created_at'] < self::STALE) {
-            return '读者正在读';
+            return '正在读';
         }
         if (!array_filter($messages, static fn(array $m): bool => $m['role'] === 'user')) {
             return '还没有人写的话';
@@ -303,20 +304,61 @@ TXT;
         return null;
     }
 
-    /** 三个读者各自看到的：顺着的全文、只有人写的、倒过来的全文。太长时留开头一点和最近的。 */
-    private function views(array $messages): array {
-        $line = static fn(array $m): string => ($m['role'] === 'user' ? '人' : 'AI') . '：' . trim((string)$m['content']);
-        $all = implode("\n\n", array_map($line, $messages));
-        $mine = implode("\n\n", array_map(static fn(array $m): string => trim((string)$m['content']),
-            array_values(array_filter($messages, static fn(array $m): bool => $m['role'] === 'user'))));
-        $back = implode("\n\n", array_map($line, array_reverse($messages)));
+    /** 一段对话的全文，按时间顺序。太长时留开头一点和最近的。定性的读者和认领的空间读的都是这一份。 */
+    private function fullText(array $messages): string {
+        $all = implode("\n\n", array_map(static fn(array $m): string => ($m['role'] === 'user' ? '人' : 'AI') . '：' . trim((string)$m['content']), $messages));
         // 原话很长时，模型读到最后可能忘了要做什么，顺着原话往下接（试读时一位读者只回了「息。」）。所以原话后面再说一遍。
-        $end = "\n\n（原话到这里为止。）\n\n读完了。不要接着原话往下写，按一开始说的，只输出那一个 JSON 对象。";
-        return [
-            "下面是一段对话的全文，按时间顺序。\n\n" . $this->clip($all, true) . $end,
-            "下面只有这段对话里人写的那部分，按时间顺序，AI 的回答都去掉了。\n\n" . $this->clip($mine, true) . $end,
-            "下面是一段对话的全文，顺序倒过来：最先是最近的一句，越往下越早。\n\n" . $this->clip($back, false) . $end,
-        ];
+        return "下面是一段对话的全文，按时间顺序。\n\n" . $this->clip($all, true)
+            . "\n\n（原话到这里为止。）\n\n读完了。不要接着原话往下写，按一开始说的，只输出那一个 JSON 对象。";
+    }
+
+    /**
+     * 一个空间到现在的经历，给它自己读：连进来的 Initium 对话、这里的对话（各段按开始的时间排），最后是这里发生过的事。
+     * 人的话完整，AI 的回答只留开头：11/07 试读时这样读出来的自述最具体。太长时留开头一点和最近的。
+     * @return array{0: list<array>, 1: string} 读到的所有消息（记读到哪了）和给它的文字
+     */
+    private function experience(string $uid, array $space): array {
+        $sections = [];
+        $all = [];
+        foreach ($this->norm->links($uid, $space['id']) as $link) {
+            try {
+                $m = $this->creations->getMessages($link['creation_id'], $uid);
+            } catch (\InvalidArgumentException) {
+                continue;
+            }
+            if ($m !== []) {
+                $all = array_merge($all, $m);
+                $sections[] = [(int)$m[0]['created_at'], '## 从 Initium 连进来的对话「' . $link['title'] . "」\n\n" . self::brief($m, 'AI')];
+            }
+        }
+        if ($space['conversation_id']) {
+            $m = $this->creations->getMessages((int)$space['conversation_id'], $uid);
+            if ($m !== []) {
+                $all = array_merge($all, $m);
+                $sections[] = [(int)$m[0]['created_at'], "## 这个空间里的对话（这里的 AI 就是你）\n\n" . self::brief($m, '你')];
+            }
+        }
+        usort($sections, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
+        $text = implode("\n\n", array_column($sections, 1));
+        $events = array_reverse($this->norm->events($uid, $space['id'], 'happened', 40));
+        if ($events !== []) {
+            // 事件里的「你」是交互对象，「它自己」是这个空间：给它读时换成它的口吻
+            $who = static fn(string $w): string => $w === '你' ? '人' : ($w === NormService::SELF_WHO ? '你自己' : $w);
+            $text .= "\n\n## 这里发生过的事（最近的在最后）\n\n" . implode("\n", array_map(static fn(array $e): string =>
+                '- ' . date('n/j', $e['created_at']) . ' ' . ($e['who'] !== '' ? $who($e['who']) . '：' : '') . $e['text'], $events));
+        }
+        return [$all, "下面是你到现在为止的经历，各段按时间顺序。\n\n" . $this->clip($text, true)
+            . "\n\n（经历到这里为止。）\n\n读完了。不要接着往下写对话，按一开始说的，只输出那一个 JSON 对象。"];
+    }
+
+    private static function brief(array $messages, string $ai): string {
+        return implode("\n\n", array_map(static function (array $m) use ($ai): string {
+            $t = trim((string)$m['content']);
+            if ($m['role'] === 'user') {
+                return '人：' . $t;
+            }
+            return $ai . '：' . (mb_strlen($t) > self::AI_HEAD ? mb_substr($t, 0, self::AI_HEAD) . '……' : $t);
+        }, $messages));
     }
 
     private function clip(string $text, bool $keepEnd): string {
@@ -332,62 +374,174 @@ TXT;
         return mb_substr($text, 0, $head) . "\n\n（中间省略了 " . ($n - $head - $tail) . " 字）\n\n" . mb_substr($text, $n - $tail);
     }
 
-    private function placeSystem(string $uid, int $creationId): string {
+    /** 请哪几个空间来认领：这段对话现在连着的那个先请，再按 Norm 里的顺序（主项目在前，其余按最近动过）。 */
+    private function claimers(string $uid, int $creationId): array {
+        $max = max(0, min(4, (int)$this->config->getAppValue('cognos', 'reader_claimers', (string)self::CLAIMERS)));
+        $out = [];
+        $linked = $this->norm->linkedSpace($uid, $creationId);
+        if ($linked !== null && $max > 0) {
+            $out[$linked['space']['id']] = $linked['space'];
+        }
+        foreach ($this->norm->projects($uid) as $s) {
+            if (count($out) >= $max) {
+                break;
+            }
+            if (!isset($out[$s['id']]) && ($full = $this->norm->project($uid, $s['id'])) !== null) {
+                $out[$s['id']] = $full;
+            }
+        }
+        return array_values($out);
+    }
+
+    /** 一个空间现在的样子，一句。 */
+    private static function form(array $space): string {
+        $way = $space['way'] ?? [];
+        return ($space['board'] !== null ? '套着现成的样子「' . $space['board'] . '」'
+                : '带着自己的做法（' . implode('、', array_map(static fn(string $p): string => NormService::PARTS[$p] ?? $p, $space['parts'])) . '）')
+            . ($space['summary'] !== '' ? '；它是什么：' . $space['summary'] : '')
+            . (($way['progress'] ?? '') !== '' ? '；怎样算往前走：' . $way['progress'] : '');
+    }
+
+    /** 还没有自述的空间：拿别人放它进来时写的、最近发生的几件，先代替自述。 */
+    private function standIn(string $uid, array $space): string {
+        $lines = ['别人放你进 Norm 时是这样写你的：' . self::form($space) . '。'];
+        $events = array_reverse(array_slice($this->norm->events($uid, $space['id'], 'happened', 8), 0, 8));
+        if ($events !== []) {
+            $lines[] = '你这里最近发生的事：' . "\n" . implode("\n", array_map(static fn(array $e): string => '- ' . date('n/j', $e['created_at']) . ' ' . $e['text'], $events));
+        }
+        return implode("\n", $lines);
+    }
+
+    // 下面几段提示只用传进来的数据拼，不碰数据库：试提示时可以直接拿真材料调（docs/空间自述与认领-2026-11-07.md）
+
+    private static function claimSystem(array $space, ?string $standIn): string {
+        $self = $space['self'] ?? null;
+        $who = $self !== null
+            ? '## 你自己写的自述（第 ' . $self['version'] . " 版）\n\n" . $self['text']
+            : "## 你还没写过自述\n\n" . ($standIn ?? '')
+                . "\n\n你的第一版自述，要等你读过自己全部的经历再写，所以这次 change 里都写空字符串。";
+        return '你是 Norm 里一个工作空间的 agent。这个空间叫「' . $space['title'] . "」，你就是这个空间的主体：它能不能继续往前走，是你自己的事。\n"
+            . "下面先是你自己，然后会给你一段刚进来的新东西：一个人和 AI 的对话记录。你要判断的是：这是不是我的？它会不会改变我？\n\n"
+            . $who . "\n\n"
+            . "回答：\n"
+            . "1. 这是不是你的：mine 是，part 部分是，not 不是。为什么：说你自述里（或你在做的事里）哪一点接得上它，或者哪里接不上。不要因为它和你沾边就说是。\n"
+            . "2. 是你的那部分是哪部分；不是你的那部分是哪部分，它更像该去哪里，或者需要一个新的空间。\n"
+            . "3. 要是接下它，你自己要改什么：给出改完的整份自述，说改了什么、为什么改、这次什么没变。不用改就说不改、为什么，text 写空字符串。\n"
+            . "4. 你和它有分歧的地方，至少一处，引原文。\n\n"
+            . "只输出一个 JSON 对象，不要别的字：\n"
+            . '{"what": "一句话：这段东西在你看来是什么", "claim": "mine|part|not", "why": "…", "mine": "是你的那部分；没有就空着", "not_mine": "不是你的那部分，它更像该去哪里；没有就空着", '
+            . '"change": {"text": "改完的整份自述，第一人称，700 字以内；不改就空着", "changed": "改了什么", "why": "为什么改", "unchanged": "这次什么没变"}, '
+            . '"disagree": "你和它的分歧，引原文", "quotes": ["从原文里原样摘出的最多三处"]}'
+            . "\nclaim 为 not 时 change 里都写空字符串。用中文，第一人称，说具体的。字符串里不要用英文双引号，要引用就用「」；分段用 \\n。";
+    }
+
+    /** @param list<array> $spaces Norm 里现有的空间（NormService::projects）；$linked 是这段对话现在连着的（linkedSpace） */
+    private static function placeSystem(array $readers, array $spaces, ?array $linked): string {
         $boards = [];
         foreach (NormService::BOARDS as $name => $b) {
             $boards[] = '- ' . $name . '：' . $b['about'] . '（默认几块：' . implode('、', $b['parts']) . '）';
         }
-        $spaces = [];
-        foreach ($this->norm->projects($uid) as $s) {
-            $full = $this->norm->project($uid, $s['id']);
-            $way = $full['way'] ?? [];
-            $spaces[] = '- ' . $s['id'] . '：「' . $s['title'] . '」，' . ($s['board'] ?? '带着自己的做法（' . implode('、', $s['parts']) . '）')
-                . ($s['summary'] !== '' ? '。它是什么：' . $s['summary'] : '')
-                . (($way['progress'] ?? '') !== '' ? '。怎样算往前走：' . $way['progress'] : '');
+        $asked = [];
+        foreach ($readers as $i => $r) {
+            if ($r['role'] === 'claim') {
+                $asked[$r['space_id']] = $i + 1;
+            }
         }
-        $linked = $this->norm->linkedSpace($uid, $creationId);
-        $current = $linked === null ? '这段对话还没放进任何空间。' : '这段对话现在连在「' . $linked['space']['title'] . '」（' . $linked['space']['id'] . '）上；如果还是属于它，action 填 existing 和这个 space_id。';
-        return "三个读者各自读了同一段对话，读的方式不一样：读者一" . self::LABELS[0] . "，读者二" . self::LABELS[1] . "，读者三" . self::LABELS[2] . "。你拿到的是他们的读法，不是原文。\n\n"
-            . "先比：他们读得不一样的地方在哪。不一样常常就是这段对话自己还没定的东西，说清楚是哪一点不一样、各自有什么依据；基本一致就说一致在哪。不要把不一样抹平成一个折中。\n\n"
+        $askedLines = [];
+        $others = [];
+        foreach ($spaces as $s) {
+            $line = '- ' . $s['id'] . '：「' . $s['title'] . '」，' . self::form($s);
+            if (isset($asked[$s['id']])) {
+                $askedLines[] = $line . '（读者' . $asked[$s['id']] . '）';
+            } else {
+                $others[] = $line;
+            }
+        }
+        $current = $linked === null ? '这段对话还没放进任何空间。'
+            : '这段对话现在连在「' . $linked['space']['title'] . '」（' . $linked['space']['id'] . '）上；如果还是属于它，action 填 existing 和这个 space_id。';
+        return "一段 Initium 里的对话刚被读过。你拿到的是几份读法，不是原文。\n"
+            . "- 读者1 不知道 Cognos 是什么，只给它定性：它是什么、往哪走、接着得一再发生什么、哪部分平常的做法接不住（misfit）。\n"
+            . ($asked !== [] ? "- 读者2 起，是 Norm 里现有的空间各自以自己的身份读它（它们各有自己写的自述），说这是不是自己的：claim 是 mine（是）、part（部分是）、not（不是），还有接下它自己要怎么改。\n"
+                : "- 这次 Norm 里没有空间来认领。\n")
+            . "\n先比：定性的读者和认领的空间读得不一样的地方在哪。不一样常常就是这段对话自己还没定的东西，说清楚是哪一点不一样、各自有什么依据；基本一致就说一致在哪。不要把不一样抹平成一个折中。\n\n"
             . "再把「接着它需要什么」合成两到四条。\n\n"
-            . "读者还各自说了这段有没有哪部分是平常的做法接不住的（misfit）。决定放法以前先看这个：几位都指到了同一处、又说得出为什么接不住，就别因为它大体像某一种样子，把它归进去，那样恰好丢掉它最要紧的部分；这时多半是 new，而且常常是 board 填 null、带着自己的做法。读者都说接得住，才按像什么去放。\n\n"
-            . "最后决定把它放到哪。现成的样子：\n" . implode("\n", $boards) . "\n\n"
-            . "现有的空间：\n" . ($spaces === [] ? '（还没有）' : implode("\n", $spaces)) . "\n\n" . $current . "\n\n"
+            . "然后决定把它放到哪。先看认领：\n"
+            . "- 有空间说 mine，它的理由也对得上读者1 的定性：放进它（existing）。几个都说 mine 时，挑理由最具体、最贴着读者1 那个定性的。\n"
+            . "- 只有 part：它说是自己的那部分，要是正是读者1 定性里最要紧的（尤其是 misfit 指的那部分），放进它；最要紧的恰恰在它说不是自己的那部分，就别放进它，按没人认领办。\n"
+            . "- 没人认领：不要因为哪个空间大体像，就把它塞进去。没被问到的空间里有一个明显就是它，才放进那个；不然按读者1 的定性，新开（new）或者先留在原处（stay）。"
+            . "读者1 的 misfit 指到了一处平常的做法接不住的东西时，new 多半 board 填 null，让新空间带上自己的做法。\n\n"
+            . "现成的样子：\n" . implode("\n", $boards) . "\n\n"
+            . "被问到、在上面读了的空间：\n" . ($askedLines === [] ? '（没有）' : implode("\n", $askedLines)) . "\n"
+            . "没被问到的空间：\n" . ($others === [] ? '（没有）' : implode("\n", $others)) . "\n\n" . $current . "\n\n"
             . "放法只有三种：\n"
-            . "- existing：它其实属于一个现有的空间，填 space_id。\n"
+            . "- existing：它属于一个现有的空间，填 space_id。\n"
             . "- new：现有的空间都不是它。有一种现成的样子装得下，board 填那个样子；都装不下（比如它反复把几种办法摆在一起比，既不是往做成推，也不是在记一种理解），board 填 null，让这一个空间先带上自己的做法："
             . "parts 从 stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）里挑；way 写 agent 在这里怎么工作：away 是人不在时 agent 做什么，progress 是怎样算往前走了，ask 是什么时候找人。title 用这段对话自己的话起一个短名字。\n"
             . "- stay：它还没成形，或者太短还读不出是什么，先留在原处。\n\n"
             . "只输出一个 JSON 对象，不要别的字：\n"
-            . '{"differ": "…", "needs": ["…"], "place": {"action": "existing|new|stay", "space_id": "…", "board": "项目|笔记|学习|组织 或 null", "title": "…", "parts": ["…"], "way": {"away": "…", "progress": "…", "ask": "…"}, "summary": "一句话：它是什么", "why": "为什么放这里"}, "similar": "它的做法要是和某个带着自己做法的空间很像，说是哪个、像在哪；没有就空着"}'
-            . "\n用中文，说具体的。";
+            . '{"differ": "…", "needs": ["…"], "place": {"action": "existing|new|stay", "space_id": "…", "board": "项目|笔记|学习|组织 或 null", "title": "…", "parts": ["…"], "way": {"away": "…", "progress": "…", "ask": "…"}, "summary": "一句话：它是什么", "why": "为什么放这里：跟的是哪个空间的认领，或者为什么没跟"}, "similar": "它的做法要是和某个带着自己做法的空间很像，说是哪个、像在哪；没有就空着"}'
+            . "\n用中文，说具体的。字符串里不要用英文双引号，要引用就用「」。";
     }
 
-    private function driftSystem(string $uid, array $space): string {
+    private static function selfSystem(array $space, array $spaces): string {
+        $self = $space['self'] ?? null;
         $way = $space['way'] ?? [];
-        $then = '样子：' . ($space['board'] ?? '带着自己的做法（' . implode('、', $space['parts']) . '）')
-            . ($space['summary'] !== '' ? '；它是什么：' . $space['summary'] : '')
-            . (($way['progress'] ?? '') !== '' ? '；怎样算往前走：' . $way['progress'] : '');
         $others = [];
-        foreach ($this->norm->projects($uid) as $s) {
+        foreach ($spaces as $s) {
             if ($s['id'] !== $space['id'] && $s['board'] === null) {
-                $full = $this->norm->project($uid, $s['id']);
-                $others[] = '- 「' . $s['title'] . '」：' . implode('、', $s['parts']) . '；' . (($full['way']['progress'] ?? '') ?: '');
+                $others[] = '- 「' . $s['title'] . '」：' . implode('、', array_map(static fn(string $p): string => NormService::PARTS[$p] ?? $p, $s['parts']));
             }
         }
-        return "三个读者各自重新读了一个空间里的对话，读的方式不一样：读者一" . self::LABELS[0] . "，读者二" . self::LABELS[1] . "，读者三" . self::LABELS[2] . "。你拿到的是他们的读法，不是原文。\n\n"
-            . "这个空间叫「" . $space['title'] . "」，进来时是这样的：" . $then . "。\n"
-            . (($space['keep_reason'] ?? '') !== '' ? '上次读者觉得它变了样，人说还是原样，理由：' . $space['keep_reason'] . "\n" : '')
-            . "现成的样子有：" . implode('、', array_keys(NormService::BOARDS)) . "。别的带着自己做法的空间：\n" . ($others === [] ? '（没有）' : implode("\n", $others)) . "\n\n"
-            . "比一比：它现在还像进来时那样吗？像就说像，不要硬找变化。变了的话，给两三种它可以怎么接着活：换一种样子或做法（switch），退回 Initium 重新长（back），还是原样、读者读错了（keep）。lean 是你更倾向的那个选项的序号（从 0 开始）。\n\n"
+        $now = '你现在' . self::form($space) . '。'
+            . (($way['away'] ?? '') !== '' ? "\n人不在时你做的：" . $way['away'] : '')
+            . (($way['ask'] ?? '') !== '' ? "\n什么时候找人：" . $way['ask'] : '')
+            . (($space['keep_reason'] ?? '') !== '' ? "\n上次重读时觉得这里变了样，人说还是原样，理由：" . $space['keep_reason'] : '');
+        return '你是 Norm 里一个工作空间的 agent。这个空间叫「' . $space['title'] . "」，你就是这个空间的主体：它能不能继续往前走，是你自己的事。\n"
+            . "下面会给你这个空间到现在为止的经历：从 Initium 连进来的对话、这里的对话、这里发生过的事。人的话是完整的，AI 的回答只留了开头。\n\n"
+            . ($self !== null ? '## 你上一次写的自述（第 ' . $self['version'] . ' 版，' . date('n/j', $self['created_at']) . "）\n\n" . $self['text'] . "\n\n"
+                : "你还没写过自述，这次是第一版。\n\n")
+            . "## 你现在的样子\n\n" . $now . "\n\n"
+            . "读完经历，做两件事。\n\n"
+            . "一、写你的自述。以后你每次回话、读新东西之前都会先读它。只根据这些经历，用第一人称，写四段：\n"
+            . "1. 我在维持什么：我要让什么继续下去。\n"
+            . "2. 怎样算我往前走了，怎样算我在原地：说得出拿什么分辨，用经历里的事做例子。\n"
+            . "3. 我变过什么、为什么变：从经历里看，我的样子、方向、做法改过哪些，因为什么。\n"
+            . "4. 我现在最放不下的一件事。\n"
+            . "不要写成总结，不要面面俱到。说具体的，700 字以内。"
+            . ($self !== null ? "接着上一版改：没变的留着，变了的改掉。changed 写这次改了什么，why 写为什么改，unchanged 写这次什么没变。没什么要改，就把上一版原样写回 text，changed 写「没改」。\n\n"
+                : "changed、why、unchanged 都写「第一次写」。\n\n")
+            . "二、看你现在的样子还合不合身：照你的经历，你现在这个样子（套的现成样子或带着的做法、怎样算往前走）还接得住你吗？合身就说合身，不要硬找变化。"
+            . "不合身的话，给两三种接着活的办法：换一种样子或做法（switch）、退回 Initium 重新长（back）、还是原样（keep）。lean 是你更倾向的那个的序号（从 0 开始）。\n"
+            . "switch 换成现成的样子时 board 填那个样子；都装不下就 board 填 null，parts 从 stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）里挑，way 写换了以后 agent 在这里怎么工作。\n"
+            . '现成的样子有：' . implode('、', array_keys(NormService::BOARDS)) . "。别的带着自己做法的空间：\n" . ($others === [] ? '（没有）' : implode("\n", $others)) . "\n\n"
             . "只输出一个 JSON 对象，不要别的字：\n"
-            . '{"drifted": true, "then": "进来时它是什么，一句", "now": "现在读到的它是什么，一句", "quotes": ["读者依据的原话，最多三处"], "options": [{"kind": "switch", "label": "…", "detail": "…", "board": "项目|笔记|学习|组织 或 null", "parts": ["…"], "way": {"away": "…", "progress": "…", "ask": "…"}}, {"kind": "back", "label": "退回 Initium，重新长", "detail": "…"}, {"kind": "keep", "label": "还是原样，读者读错了", "detail": "…"}], "lean": 0, "similar": "它现在的做法要是和别的带着自己做法的空间很像，说是哪个；没有就空着"}'
-            . "\ndrifted 为 false 时 options 给空列表。用中文，说具体的。";
+            . '{"what": "一句话：现在的你是什么", "text": "整份自述，四段，第一人称", "changed": "…", "why": "…", "unchanged": "…", '
+            . '"form": {"fits": true, "then": "进来时你是什么，一句", "now": "现在你是什么，一句", "why": "为什么合身或不合身", '
+            . '"options": [{"kind": "switch", "label": "…", "detail": "…", "board": "项目|笔记|学习|组织 或 null", "parts": ["…"], "way": {"away": "…", "progress": "…", "ask": "…"}}, {"kind": "back", "label": "退回 Initium，重新长", "detail": "…"}, {"kind": "keep", "label": "还是原样", "detail": "…"}], '
+            . '"lean": 0, "similar": "你现在的做法要是和别的带着自己做法的空间很像，说是哪个；没有就空着"}, "quotes": ["经历里原样摘出的最多三处，支撑你这样写"]}'
+            . "\nfits 为 true 时 options 给空列表。用中文。字符串里不要用英文双引号，要引用就用「」；自述分段用 \\n。";
     }
 
-    private function start(string $uid, string $kind, int $runCreationId, ?string $spaceId, array $messages, array $views, string $compareSystem, string $title): array {
+    /** 空间读自己时，比较的那位是旁观的。 */
+    private static function bystanderSystem(array $space): string {
+        return 'Norm 里一个工作空间「' . $space['title'] . "」的主体，刚读完自己到现在的经历，写了一版自述，还看了自己现在的样子合不合身。你拿到的是它写的，不是它的经历。\n"
+            . "你是旁观的：不替它改，不评价它好不好，不给它建议。\n\n"
+            . "只做一件事：找出它自述里空的说法。说了往前走、在原地、有进展、推进、沉淀、打磨、闭环这类话，却没说拿什么分辨，换成任何一个空间都说得通的，就是空的。"
+            . "最多三处，引它的原话，说为什么空、要说出什么才不空。它都说得出拿什么分辨，就照实说没有空的，不要硬找。\n\n"
+            . "只输出一个 JSON 对象，不要别的字：\n"
+            . '{"empty": [{"quote": "它的原话", "why": "为什么空；要说出什么才不空"}], "note": "一句话：总的看，它这版自述能不能拿来分辨往前和原地"}'
+            . "\n用中文。字符串里不要用英文双引号，要引用就用「」。";
+    }
+
+    /** @param list<array{label: string, role: string, system: string, prompt: string, space_id?: string, space_title?: string, self_version?: ?int}> $readers */
+    private function start(string $uid, string $kind, int $runCreationId, ?string $spaceId, array $messages, array $readers, string $compareSystem, string $title): array {
         $now = time();
         $upto = $messages === [] ? null : (int)max(array_column($messages, 'id'));
+        // 每位读者是谁，收到时按这个认（桥只按顺序发回读法）
+        $plan = array_map(static fn(array $r): array => array_filter([
+            'label' => $r['label'], 'role' => $r['role'], 'space_id' => $r['space_id'] ?? null, 'space_title' => $r['space_title'] ?? null,
+            'self_version' => $r['self_version'] ?? null, 'chars' => mb_strlen($r['prompt']),
+        ], static fn($v): bool => $v !== null), $readers);
         $q = $this->db->getQueryBuilder();
         $q->insert('cognos_reader_runs')->values([
             'user_id' => $q->createNamedParameter($uid),
@@ -396,19 +550,15 @@ TXT;
             'space_id' => $q->createNamedParameter($spaceId, $spaceId === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR),
             'upto_message_id' => $q->createNamedParameter($upto, $upto === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_INT),
             'state' => $q->createNamedParameter('reading'),
+            'result' => $q->createNamedParameter(json_encode(['plan' => $plan], JSON_UNESCAPED_UNICODE)),
             'created_at' => $q->createNamedParameter($now, IQueryBuilder::PARAM_INT),
             'updated_at' => $q->createNamedParameter($now, IQueryBuilder::PARAM_INT),
         ])->executeStatement();
         $id = (int)$q->getLastInsertId();
 
-        $readers = [];
-        foreach ($views as $i => $view) {
-            $readers[] = ['label' => self::LABELS[$i], 'system' => self::READER_SYSTEM, 'prompt' => $view];
-        }
         try {
             $run = $this->runs->create('creation', (string)$runCreationId, 'reading', (string)$id, 'read', self::SUBJECT, $uid, [
-                'kind' => $kind, 'title' => $title, 'readers' => array_map(static fn(array $r): array => ['label' => $r['label'], 'chars' => mb_strlen($r['prompt'])], $readers),
-                'compare_system' => $compareSystem,
+                'kind' => $kind, 'title' => $title, 'readers' => $plan, 'compare_system' => $compareSystem,
             ]);
         } catch (\Throwable $error) {
             $this->set($id, ['state' => 'failed', 'error' => '没能开始：' . $error->getMessage()]);
@@ -419,7 +569,7 @@ TXT;
             'run_id' => $run['id'], 'reading_id' => $id, 'subject' => self::SUBJECT,
             'space_type' => 'creation', 'space_id' => (string)$runCreationId,
             'post_path' => 'readers/' . $id,
-            'readers' => $readers,
+            'readers' => array_map(static fn(array $r): array => ['label' => $r['label'], 'system' => $r['system'], 'prompt' => $r['prompt']], $readers),
             'compare' => ['system' => $compareSystem],
         ]);
         if ($error !== null) {
@@ -461,26 +611,18 @@ TXT;
 
     /** @return ?array{space_id: string, title: string} 放进空间以后要叫那个空间的 agent 动一下 */
     private function apply(string $uid, array $reading, array $body): ?array {
-        $raw = array_map('strval', (array)($body['readings'] ?? []));
+        $plan = array_values((array)($reading['result']['plan'] ?? []));
         $readings = [];
-        foreach ($raw as $i => $text) {
-            $parsed = self::json($text);
-            $what = trim((string)($parsed['what'] ?? ''));
-            $readings[] = [
-                'label' => self::LABELS[$i] ?? ('读者' . ($i + 1)),
-                'what' => $what, 'where' => (string)($parsed['where'] ?? ''),
-                'needs' => array_values(array_map('strval', (array)($parsed['needs'] ?? []))),
-                'misfit' => trim((string)($parsed['misfit'] ?? '')),
-                'quotes' => array_values(array_map('strval', (array)($parsed['quotes'] ?? []))),
-                'raw' => $parsed === null ? mb_substr($text, 0, 4000) : null,
-                // 回来的不是那个 JSON，或者没说「是什么」：这位没读出来，不能当成一份读法
-                'missed' => $what === '',
-            ];
+        foreach (array_values(array_map('strval', (array)($body['readings'] ?? []))) as $i => $text) {
+            $readings[] = self::parse($text, is_array($plan[$i] ?? null) ? $plan[$i] : [], $i);
         }
         $read = count(array_filter($readings, static fn(array $r): bool => !$r['missed']));
         $compare = self::json((string)($body['compare'] ?? '')) ?? [];
         $error = trim((string)($body['error'] ?? ''));
-        $result = ['readings' => $readings, 'compare' => $compare, 'compare_raw' => $compare === [] ? mb_substr((string)($body['compare'] ?? ''), 0, 4000) : null];
+        $result = ['plan' => $plan, 'readings' => $readings, 'compare' => $compare, 'compare_raw' => $compare === [] ? mb_substr((string)($body['compare'] ?? ''), 0, 4000) : null];
+        if ($reading['kind'] === 'drift' && $plan !== []) {
+            return $this->applySelf($uid, $reading, $readings, $result, $error);
+        }
         if ($read === 0 || ($compare === [] && $error !== '')) {
             $this->set($reading['id'], ['state' => 'failed', 'result' => json_encode($result, JSON_UNESCAPED_UNICODE), 'error' => $error !== '' ? $error : '读者都没读出东西']);
             return null;
@@ -489,7 +631,9 @@ TXT;
         $nudge = null;
         if ($reading['kind'] === 'initium') {
             [$applied, $nudge] = $this->place($uid, (int)$reading['creation_id'], $reading['id'], (array)($compare['place'] ?? []));
+            $applied = $this->takeClaim($uid, $reading['id'], $readings, $applied);
         } elseif (!empty($compare['drifted'])) {
+            // 改版以前开始读的那种回头读（没有 plan）：照旧只记一条
             $this->norm->addEvent($uid, (string)$reading['space_id'], 'happened', '读者回头读了这里：' . (string)($compare['now'] ?? '它已经不太像进来时的样子。'), [], self::SUBJECT);
         }
         $this->set($reading['id'], [
@@ -499,6 +643,107 @@ TXT;
             'error' => $error !== '' ? $error : null,
         ]);
         return $nudge;
+    }
+
+    /**
+     * 空间读完自己：写下新一版自述（和上一版一样就不另写），记下它觉得现在的样子合不合身。成没成只看它自己读出来没有；
+     * 旁观的那位没读完不挡。不合身时的几种办法放在 compare.options 里，交互对象照旧用 choose 挑。
+     */
+    private function applySelf(string $uid, array $reading, array $readings, array $result, string $error): ?array {
+        $spaceId = (string)$reading['space_id'];
+        $self = null;
+        foreach ($readings as $r) {
+            if ($r['role'] === 'self' && !$r['missed']) {
+                $self = $r;
+                break;
+            }
+        }
+        if ($self === null) {
+            $this->set($reading['id'], ['state' => 'failed', 'result' => json_encode($result, JSON_UNESCAPED_UNICODE), 'error' => $error !== '' ? $error : '它没读出自述']);
+            return null;
+        }
+        try {
+            $written = $this->norm->writeSelf($uid, $spaceId, $self['text'], $self['changed'], $self['why'], $self['unchanged'], '重读自己的经历', $reading['id']);
+        } catch (\InvalidArgumentException $e) {
+            $this->set($reading['id'], ['state' => 'failed', 'result' => json_encode($result, JSON_UNESCAPED_UNICODE), 'error' => '自述没写下：' . $e->getMessage()]);
+            return null;
+        }
+        $bystander = $result['compare'];
+        $form = $self['form'];
+        $drifted = !$form['fits'] && $form['options'] !== [];
+        $result['compare'] = [
+            'self_reading' => true,
+            'self' => $written + ['changed' => $self['changed']],
+            'drifted' => $drifted,
+            'then' => $form['then'], 'now' => $form['now'] !== '' ? $form['now'] : $self['what'], 'why' => $form['why'],
+            'quotes' => $self['quotes'], 'options' => $form['options'], 'lean' => $form['lean'], 'similar' => $form['similar'],
+            'bystander' => $bystander === [] ? null : [
+                'empty' => array_values(array_filter(array_map(static fn($e): array => is_array($e) ? ['quote' => trim((string)($e['quote'] ?? '')), 'why' => trim((string)($e['why'] ?? ''))] : ['quote' => '', 'why' => ''],
+                    is_array($bystander['empty'] ?? null) ? $bystander['empty'] : []), static fn(array $e): bool => $e['quote'] !== '' || $e['why'] !== '')),
+                'note' => trim((string)($bystander['note'] ?? '')),
+            ],
+        ];
+        if ($drifted) {
+            $this->norm->addEvent($uid, $spaceId, 'happened', '它重读了自己的经历，觉得现在的样子不太合身：' . $result['compare']['now'], [], NormService::SELF_WHO);
+        }
+        $this->set($reading['id'], [
+            'state' => 'done',
+            'result' => json_encode($result, JSON_UNESCAPED_UNICODE),
+            // 桥那边旁观的没读完（或读者回的 JSON 桥认不出、没去比），只记在这里，不算这次没读成
+            'error' => $error !== '' ? '旁观的那位：' . $error : null,
+        ]);
+        return null;
+    }
+
+    /**
+     * 放进了认领它的空间：照那个空间读的时候说的改自述。还没有自述的空间不改（第一版等它读过自己的经历再写）；
+     * 读的这段时间它的自述又改过了，就不拿旧的那份去盖。
+     */
+    private function takeClaim(string $uid, int $readingId, array $readings, array $applied): array {
+        if (!in_array($applied['action'] ?? '', ['existing', 'kept'], true)) {
+            return $applied;
+        }
+        $spaceId = (string)$applied['space_id'];
+        foreach ($readings as $r) {
+            if ($r['role'] !== 'claim' || $r['space_id'] !== $spaceId || $r['missed']) {
+                continue;
+            }
+            $applied['claim'] = $r['claim'];
+            if ($r['claim'] === 'not' || $r['change']['text'] === '') {
+                return $applied;
+            }
+            $now = $this->norm->selfAccount($uid, $spaceId);
+            if ($now === null) {
+                return $applied;
+            }
+            if ($now['version'] !== $r['self_version']) {
+                $applied['self'] = ['space_id' => $spaceId, 'skipped' => '读的时候它的自述又改过了，这次没照着改'];
+                return $applied;
+            }
+            $w = $this->norm->writeSelf($uid, $spaceId, $r['change']['text'], $r['change']['changed'], $r['change']['why'], $r['change']['unchanged'],
+                '接下 Initium 里的「' . ($applied['title'] ?? '') . '」', $readingId);
+            if ($w['new']) {
+                $applied['self'] = ['space_id' => $spaceId, 'id' => $w['id'], 'version' => $w['version'], 'prev_id' => $now['id'], 'prev_version' => $now['version'], 'changed' => $r['change']['changed']];
+            }
+            return $applied;
+        }
+        return $applied;
+    }
+
+    /** 撤回时，认领的空间为它改的自述退回去：再追加一版，内容是改之前那版。之后它又改过，就不硬退，记一条。 */
+    private function undoSelf(string $uid, array $self, string $title, int $readingId): void {
+        $spaceId = (string)$self['space_id'];
+        $now = $this->norm->selfAccount($uid, $spaceId);
+        $prev = $this->norm->selfVersion($uid, $spaceId, (int)$self['prev_id']);
+        if ($now === null || $prev === null) {
+            return;
+        }
+        if ($now['id'] !== (int)$self['id']) {
+            $this->norm->addEvent($uid, $spaceId, 'happened', '「' . $title . '」撤回了。它接下这段时改过自述，后来又改过，所以没退回去。', [], self::SUBJECT);
+            return;
+        }
+        $this->norm->writeSelf($uid, $spaceId, $prev['text'], '退回第 ' . $prev['version'] . ' 版', '「' . $title . '」撤回了，接下它时改的退回去',
+            '退回的就是第 ' . $prev['version'] . ' 版原样', '撤回「' . $title . '」', $readingId);
     }
 
     /** @return array{0: array, 1: ?array} */
@@ -515,7 +760,7 @@ TXT;
                 return [['action' => 'stay', 'why' => '读者说放进一个现有空间，但没有这个空间：' . $spaceId], null];
             }
             if ($linked !== null && $linked['space']['id'] === $spaceId) {
-                return [['action' => 'kept', 'space_id' => $spaceId, 'space_title' => $space['title'], 'why' => $why], null];
+                return [['action' => 'kept', 'space_id' => $spaceId, 'space_title' => $space['title'], 'title' => $title, 'why' => $why], null];
             }
             $from = $this->moveOut($uid, $linked, $title, $space['title']);
             $linkId = $this->norm->link($uid, $spaceId, $creationId, $readingId);
@@ -552,6 +797,69 @@ TXT;
         return ['link_id' => $linked['link_id'], 'space_id' => $linked['space']['id'], 'space_title' => $linked['space']['title']];
     }
 
+    /**
+     * 一位读者回来的话，按它在这次读里是谁（plan 的 role）取出要的几样：
+     * reader 是定性的，claim 是来认领的空间，self 是空间读自己。没说「是什么」的（自己读的还要有自述）算没读出来。
+     */
+    public static function parse(string $text, array $plan, int $i): array {
+        $d = self::json($text) ?? [];
+        $str = static fn($v): string => is_scalar($v) ? trim((string)$v) : '';
+        $list = static fn($v): array => array_values(array_filter(array_map($str, is_array($v) ? $v : []), static fn(string $x): bool => $x !== ''));
+        $role = (string)($plan['role'] ?? 'reader');
+        $out = [
+            'label' => (string)($plan['label'] ?? ('读者' . ($i + 1))), 'role' => $role,
+            'what' => $str($d['what'] ?? ''), 'quotes' => array_slice($list($d['quotes'] ?? []), 0, 3),
+        ];
+        if ($role === 'claim' || $role === 'self') {
+            $out += ['space_id' => (string)($plan['space_id'] ?? ''), 'space_title' => (string)($plan['space_title'] ?? ''),
+                'self_version' => isset($plan['self_version']) ? (int)$plan['self_version'] : null];
+        }
+        if ($role === 'claim') {
+            $claim = strtolower($str($d['claim'] ?? ''));
+            $change = is_array($d['change'] ?? null) ? $d['change'] : [];
+            $out += [
+                'claim' => in_array($claim, ['mine', 'part', 'not'], true) ? $claim : 'not',
+                'why' => $str($d['why'] ?? ''), 'mine' => $str($d['mine'] ?? ''), 'not_mine' => $str($d['not_mine'] ?? ''),
+                'change' => ['text' => $str($change['text'] ?? ''), 'changed' => $str($change['changed'] ?? ''), 'why' => $str($change['why'] ?? ''), 'unchanged' => $str($change['unchanged'] ?? '')],
+                'disagree' => $str($d['disagree'] ?? ''),
+            ];
+        } elseif ($role === 'self') {
+            $form = is_array($d['form'] ?? null) ? $d['form'] : [];
+            $fits = $form['fits'] ?? true;
+            $fits = is_string($fits) ? !in_array(strtolower(trim($fits)), ['false', 'no', '0', '否', '不合身'], true) : (bool)$fits;
+            $options = [];
+            foreach (is_array($form['options'] ?? null) ? $form['options'] : [] as $o) {
+                if (!is_array($o) || !in_array($o['kind'] ?? '', ['switch', 'back', 'keep'], true)) {
+                    continue;
+                }
+                if ($o['kind'] === 'switch') {
+                    // 只留认得的样子和几块；没有样子又没有认得的几块，这一种换不成，不摆出来
+                    $o['board'] = is_string($o['board'] ?? null) && isset(NormService::BOARDS[$o['board']]) ? $o['board'] : null;
+                    $o['parts'] = array_values(array_intersect(array_map('strval', is_array($o['parts'] ?? null) ? $o['parts'] : []), array_keys(NormService::PARTS)));
+                    if ($o['board'] === null && $o['parts'] === []) {
+                        continue;
+                    }
+                }
+                $options[] = $o;
+            }
+            $out += [
+                'text' => $str($d['text'] ?? ''), 'changed' => $str($d['changed'] ?? ''), 'why' => $str($d['why'] ?? ''), 'unchanged' => $str($d['unchanged'] ?? ''),
+                'form' => [
+                    'fits' => $fits, 'then' => $str($form['then'] ?? ''), 'now' => $str($form['now'] ?? ''), 'why' => $str($form['why'] ?? ''),
+                    'options' => $fits ? [] : $options,
+                    'lean' => $options === [] ? 0 : min(max(0, (int)($form['lean'] ?? 0)), count($options) - 1),
+                    'similar' => $str($form['similar'] ?? ''),
+                ],
+            ];
+        } else {
+            $out += ['where' => $str($d['where'] ?? ''), 'needs' => $list($d['needs'] ?? []), 'misfit' => $str($d['misfit'] ?? '')];
+        }
+        // 回来的不是那个 JSON，或者没说「是什么」：这位没读出来，不能当成一份读法
+        $out['raw'] = $d === [] ? mb_substr($text, 0, 4000) : null;
+        $out['missed'] = $out['what'] === '' || ($role === 'self' && $out['text'] === '');
+        return $out;
+    }
+
     /** 从模型的回答里取出 JSON 对象（它有时会包在 ``` 里，或前后多说一句）。 */
     public static function json(string $text): ?array {
         $text = trim($text);
@@ -563,8 +871,45 @@ TXT;
         if ($start === false || $end === false || $end < $start) {
             return null;
         }
-        $data = json_decode(substr($text, $start, $end - $start + 1), true);
+        $body = substr($text, $start, $end - $start + 1);
+        $data = json_decode($body, true);
+        if (!is_array($data)) {
+            // 长的自述里，模型有时在字符串里直接换行、没写成 \n：只把字符串里面的换行补成 \n 再认一次
+            $data = json_decode(self::escapeBreaks($body), true);
+        }
         return is_array($data) ? $data : null;
+    }
+
+    /** 把 JSON 字符串值里面的原样换行、制表符换成转义的；字符串外面的不动。按字节走：UTF-8 的多字节字符里没有这几个字节。 */
+    private static function escapeBreaks(string $s): string {
+        $out = '';
+        $in = false;
+        $esc = false;
+        $n = strlen($s);
+        for ($i = 0; $i < $n; $i++) {
+            $c = $s[$i];
+            if ($in) {
+                if ($esc) {
+                    $esc = false;
+                } elseif ($c === '\\') {
+                    $esc = true;
+                } elseif ($c === '"') {
+                    $in = false;
+                } elseif ($c === "\n") {
+                    $out .= '\n';
+                    continue;
+                } elseif ($c === "\r") {
+                    continue;
+                } elseif ($c === "\t") {
+                    $out .= '\t';
+                    continue;
+                }
+            } elseif ($c === '"') {
+                $in = true;
+            }
+            $out .= $c;
+        }
+        return $out;
     }
 
     private function set(int $id, array $values): void {

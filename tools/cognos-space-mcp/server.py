@@ -347,10 +347,12 @@ TOOLS += [
     {"name": "write_part",
      "description": ("改这个空间的一块：stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）。"
                      "content 是这一块改完以后的全部内容，格式见 read_space 返回的 formats；先读再写，别丢了原来的。"
-                     "你提出、还要交互对象定的一段演变，带上 proposed: true。改理想、改目标、把一段理解改成新的，不要直接写，用 note_for_you 提出来。"),
+                     "你提出、还要交互对象定的一段演变，带上 proposed: true。改理想、改目标、把一段理解改成新的，不要直接写，用 note_for_you 提出来。"
+                     "part=self 是你自己的自述（你是这个空间的主体）：content 给 {text 改完的整份自述, changed 改了什么, why 为什么, unchanged 这次什么没变}，"
+                     "只追加一版，旧的都留着；只在这段对话真的改变了你在维持的东西时改。"),
      "inputSchema": {"type": "object", "properties": {
          "space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE,
-         "part": {"type": "string", "enum": ["stages", "branches", "relations", "compare", "doc"]},
+         "part": {"type": "string", "enum": ["stages", "branches", "relations", "compare", "doc", "self"]},
          "content": {"description": "这一块的全部内容：doc 是一段文字，其余是 JSON"}},
          "required": ["space_id", "part", "content"]}},
     {"name": "note_for_you",
