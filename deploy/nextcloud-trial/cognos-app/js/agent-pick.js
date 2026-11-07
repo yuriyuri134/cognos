@@ -3,7 +3,7 @@
 (function () {
   'use strict';
   const app = '/index.php/apps/cognos';
-  const NAMES = { claude: 'Claude', gpt: 'Codex' };
+  const NAMES = { claude: 'Claude', chatgpt: 'GPT（聊天端）', gpt: 'Codex' };
   async function api(path, body) {
     const r = await fetch(app + path, { method: body ? 'POST' : 'GET', credentials: 'same-origin',
       headers: { Accept: 'application/json', requesttoken: OC.requestToken, ...(body ? { 'Content-Type': 'application/json' } : {}) },
@@ -25,12 +25,13 @@
     let optionsFor = null;
     function options() {
       if (optionsFor === current) return; optionsFor = current; select.replaceChildren();
-      const values = current === 'chatgpt' ? {default:'默认',standard:'标准',extended:'扩展'} : {default:'默认',low:'低',medium:'中',high:'高',xhigh:'很高',max:'最高'};
+      const values = current === 'chatgpt' ? {default:'默认',low:'低',medium:'中',high:'高'} : {default:'默认',low:'低',medium:'中',high:'高',xhigh:'很高',max:'最高'};
       for (const [value, text] of Object.entries(values)) { const o = document.createElement('option'); o.value=value; o.textContent=text; select.append(o); }
     }
     effortLabel.append(select);
     const info = document.createElement('small'); info.style.flexBasis = '100%';
     const connection = document.createElement('span'); connection.setAttribute('role','status'); connection.style.flexBasis='100%';
+    const connect = document.createElement('button'); connect.type='button'; connect.textContent='连接现有 Chrome';
     const refresh = document.createElement('button'); refresh.type='button'; refresh.textContent='检查连接';
     async function check() {
       refresh.disabled=true; connection.textContent='正在检查聊天端连接…';
@@ -39,11 +40,17 @@
       finally { refresh.disabled=false; }
     }
     refresh.addEventListener('click',()=>check());
+    connect.addEventListener('click',async()=>{
+      connect.disabled=true;
+      try { const d=await api('/creations/'+creationId+'/agent',{agent:'chatgpt',connect_chatgpt:true}); connection.textContent=d.chatgpt?.message||'聊天端未连接'; }
+      catch(e) {connection.textContent='未连接：'+e.message;}
+      finally {connect.disabled=false;}
+    });
     const show = () => {
       Object.entries(buttons).forEach(([k, b]) => { b.disabled = pending; b.classList.toggle('cg-on', k === current); b.setAttribute('aria-pressed', k === current ? 'true' : 'false'); });
-      options(); select.value = effort; select.disabled = pending; effortLabel.hidden = current === 'claude'; info.hidden = current === 'claude';
-      info.textContent = current === 'chatgpt' ? '连接你现有的 Chrome 登录窗口后，才能使用 ChatGPT 聊天端。当前连接状态见下方。' : '通过本机 Codex 回复，使用 Codex 额度。强度越高，通常耗时和用量越多。';
-      refresh.hidden=connection.hidden=current!=='chatgpt';
+      options(); if(!Array.from(select.options).some(o=>o.value===effort)) effort='default'; select.value = effort; select.disabled = pending; effortLabel.hidden = current === 'claude'; info.hidden = current === 'claude';
+      info.textContent = current === 'chatgpt' ? '通过你现有 Chrome 中的 ChatGPT 聊天端回复，使用聊天账号额度。选择的强度会在发送前核对。' : '通过本机 Codex 回复，使用 Codex 额度。强度越高，通常耗时和用量越多。';
+      connect.hidden=refresh.hidden=connection.hidden=current!=='chatgpt'; connect.disabled=pending;
     };
     async function save(next, nextEffort = null) {
       const was = current, previousEffort = effort; current = next; effort = nextEffort || 'default'; pending = true; show();
@@ -61,7 +68,7 @@
       });
       buttons[k] = b; box.append(b);
     }
-    box.append(effortLabel, info, refresh, connection); select.addEventListener('change', () => save(current, select.value));
+    box.append(effortLabel, info, connect, refresh, connection); select.addEventListener('change', () => save(current, select.value));
     before.parentNode.insertBefore(box, before); show();
     api('/creations/' + creationId + '/agent').then(d => { current = d.agent || 'claude'; effort = d.reasoning_effort || 'default'; pending = false; show(); if(current==='chatgpt')check(); })
       .catch(e => { info.textContent = '未能读取对话设置：' + e.message; info.hidden = false; });
