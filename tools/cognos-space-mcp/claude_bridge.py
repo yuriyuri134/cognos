@@ -692,6 +692,33 @@ def answer_from(stdout: str, stderr: str = "") -> str:
     return answer
 
 
+def chatgpt_browser(action: str = "status", job: dict | None = None) -> dict:
+    if action not in ("status", "open", "reply"):
+        raise ValueError("无效的聊天端操作")
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeError("聊天端需要本机 Node.js")
+    result = subprocess.run([node, str(HERE / "chatgpt_browser.cjs"), action],
+                            input=json.dumps(job or {}, ensure_ascii=False), capture_output=True,
+                            encoding="utf-8", timeout=240 if action == "reply" else 18)
+    data = json.loads(result.stdout)
+    if result.returncode or data.get("error"):
+        raise RuntimeError(data.get("error") or "聊天端浏览器不可用")
+    return data
+
+
+def chatgpt_job(body: dict, job: dict) -> dict:
+    if (body.get("executor") != "chatgpt" or body.get("subject") != "ChatGPT"
+            or body.get("space_type") != "creation" or body.get("mode") != "chat"
+            or body.get("caller_uid") != COGNOS_USER or not re.fullmatch(r"[1-9][0-9]*", job["space_id"])
+            or any(body.get(k) for k in ("repo", "delegation_id", "hit_id", "open_id"))):
+        raise ValueError("无效的聊天端请求")
+    effort = body.get("reasoning_effort", "default")
+    if effort not in ("default", "standard", "extended"):
+        raise ValueError("聊天端只支持默认、标准或扩展思考")
+    return {**job, "executor":"chatgpt", "caller_uid":body["caller_uid"], "reasoning_effort":effort}
+
+
 def codex_configured() -> bool:
     return bool(CODEX_APP_PASSWORD and shutil.which("codex"))
 
@@ -940,6 +967,8 @@ def work(job: dict) -> None:
         try:
             if job.get("executor") == "codex":
                 content = run_codex(job)
+            elif job.get("executor") == "chatgpt":
+                content = chatgpt_browser("reply", {"prompt":job["prompt"], "reasoning_effort":job["reasoning_effort"]})["content"]
             else:
                 if job.get("repo"):
                     wt = open_worktree(space_type, space_id, job.get("hit_id"), job.get("base_branch"), job.get("open_id"))
@@ -1147,7 +1176,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path not in ("/chat", "/codex", "/read"):
+        if self.path not in ("/chat", "/codex", "/read", "/chatgpt", "/chatgpt/browser"):
             self.send_json(404, {"error": "not found"})
             return
         if not hmac.compare_digest(self.headers.get("X-Cognos-Bridge-Token", ""), TOKEN):
@@ -1155,6 +1184,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/read":
             self.do_read()
+            return
+        if self.path == "/chatgpt/browser":
+            try:
+                data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+                if data.get("caller_uid") != COGNOS_USER or data.get("action") not in ("open", "status"):
+                    raise ValueError("无效的聊天端连接请求")
+                self.send_json(200, chatgpt_browser(data["action"]))
+            except Exception:
+                self.send_json(503, {"ready":False, "message":"聊天端浏览器连接不可用"})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1186,14 +1224,25 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("run_id 不对")
             if self.path == "/codex":
                 job = codex_job(body, job)
-            elif body.get("executor") == "codex":
-                raise ValueError("Codex 委托须使用专用 /codex 入口")
+            elif self.path == "/chatgpt":
+                job = chatgpt_job(body, job)
+            elif body.get("executor") in ("codex", "chatgpt"):
+                raise ValueError("该回复者须使用自己的专用入口")
         except (KeyError, TypeError, ValueError) as error:
             self.send_json(400, {"error": f"请求不完整：{error}"})
             return
         if self.path == "/codex" and not codex_configured():
             self.send_json(422, {"error": "本机 Codex CLI 或 Cognos 应用凭据尚未配置"})
             return
+        if self.path == "/chatgpt":
+            try:
+                connection = chatgpt_browser()
+                if not connection.get("ready"):
+                    self.send_json(428, {"error":connection.get("message") or "请先连接聊天端"})
+                    return
+            except Exception:
+                self.send_json(503, {"error":"聊天端浏览器未连接；不会改走 Codex"})
+                return
         key = f"{job['space_type']}/{job['space_id']}"
         with BUSY_LOCK:
             if key in BUSY:

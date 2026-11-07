@@ -96,10 +96,28 @@ final class ClaudeBridgeService {
      * @return string 这次运行的 id
      * @throws \RuntimeException 没接下；桥正忙时异常码是 self::BUSY
      */
+    public function chatgptBrowser(string $uid, bool $open = false): array {
+        $base = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
+        if (!str_ends_with($base, '/chat')) return ['ready'=>false, 'message'=>'本机聊天端桥入口未配置'];
+        try {
+            $r = $this->http->newClient()->post(substr($base, 0, -5) . '/chatgpt/browser', [
+                'headers'=>['Content-Type'=>'application/json', 'X-Cognos-Bridge-Token'=>$this->config->getAppValue('cognos', 'claude_bridge_token', '')],
+                'body'=>json_encode(['action'=>$open?'open':'status', 'caller_uid'=>$uid], JSON_THROW_ON_ERROR),
+                'timeout'=>20, 'http_errors'=>false, 'nextcloud'=>['allow_local_address'=>true],
+            ]);
+            return json_decode((string)$r->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) { return ['ready'=>false, 'message'=>'聊天端浏览器连接不可用']; }
+    }
+
     public function send(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller, array $extra = []): string {
         $this->restoreGuard->assertExecutionAllowed();
         $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
         $codex = ($extra['executor'] ?? null) === 'codex';
+        $chatgpt = ($extra['executor'] ?? null) === 'chatgpt';
+        if ($chatgpt) {
+            if ($subject !== 'ChatGPT' || $spaceType !== 'creation' || empty($extra['caller_uid']) || !str_ends_with($url, '/chat')) throw new \RuntimeException('无效的聊天端请求');
+            $url = substr($url, 0, -5) . '/chatgpt';
+        }
         if ($codex) {
             $default = str_ends_with($url, '/chat') ? substr($url, 0, -5) . '/codex' : '';
             $url = $this->config->getAppValue('cognos', 'codex_bridge_url', $default);
@@ -146,7 +164,7 @@ final class ClaudeBridgeService {
                     'message' => $message,
                     'caller' => $caller,
                     // Cognos 自己的空间：桥在仓库副本的新分支上做
-                    'repo' => !$codex && $this->isSelf($spaceType, $spaceId),
+                    'repo' => !$codex && !$chatgpt && $this->isSelf($spaceType, $spaceId),
                 ]), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
                 'timeout' => 30,
                 'http_errors' => false,
