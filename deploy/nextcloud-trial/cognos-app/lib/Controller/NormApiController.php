@@ -131,9 +131,20 @@ final class NormApiController extends OCSController {
                 $out[] = $item;
                 continue;
             }
-            $text = implode("\n\n", array_map(static fn(array $m): string => ($m['role'] === 'user' ? '人' : 'AI') . '：' . trim((string)$m['content']), $messages));
-            $n = mb_strlen($text);
-            $item['text'] = $n <= $cap ? $text : '（前面还有 ' . ($n - $cap) . " 字没给）\n\n" . mb_substr($text, $n - $cap);
+            // 人说的话一句不截（往往最有信息量，又最短），超出时从最早的 AI 回答开始缩短
+            $lines = array_map(static fn(array $m): array => ['user' => $m['role'] === 'user', 'text' => trim((string)$m['content'])], $messages);
+            $total = array_sum(array_map(static fn(array $l): int => mb_strlen($l['text']) + 6, $lines));
+            foreach ($lines as $k => $l) {
+                if ($total <= $cap) {
+                    break;
+                }
+                $len = mb_strlen($l['text']);
+                if (!$l['user'] && $len > 300) {
+                    $lines[$k]['text'] = mb_substr($l['text'], 0, 300) . '…（这条 AI 回答后面还有 ' . ($len - 300) . ' 字没给）';
+                    $total -= $len - mb_strlen($lines[$k]['text']);
+                }
+            }
+            $item['text'] = implode("\n\n", array_map(static fn(array $l): string => ($l['user'] ? '人' : 'AI') . '：' . $l['text'], $lines));
             $budget -= mb_strlen($item['text']);
             $out[] = $item;
         }
