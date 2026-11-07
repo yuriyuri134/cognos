@@ -245,7 +245,8 @@
   function renderParts(p) {
     const aside = $('cg-space-parts');
     const contents = {};
-    for (const part of p.parts) contents[part] = JSON.stringify(p[part]);
+    const versions = data.versions || {};
+    for (const part of p.parts) contents[part] = JSON.stringify([p[part], versions[part] || []]);
     const hasWay = WAY.some(([k]) => (p.way || {})[k]);
     // 做法编辑期间，消息更新不覆盖正在输入的文本。
     contents.about = JSON.stringify([editingWay ? 'editing' : p.way, editingWay, p.board, data.messages < 2, data.drift, data.drift_done, data.links]);
@@ -260,6 +261,8 @@
       else if (part === 'relations') sec.append(relations(p.relations || {}, h));
       else if (part === 'compare') sec.append(compare(p.compare || []));
       else if (part === 'doc') sec.append(p.doc ? node('div', p.doc, 'cg-doc') : node('p', '还没有。agent 会照这里的做法写。', 'cg-hint'));
+      const last = (versions[part] || [])[0];
+      if (last) sec.append(versionLine(p, part, last, versions[part].length));
       if (previous) previous.replaceWith(sec); else aside.append(sec);
     }
     const previousAbout = $('cg-view-about');
@@ -283,6 +286,18 @@
       about.append(src);
     }
     if (previousAbout) previousAbout.replaceWith(about); else aside.append(about);
+  }
+
+  // 这一块上次是谁什么时候改的；改得不对可以换回改之前那一版（换回也会留一版，能再换回来）
+  function versionLine(p, part, v, n) {
+    const row = node('div', undefined, 'cg-version');
+    row.append(node('span', (v.who || 'agent') + ' 在 ' + hm(v.created_at) + ' 改过这一块' + (n > 1 ? '（最近 ' + n + ' 次都留着）' : ''), 'cg-small'));
+    row.append(button('换回改之前那一版', 'cg-btn-small', async () => {
+      if (!confirm('把「' + (data.parts[part] || part) + '」换回 ' + hm(v.created_at) + ' 改之前的样子？现在这版也会留着。')) return;
+      try { await api('/norm/projects/' + p.id + '/part-version', { version: v.id }); } catch (e) { alert(e.message); }
+      load(false);
+    }));
+    return row;
   }
 
   function stages(list) {

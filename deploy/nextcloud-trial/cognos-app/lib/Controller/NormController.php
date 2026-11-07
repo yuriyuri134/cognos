@@ -87,6 +87,7 @@ final class NormController extends Controller {
             'drift' => $drift,
             'drift_done' => $drift !== null && $drift['state'] === 'done' ? $drift : $this->readers->lastDone($uid, 'drift', null, $projectId),
             'spaces' => $this->norm->projects($uid),
+            'versions' => $this->norm->versions($uid, $projectId),
             'parts' => NormService::PARTS,
             'boards' => array_map(static fn(array $b): string => $b['about'], NormService::BOARDS),
         ]);
@@ -113,6 +114,17 @@ final class NormController extends Controller {
             return new DataResponse(['message' => $e->getMessage()], 404);
         }
         return new DataResponse(['ok' => true]);
+    }
+
+    /** 把一块换回改之前的某一版。 */
+    #[NoAdminRequired]
+    public function restorePart(string $projectId, int $version = 0): DataResponse {
+        try {
+            $part = $this->norm->restorePart($this->uid(), $projectId, $version);
+        } catch (\InvalidArgumentException $e) {
+            return new DataResponse(['message' => $e->getMessage()], 422);
+        }
+        return new DataResponse(['part' => $part, 'project' => $this->norm->project($this->uid(), $projectId)]);
     }
 
     /** 撤回了、退回 Initium 的空间，放回 Norm。 */

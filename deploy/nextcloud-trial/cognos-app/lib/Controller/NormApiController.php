@@ -92,7 +92,7 @@ final class NormApiController extends OCSController {
             return new DataResponse(['message' => '这段对话还没放进 Norm 的任何空间'], 404);
         }
         try {
-            $this->norm->writePart($uid, $space['id'], $part, $content);
+            $this->norm->writePart($uid, $space['id'], $part, $content, trim($subject) !== '' ? $subject : 'agent');
         } catch (\InvalidArgumentException $e) {
             return new DataResponse(['message' => $e->getMessage()], 422);
         }

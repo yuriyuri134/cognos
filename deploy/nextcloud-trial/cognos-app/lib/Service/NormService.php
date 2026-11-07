@@ -183,8 +183,10 @@ final class NormService {
         return $r === false ? null : $this->row($r, true);
     }
 
-    /** 改一块的全部内容。 */
-    public function writePart(string $uid, string $id, string $part, mixed $content): void {
+    /**
+     * 改一块的全部内容。改之前把原来的存成一版（能换回去），并在空间里记一条「谁改了哪一块」，你回来时看得到。
+     */
+    public function writePart(string $uid, string $id, string $part, mixed $content, string $who = 'agent'): void {
         if (!isset(self::PARTS[$part])) {
             throw new \InvalidArgumentException('没有这一块：' . $part . '（只有 ' . implode('、', array_keys(self::PARTS)) . '）');
         }
@@ -205,7 +207,80 @@ final class NormService {
             }
             $value = json_encode($content, JSON_UNESCAPED_UNICODE);
         }
+        $r = $this->fetch($uid, $id);
+        if ($r === null) {
+            throw new \InvalidArgumentException('没有这个空间');
+        }
+        $old = $r[$part] ?? null;
+        $same = $part === 'doc' ? (string)$old === $value
+            : json_decode((string)($old ?? ''), true) == $content;
+        if ($same) {
+            return;
+        }
+        $this->saveVersion($uid, $id, $part, $old, $who);
         $this->update($uid, $id, [$part => $value]);
+        $this->noteChange($uid, $id, $who . ' 改了「' . self::PARTS[$part] . '」。', $who);
+    }
+
+    /** @return array<string, list<array{id: int, who: string, created_at: int}>> 每一块最近几次改之前的版本，新的在前 */
+    public function versions(string $uid, string $id, int $limit = 5): array {
+        $q = $this->db->getQueryBuilder();
+        $rows = $q->select('id', 'part', 'who', 'created_at')->from('cognos_norm_part_versions')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($id)))
+            ->orderBy('id', 'DESC')->setMaxResults(200)->executeQuery()->fetchAll();
+        $out = [];
+        foreach ($rows as $r) {
+            $p = (string)$r['part'];
+            if (count($out[$p] ?? []) < $limit) {
+                $out[$p][] = ['id' => (int)$r['id'], 'who' => (string)($r['who'] ?? ''), 'created_at' => (int)$r['created_at']];
+            }
+        }
+        return $out;
+    }
+
+    /** 把一块换回某一版。换下来的现在这版也存起来，所以换回去也能再换回来。 */
+    public function restorePart(string $uid, string $id, int $versionId): string {
+        $q = $this->db->getQueryBuilder();
+        $v = $q->select('*')->from('cognos_norm_part_versions')
+            ->where($q->expr()->eq('id', $q->createNamedParameter($versionId, IQueryBuilder::PARAM_INT)))
+            ->andWhere($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($id)))
+            ->executeQuery()->fetch();
+        if ($v === false || !isset(self::PARTS[(string)$v['part']])) {
+            throw new \InvalidArgumentException('没有这一版');
+        }
+        $part = (string)$v['part'];
+        $r = $this->fetch($uid, $id);
+        if ($r === null) {
+            throw new \InvalidArgumentException('没有这个空间');
+        }
+        $this->saveVersion($uid, $id, $part, $r[$part] ?? null, '你');
+        $this->update($uid, $id, [$part => $v['content']]);
+        $this->addEvent($uid, $id, 'happened', '你把「' . self::PARTS[$part] . '」换回了 ' . date('n/j H:i', (int)$v['created_at']) . ' 改之前的那一版。', [], '你');
+        return $part;
+    }
+
+    private function saveVersion(string $uid, string $id, string $part, ?string $content, string $who): void {
+        $q = $this->db->getQueryBuilder();
+        $q->insert('cognos_norm_part_versions')->values([
+            'user_id' => $q->createNamedParameter($uid),
+            'space_id' => $q->createNamedParameter($id),
+            'part' => $q->createNamedParameter($part),
+            'content' => $q->createNamedParameter($content, $content === null ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR),
+            'who' => $q->createNamedParameter(mb_substr($who, 0, 64)),
+            'created_at' => $q->createNamedParameter(time(), IQueryBuilder::PARAM_INT),
+        ])->executeStatement();
+    }
+
+    /** 记一条「谁改了什么」；同一位十分钟内改同一块，不重复记。 */
+    private function noteChange(string $uid, string $id, string $text, string $who): void {
+        foreach ($this->events($uid, $id, 'happened', 5) as $e) {
+            if ($e['text'] === $text && $e['who'] === $who && time() - $e['created_at'] < 600) {
+                return;
+            }
+        }
+        $this->addEvent($uid, $id, 'happened', $text, [], $who);
     }
 
     /** 改它的样子：换成现成的 board，或带着自己的做法（board 为 null，parts 和 way 一起给）。 */
