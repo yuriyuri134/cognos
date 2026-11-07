@@ -17,9 +17,9 @@ def body(**changes):
 class ChatGptEntryTests(unittest.TestCase):
     def test_provider_scope_and_efforts_are_separate_from_codex(self):
         job={'space_id':'7'}
-        self.assertEqual(bridge.chatgpt_job(body(reasoning_effort='extended'),job)['reasoning_effort'],'extended')
+        self.assertEqual(bridge.chatgpt_job(body(reasoning_effort='high'),job)['reasoning_effort'],'high')
         for fields in ({'executor':'codex'},{'subject':'GPT'},{'caller_uid':'someone-else'},
-                       {'reasoning_effort':'high'},{'repo':True},{'delegation_id':'b'*32}):
+                       {'reasoning_effort':'extended'},{'repo':True},{'delegation_id':'b'*32}):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 bridge.chatgpt_job(body(**fields),job)
 
@@ -39,7 +39,7 @@ class ChatGptEntryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch.object(bridge,'OUTBOX_DIR',Path(tmp)), \
              patch.object(bridge,'BUSY',{'creation/7'}), patch.object(bridge,'chatgpt_browser',return_value={'content':'聊天端回答'}) as chat, \
              patch.object(bridge,'run_codex') as codex, patch.object(bridge,'run_claude') as claude, patch.object(bridge,'deliver'):
-            bridge.work(job);chat.assert_called_once_with('reply',{'prompt':'原话','reasoning_effort':'default'})
+            bridge.work(job);chat.assert_called_once_with('reply',{'prompt':'原话','reasoning_effort':'default','run_id':'a'*32,'space_id':'7'})
             codex.assert_not_called();claude.assert_not_called()
             result=json.loads(next((Path(tmp)/'pending').glob('*.json')).read_text(encoding='utf-8'))
             self.assertEqual(result['subject'],'ChatGPT');self.assertEqual(result['content'],'聊天端回答')

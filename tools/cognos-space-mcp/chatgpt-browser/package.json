@@ -1,0 +1,11 @@
+{
+  "name": "cognos-chatgpt-browser",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cognos connection to an existing authorized Chrome session",
+  "engines": { "node": ">=24" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "chrome-devtools-mcp": "1.12.0"
+  }
+}

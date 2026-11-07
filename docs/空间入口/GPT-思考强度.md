@@ -9,3 +9,5 @@
 验证：14 项 Python 检查通过；账号隔离、非法值拒绝、刷新与切换保留通过；真实 GPT high 请求在会话 588 回答“思考强度已接通。”；登录后的页面与 390px 截图已检查。证据为 `deploy/nextcloud-trial/evidence/gpt-reasoning-settings.json` 与 `gpt-reasoning-phone.png`，不入库。
 
 全站 smoke 的首页、Initium、Norm 入口检查通过，随后在既有 Norm 项目的 `#cg-stages li` 等待处超时；没有据此宣称全站 smoke 通过，也没有在这一块修改阶段列表。
+
+2026-11-07 后续：界面现在分别标为 Codex 与 GPT（聊天端）。以上 Codex 记录保留为当时验收；聊天端使用独立的默认、低、中、高设置，当前持久适配器已准备，尚待浏览器授权与真实往返验证，见《GPT-聊天端接入状态.md》。

@@ -1,9 +1,6 @@
 // ChatGPT Chat must use the user's existing Chrome session.
 // A private profile cannot establish that connection and must never be opened implicitly.
-const connectionMessage="当前未连接到你已登录的 Chrome，暂时无法使用 ChatGPT 聊天端。";
-async function status(){return {ready:false,state:'connection_unavailable',transport:'existing_chrome',message:connectionMessage};}
-async function open(){return status();}
-async function reply(){throw new Error(connectionMessage);}
+const {status,open,reply}=require('./chatgpt_browser_service.cjs');
 function finalSse(text){let state=null,answer=null;
  function apply(op,prefix=''){
   if(op.message){state=op;return;}
@@ -26,7 +23,7 @@ if(require.main===module)(async()=>{
  let result;
  if(action==='open')result=await open();
  else if(action==='status')result=await status();
- else if(action==='reply')result=await reply();
+ else if(action==='reply') {let raw='';for await(const chunk of process.stdin)raw+=chunk;result=await reply(JSON.parse(raw||'{}'));}
  else throw Error('Unknown action');
  process.stdout.write(JSON.stringify(result)+'\n');
 })().catch(e=>{process.stdout.write(JSON.stringify({error:e.message})+'\n');process.exitCode=1;});

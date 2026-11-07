@@ -700,7 +700,7 @@ def chatgpt_browser(action: str = "status", job: dict | None = None) -> dict:
         raise RuntimeError("聊天端需要本机 Node.js")
     result = subprocess.run([node, str(HERE / "chatgpt_browser.cjs"), action],
                             input=json.dumps(job or {}, ensure_ascii=False), capture_output=True,
-                            encoding="utf-8", timeout=240 if action == "reply" else 18)
+                            encoding="utf-8", timeout=700 if action == "reply" else 18)
     data = json.loads(result.stdout)
     if result.returncode or data.get("error"):
         raise RuntimeError(data.get("error") or "聊天端浏览器不可用")
@@ -714,8 +714,8 @@ def chatgpt_job(body: dict, job: dict) -> dict:
             or any(body.get(k) for k in ("repo", "delegation_id", "hit_id", "open_id"))):
         raise ValueError("无效的聊天端请求")
     effort = body.get("reasoning_effort", "default")
-    if effort not in ("default", "standard", "extended"):
-        raise ValueError("聊天端只支持默认、标准或扩展思考")
+    if effort not in ("default", "low", "medium", "high"):
+        raise ValueError("聊天端只支持默认、低、中、高思考强度")
     return {**job, "executor":"chatgpt", "caller_uid":body["caller_uid"], "reasoning_effort":effort}
 
 
@@ -968,7 +968,7 @@ def work(job: dict) -> None:
             if job.get("executor") == "codex":
                 content = run_codex(job)
             elif job.get("executor") == "chatgpt":
-                content = chatgpt_browser("reply", {"prompt":job["prompt"], "reasoning_effort":job["reasoning_effort"]})["content"]
+                content = chatgpt_browser("reply", {"prompt":job["prompt"], "reasoning_effort":job["reasoning_effort"], "run_id":job["run_id"], "space_id":job["space_id"]})["content"]
             else:
                 if job.get("repo"):
                     wt = open_worktree(space_type, space_id, job.get("hit_id"), job.get("base_branch"), job.get("open_id"))

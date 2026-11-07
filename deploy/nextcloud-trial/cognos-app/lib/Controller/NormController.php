@@ -184,6 +184,7 @@ final class NormController extends Controller {
         }
         $agent = $this->config->getUserValue($uid, 'cognos', 'agent_c' . $id, 'claude');
         $data = ['agent' => $agent, 'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', ($agent === 'chatgpt' ? 'chatgpt_effort_c' : 'agent_effort_c') . $id, 'default')];
+        if ($agent === 'chatgpt' && !in_array($data['reasoning_effort'], ['default','low','medium','high'], true)) $data['reasoning_effort'] = 'default';
         if ($chatgpt_status) $data['chatgpt'] = $this->bridge->chatgptBrowser($uid);
         return new DataResponse($data);
     }
@@ -197,7 +198,7 @@ final class NormController extends Controller {
         if (!in_array($agent, ['claude', 'gpt', 'chatgpt'], true)) {
             return new DataResponse(['message' => '只能选 Claude、GPT 聊天端或 Codex'], 422);
         }
-        $allowed = $agent === 'chatgpt' ? ['default', 'standard', 'extended'] : ['default', 'low', 'medium', 'high', 'xhigh', 'max'];
+        $allowed = $agent === 'chatgpt' ? ['default', 'low', 'medium', 'high'] : ['default', 'low', 'medium', 'high', 'xhigh', 'max'];
         if ($reasoning_effort !== null && !in_array($reasoning_effort, $allowed, true)) {
             return new DataResponse(['message' => '无效的思考强度'], 422);
         }
@@ -209,6 +210,7 @@ final class NormController extends Controller {
             'agent' => $agent,
             'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', ($agent === 'chatgpt' ? 'chatgpt_effort_c' : 'agent_effort_c') . $id, 'default'),
         ];
+        if ($agent === 'chatgpt' && !in_array($data['reasoning_effort'], ['default','low','medium','high'], true)) $data['reasoning_effort'] = 'default';
         if ($connect_chatgpt && $agent === 'chatgpt') $data['chatgpt'] = $this->bridge->chatgptBrowser($uid, true);
         return new DataResponse($data);
     }
