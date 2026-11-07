@@ -83,10 +83,11 @@
       const missed = r.missed || !r.what;
       card.append(node('div', '读者' + '一二三四五'[i] + ' · ' + r.label, 'cg-reader-label'), node('div', missed ? '（这位没读出东西）' : r.what, missed ? 'cg-hint' : undefined));
       if (missed && r.raw) card.append(node('div', '它只回了：' + r.raw.slice(0, 80) + (r.raw.length > 80 ? '…' : ''), 'cg-small'));
+      if (!missed && r.misfit) card.append(node('div', '平常做法接不住的：' + r.misfit, 'cg-small'));
       if (r.where || (r.needs || []).length || (r.quotes || []).length) {
         const det = node('details'); det.append(node('summary', '往哪走、它依据的原话'));
         if (r.where) det.append(node('p', '往哪走：' + r.where));
-        if ((r.needs || []).length) { const ul = node('ul'); r.needs.forEach(n => ul.append(node('li', n))); det.append(node('div', '它觉得接着需要：', 'cg-small'), ul); }
+        if ((r.needs || []).length) { const ul = node('ul'); r.needs.forEach(n => ul.append(node('li', n))); det.append(node('div', '它觉得接着得一再发生的：', 'cg-small'), ul); }
         for (const q of r.quotes || []) det.append(node('p', '「' + q + '」', 'cg-small'));
         card.append(det);
       }
