@@ -51,7 +51,7 @@ final class NormApiController extends OCSController {
         // 放进空间以后自动叫那个空间的 agent，先关着：第一次试时它用了 4 分钟额度，却读不到放进来的原话。
         // 要开：occ config:app:set cognos reader_nudge --value=yes
         if (!$got['duplicate'] && $got['nudge'] !== null && $this->config->getAppValue('cognos', 'reader_nudge', 'no') === 'yes') {
-            $this->nudge($uid, $got['nudge']['creation_id'], $got['nudge']['title']);
+            $this->nudge($uid, $got['nudge']['space_id'], $got['nudge']['title']);
         }
         return new DataResponse(['reading' => $got['reading'], 'duplicate' => $got['duplicate']], $got['duplicate'] ? 200 : 201);
     }
@@ -176,11 +176,13 @@ final class NormApiController extends OCSController {
     }
 
     /** 读者刚把一段 Initium 对话放进这个空间：叫这个空间的 agent 照这里的做法动一下。叫不来不要紧，下次你说话时它会来。 */
-    private function nudge(string $uid, int $creationId, string $title): void {
+    private function nudge(string $uid, string $spaceId, string $title): void {
         if ($this->config->getAppValue('cognos', 'creation_agent', 'hermes') !== 'claude-code') {
             return;
         }
         try {
+            // 空间自己的对话到要叫 agent 时才建：不叫就不建，免得撤回以后 Initium 里多出一段空对话
+            $creationId = $this->norm->spaceConversation($uid, $spaceId);
             $context = $this->creations->getContext($creationId, $uid);
             $this->hermes->chatCreation($creationId,
                 '（这句不是交互对象说的。读者刚把 Initium 里的「' . $title . '」放进这个空间。先用 read_space 看看这里，那段对话的原话在返回的 linked 里；'

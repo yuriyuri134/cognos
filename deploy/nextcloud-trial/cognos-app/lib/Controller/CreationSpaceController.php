@@ -71,7 +71,10 @@ final class CreationSpaceController extends Controller {
         try {
             // Norm 自己的那段对话、还在 Norm 里的空间各自的那段，不算在 Initium 里
             $hidden = array_flip($this->norm->hiddenConversationIds($user->getUID()));
-            $list = array_values(array_filter($this->creations->list($user->getUID()), static fn(array $c): bool => !isset($hidden[(int)$c['id']])));
+            // 撤回的空间留下的空对话（一句话都没说过）也不列：它不是你在 Initium 里写的东西
+            $leftover = array_flip($this->norm->inactiveConversationIds($user->getUID()));
+            $list = array_values(array_filter($this->creations->list($user->getUID()), static fn(array $c): bool =>
+                !isset($hidden[(int)$c['id']]) && !(isset($leftover[(int)$c['id']]) && (int)$c['message_count'] === 0)));
             return new DataResponse(['creations' => $list]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch creations'], 500);

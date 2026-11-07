@@ -61,6 +61,17 @@ final class NormService {
         return array_values(array_filter($ids));
     }
 
+    /** 撤回了、退回 Initium 的空间各自的那段对话。 */
+    public function inactiveConversationIds(string $uid): array {
+        $q = $this->db->getQueryBuilder();
+        $rows = $q->select('conversation_id')->from('cognos_norm_projects')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->isNotNull('conversation_id'))
+            ->andWhere($q->expr()->neq('state', $q->createNamedParameter('active')))
+            ->executeQuery()->fetchAll();
+        return array_values(array_filter(array_map(static fn(array $r): int => (int)$r['conversation_id'], $rows)));
+    }
+
     /** @return list<array> 主项目在前，其余按最近更新；只列还在 Norm 里的。 */
     public function projects(string $uid): array {
         $q = $this->db->getQueryBuilder();
@@ -245,6 +256,14 @@ final class NormService {
     public function unlink(string $uid, int $linkId): void {
         $q = $this->db->getQueryBuilder();
         $q->update('cognos_norm_links')->set('undone_at', $q->createNamedParameter(time(), IQueryBuilder::PARAM_INT))
+            ->where($q->expr()->eq('id', $q->createNamedParameter($linkId, IQueryBuilder::PARAM_INT)))
+            ->andWhere($q->expr()->eq('user_id', $q->createNamedParameter($uid)))->executeStatement();
+    }
+
+    /** 撤回过的一条连线再接上（撤回「挪到别的空间」时，把原来那条接回去）。 */
+    public function relink(string $uid, int $linkId): void {
+        $q = $this->db->getQueryBuilder();
+        $q->update('cognos_norm_links')->set('undone_at', $q->createNamedParameter(null, IQueryBuilder::PARAM_NULL))
             ->where($q->expr()->eq('id', $q->createNamedParameter($linkId, IQueryBuilder::PARAM_INT)))
             ->andWhere($q->expr()->eq('user_id', $q->createNamedParameter($uid)))->executeStatement();
     }

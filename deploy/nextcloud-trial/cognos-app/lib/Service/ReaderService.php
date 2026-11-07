@@ -188,7 +188,7 @@ TXT;
 
     /**
      * 桥发回来的：三份读法和比较。照着放（initium），或者记下回头读的结论（drift）。
-     * @return array{duplicate: bool, reading: array, nudge: ?array{creation_id: int, title: string}}
+     * @return array{duplicate: bool, reading: array, nudge: ?array{space_id: string, title: string}}
      */
     public function receive(string $uid, int $id, array $body): array {
         $reading = $this->get($uid, $id);
@@ -220,6 +220,13 @@ TXT;
         $applied = $reading['applied'] ?? [];
         if (!empty($applied['link_id'])) {
             $this->norm->unlink($uid, (int)$applied['link_id']);
+        }
+        // 这次是从另一个空间挪过来的：接回原来那里
+        $from = $applied['moved_from'] ?? null;
+        if (is_array($from) && !empty($from['link_id'])) {
+            $this->norm->relink($uid, (int)$from['link_id']);
+            $this->norm->addEvent($uid, (string)$from['space_id'], 'happened',
+                '「' . ($applied['title'] ?? '') . '」挪走又撤回了，回到这里。', [], self::SUBJECT);
         }
         if (($applied['action'] ?? '') === 'new' && !empty($applied['space_id'])) {
             $this->norm->setState($uid, (string)$applied['space_id'], 'withdrawn');
@@ -452,7 +459,7 @@ TXT;
 
     // ---- 内部：收到以后 ----
 
-    /** @return ?array{creation_id: int, title: string} 放进空间以后要叫那个空间的 agent 动一下 */
+    /** @return ?array{space_id: string, title: string} 放进空间以后要叫那个空间的 agent 动一下 */
     private function apply(string $uid, array $reading, array $body): ?array {
         $raw = array_map('strval', (array)($body['readings'] ?? []));
         $readings = [];
@@ -510,23 +517,39 @@ TXT;
             if ($linked !== null && $linked['space']['id'] === $spaceId) {
                 return [['action' => 'kept', 'space_id' => $spaceId, 'space_title' => $space['title'], 'why' => $why], null];
             }
+            $from = $this->moveOut($uid, $linked, $title, $space['title']);
             $linkId = $this->norm->link($uid, $spaceId, $creationId, $readingId);
             $this->norm->addEvent($uid, $spaceId, 'happened', '读了 Initium 里的「' . $title . '」，连到这里。' . $why, [], self::SUBJECT);
-            return [['action' => 'existing', 'space_id' => $spaceId, 'space_title' => $space['title'], 'link_id' => $linkId, 'title' => $title, 'why' => $why],
-                ['creation_id' => $this->norm->spaceConversation($uid, $spaceId), 'title' => $title]];
+            return [['action' => 'existing', 'space_id' => $spaceId, 'space_title' => $space['title'], 'link_id' => $linkId, 'title' => $title, 'why' => $why, 'moved_from' => $from],
+                ['space_id' => $spaceId, 'title' => $title]];
         }
         if ($action === 'new') {
             $board = isset($place['board']) && is_string($place['board']) && isset(NormService::BOARDS[$place['board']]) ? $place['board'] : null;
             $name = trim((string)($place['title'] ?? '')) ?: $title;
             $spaceId = $this->norm->createSpace($uid, mb_substr($name, 0, 60), $board, (array)($place['parts'] ?? []),
                 is_array($place['way'] ?? null) ? $place['way'] : [], (string)($place['summary'] ?? ''));
+            $space = $this->norm->project($uid, $spaceId);
+            $from = $this->moveOut($uid, $linked, $title, $space['title'] ?? $name);
             $linkId = $this->norm->link($uid, $spaceId, $creationId, $readingId);
             $this->norm->addEvent($uid, $spaceId, 'happened', '从 Initium 里的「' . $title . '」长出来，读者放进了 Norm。' . $why, [], self::SUBJECT);
-            $space = $this->norm->project($uid, $spaceId);
-            return [['action' => 'new', 'space_id' => $spaceId, 'space_title' => $space['title'] ?? $name, 'board' => $board, 'link_id' => $linkId, 'title' => $title, 'why' => $why],
-                ['creation_id' => $this->norm->spaceConversation($uid, $spaceId), 'title' => $title]];
+            return [['action' => 'new', 'space_id' => $spaceId, 'space_title' => $space['title'] ?? $name, 'board' => $board, 'link_id' => $linkId, 'title' => $title, 'why' => $why, 'moved_from' => $from],
+                ['space_id' => $spaceId, 'title' => $title]];
         }
         return [['action' => 'stay', 'why' => $why], null];
+    }
+
+    /**
+     * 这段对话原来连在另一个空间上，现在放到别处：原来那条连线撤掉（不然它同时出现在两个空间里），那边记一条。
+     * 返回原来那条，撤回时接回去。
+     */
+    private function moveOut(string $uid, ?array $linked, string $title, string $toTitle): ?array {
+        if ($linked === null) {
+            return null;
+        }
+        $this->norm->unlink($uid, $linked['link_id']);
+        $this->norm->addEvent($uid, $linked['space']['id'], 'happened',
+            '读者重新读了「' . $title . '」，把它挪到了「' . $toTitle . '」。', [], self::SUBJECT);
+        return ['link_id' => $linked['link_id'], 'space_id' => $linked['space']['id'], 'space_title' => $linked['space']['title']];
     }
 
     /** 从模型的回答里取出 JSON 对象（它有时会包在 ``` 里，或前后多说一句）。 */
