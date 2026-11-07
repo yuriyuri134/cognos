@@ -19,6 +19,7 @@ const project = {id: 'fixture', title: 'Cognos · 对话与历史', board: '项�
   compare: [{title: '比较', text: '可读的主区'}], doc: '文档正文'};
 let events = [{id: 1, kind: 'decide', text: long, answer: null, options: ['继续', '暂缓']}];
 let drift = null;
+let versions = {stages: [{id: 9, who: 'Claude', created_at: 1794000200}]};
 const arrived = {since: 1794000000, items: [{created_at: 1794000100, text: '发生了变化', who: 'Claude'}]};
 const posts = [];
 const server = http.createServer(async (req, res) => {
@@ -29,7 +30,9 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (url.pathname === app + '/norm/projects/fixture/data') return res.end(JSON.stringify({project, conversation_id: 7, spaces: [project],
     parts: {stages: '演变', branches: '拆解', relations: '关系', compare: '并排对照', doc: '文档'}, messages: messages.length,
-    links: [{creation_id: 42, title: 'Initium 原始讨论'}], events, arrive: arrived, drift, drift_done: null}));
+    links: [{creation_id: 42, title: 'Initium 原始讨论'}], events, arrive: arrived, drift, drift_done: null, versions}));
+  if (url.pathname === app + '/norm/projects/fixture/part-version') { versions = {}; project.stages = [{when: '11/06', title: '换回来的阶段', text: '旧的'}]; return res.end('{"part":"stages"}'); }
+  if (url.pathname === app + '/norm/projects/fixture/restore') { project.state = 'active'; return res.end('{}'); }
   const one = url.pathname.match(/^\/index\.php\/apps\/cognos\/creations\/7\/messages\/(\d+)$/);
   if (one && req.method === 'PUT') {
     const i = messages.findIndex(m => m.id === Number(one[1]));
@@ -71,12 +74,17 @@ live.run('norm-ui-offline', async checks => {
     b = await live.browser(); await b.desktop();
     const url = 'http://127.0.0.1:' + server.address().port;
     await b.go(url); await b.until('document.querySelectorAll(".cg-msg").length === 60');
-    assert(await b.evaluate('!document.querySelector("#cg-space-conversation").hidden && !document.querySelector(".cg-notice").open'));
+    // 有一件等你定：「正在发生」默认展开
+    assert(await b.evaluate('!document.querySelector("#cg-space-conversation").hidden && document.querySelector(".cg-notice").open'));
+    // 展开时对话仍留得够大；收起后回到大的阅读区
+    assert(await b.evaluate('document.querySelector(".cg-chat-log").clientHeight > 250'));
+    assert(await b.evaluate('(() => {const r=document.querySelector(".cg-decide button").getBoundingClientRect();return r.bottom<=innerHeight && r.height>0})()'));
+    await b.click('.cg-notice > summary');
     assert(await b.evaluate('document.querySelector(".cg-chat-log").clientHeight > 450'));
     assert(await b.evaluate('document.querySelectorAll(".cg-msg .cg-msg-text")[59].textContent.endsWith("回答结束标记")'));
     assert(await b.noOverflow());
     await b.shoot('norm-ui-desktop.png');
-    checks.push('Desktop defaults to wide conversation; 60 complete messages, long answer intact, notices collapsed.');
+    checks.push('Desktop defaults to wide conversation; 60 complete messages, long answer intact; a waiting decision opens the notice with its buttons in view, collapsing gives the chat back its full height.');
 
     await b.evaluate('window.firstMessage=document.querySelector(".cg-msg");window.historyLog=document.querySelector(".cg-chat-log");historyLog.scrollTop=200');
     await b.until('!document.querySelector(".cg-chat-latest").hidden');
@@ -125,14 +133,21 @@ live.run('norm-ui-offline', async checks => {
     await b.click('.cg-chat-latest');
     await b.until('historyLog.scrollHeight-historyLog.scrollTop-historyLog.clientHeight<2');
     await b.shoot('norm-ui-phone.png');
+    // 上面收起过，同一件不再自己打开；再点开
+    assert(await b.evaluate('!document.querySelector(".cg-notice").open'));
     await b.click('.cg-notice > summary');
     assert(await b.evaluate('document.querySelector(".cg-notice").open'));
+    assert(await b.evaluate('document.querySelector(".cg-decide button").getBoundingClientRect().bottom<=innerHeight && document.querySelector(".cg-chat-form").getBoundingClientRect().bottom<=innerHeight'));
+    const msgsBefore = await b.evaluate('document.querySelectorAll(".cg-msg").length');
     await b.click('.cg-decide button'); await b.until('!document.querySelector(".cg-decide")');
+    // 定了以后在对话里说一句，agent 接着做
+    await b.until('document.querySelectorAll(".cg-msg").length===' + (msgsBefore + 1));
+    assert(posts.some(x => x.url.endsWith('/messages') && /我定了：继续/.test(x.body.message)));
     assert(await b.evaluate('document.querySelector(".cg-notice").open'));
     await b.click('.cg-notice > summary');
     await b.fill('.cg-chat-form textarea', '新问题');
     await b.send('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13});
-    await b.until('document.querySelectorAll(".cg-msg").length===63');
+    await b.until('document.querySelectorAll(".cg-msg").length===' + (msgsBefore + 2));
     assert(posts.some(x => x.url.endsWith('/messages') && x.body.message === '新问题'));
     checks.push('390px has no page overflow; composer visible, jump-to-latest works, decisions remain usable, Enter sends through existing API.');
     for (const key of ['stages', 'branches', 'compare', 'doc', 'about']) { await view(key); assert(await b.noOverflow()); }
@@ -154,6 +169,23 @@ live.run('norm-ui-offline', async checks => {
     await b.evaluate('[...document.querySelectorAll(".cg-msg-you")].pop().querySelectorAll(".cg-msg-act")[1].click()');
     await b.until('document.querySelectorAll(".cg-msg").length===' + (before - 1));
     checks.push('Usage line shows quota and cache share; edit sends PUT then recall and shows the new text; delete removes the message.');
+
+    // 一块被改过：显示谁什么时候改的，能换回改之前那一版
+    await view('stages');
+    assert(await b.evaluate('document.querySelector("#cg-view-stages .cg-version").textContent.includes("Claude")'));
+    await b.evaluate('window.confirm=()=>true;document.querySelector("#cg-view-stages .cg-version button").click()');
+    await b.until('document.querySelector("#cg-view-stages").textContent.includes("换回来的阶段") && !document.querySelector("#cg-view-stages .cg-version")');
+    assert(posts.some(x => x.url.endsWith('/part-version') && x.body.version === 9));
+    checks.push('A changed part shows who changed it and can be restored to the version before.');
+
+    // 撤回了的空间：说清楚不在 Norm 里，可以放回
+    project.state = 'withdrawn';
+    await b.go(url); await b.until('!!document.querySelector("#cg-space-top .cg-btn-gold")');
+    assert(await b.evaluate('document.querySelector("#cg-space-top").textContent.includes("撤回")'));
+    await b.click('#cg-space-top .cg-btn-gold');
+    await b.until('!document.querySelector("#cg-space-top").textContent.includes("已经撤回")');
+    assert(posts.some(x => x.url.endsWith('/restore')));
+    checks.push('A withdrawn space says so and can be put back into Norm.');
 
     messages = []; events = []; arrived.items = []; project.parts = []; project.board = null; project.way = {};
     await b.go(url); await b.until('!!window.testChat && !!document.querySelector(".cg-chat-log .cg-hint")');
