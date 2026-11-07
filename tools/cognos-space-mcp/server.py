@@ -340,7 +340,8 @@ TOOLS += [
     {"name": "read_space",
      "description": ("读你所在的 Norm 空间现在的样子：它是什么、agent 在这里的做法（交互对象不在时做什么、怎样算往前走、什么时候找他）、"
                      "用哪几块和每一块现在的内容、还等着他定的事、最近发生的，以及放进这里的 Initium 对话原话（linked）。动手改之前先读。"),
-     "inputSchema": {"type": "object", "properties": {"space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE},
+     "inputSchema": {"type": "object", "properties": {"space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE,
+                     "linked_id": {"type": "integer", "description": "只读放进这里的某一段对话的全文（linked 里的 creation_id）；原话被缩短时用"}},
                      "required": ["space_id"]}},
     {"name": "write_part",
      "description": ("改这个空间的一块：stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）。"
@@ -657,6 +658,8 @@ def run_tool(name: str, args: dict) -> str:
         path = space_path(args) + "/norm"
         extra = {"norm_space": args["norm_space"]} if args.get("norm_space") else {}
         if name == "read_space":
+            if args.get("linked_id"):
+                extra["linked_id"] = int(args["linked_id"])
             data = call_api("GET", path, extra or None)
             return json.dumps(data, ensure_ascii=False, indent=1)
         if name == "write_part":

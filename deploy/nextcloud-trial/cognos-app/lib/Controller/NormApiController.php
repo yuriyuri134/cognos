@@ -57,7 +57,7 @@ final class NormApiController extends OCSController {
     }
 
     #[NoAdminRequired]
-    public function readSpace(string $spaceType, string $spaceId, string $norm_space = ''): DataResponse {
+    public function readSpace(string $spaceType, string $spaceId, string $norm_space = '', int $linked_id = 0): DataResponse {
         $uid = $this->uid();
         $space = $this->resolve($uid, $spaceType, $spaceId, $norm_space);
         if ($space === null) {
@@ -73,7 +73,7 @@ final class NormApiController extends OCSController {
         }
         $out['waiting_for_you'] = array_values(array_filter($this->norm->events($uid, $space['id'], 'decide', 20), static fn(array $e): bool => $e['answer'] === null));
         $out['recent'] = array_slice($this->norm->events($uid, $space['id'], 'happened', 10), 0, 10);
-        $out['linked'] = $this->linkedText($uid, $space['id']);
+        $out['linked'] = $this->linkedText($uid, $space['id'], $linked_id);
         $out['formats'] = [
             'stages' => '[{"when": "时间", "title": "这一段叫什么", "text": "发生了什么", "current": true 只给现在这段, "proposed": true 是你提出、等人定的}]',
             'branches' => '[{"title": "分支", "parts": [{"title": "部分", "text": "说明"}]}]',
@@ -116,18 +116,22 @@ final class NormApiController extends OCSController {
 
     /**
      * 放进这个空间的 Initium 对话的原话，最近放进来的在前。agent 要接着做，得读得到原话，不能只有一句转述和几个编号。
-     * 一共最多 4 万字，一段最多 2 万字；太长时只给后面一段，并说前面还有多少。
+     * 一共最多 12 万字，一段最多 8 万字；超出时人的话不截，只缩短早先的 AI 回答，并告诉 agent 怎么单独读全。
      */
-    private function linkedText(string $uid, string $spaceId): array {
-        $budget = 40000;
+    private function linkedText(string $uid, string $spaceId, int $only = 0): array {
+        // 正常长度的对话整段给；只要一段（linked_id）时给到 20 万字
+        $budget = $only > 0 ? 200000 : 120000;
         $out = [];
         foreach (array_reverse($this->norm->links($uid, $spaceId)) as $link) {
+            if ($only > 0 && $link['creation_id'] !== $only) {
+                continue;
+            }
             $messages = $this->creations->getMessages($link['creation_id'], $uid);
             $item = ['creation_id' => $link['creation_id'], 'title' => $link['title'], 'messages' => count($messages)];
-            $cap = min(20000, $budget);
+            $cap = $only > 0 ? $budget : min(80000, $budget);
             if ($cap < 2000) {
                 $item['text'] = null;
-                $item['note'] = '这段放不下了，前面几段已经占满';
+                $item['note'] = '这段放不下了，用 read_space 带 linked_id=' . $link['creation_id'] . ' 单独读';
                 $out[] = $item;
                 continue;
             }
@@ -140,7 +144,7 @@ final class NormApiController extends OCSController {
                 }
                 $len = mb_strlen($l['text']);
                 if (!$l['user'] && $len > 300) {
-                    $lines[$k]['text'] = mb_substr($l['text'], 0, 300) . '…（这条 AI 回答后面还有 ' . ($len - 300) . ' 字没给）';
+                    $lines[$k]['text'] = mb_substr($l['text'], 0, 300) . '…（这条 AI 回答后面还有 ' . ($len - 300) . ' 字没给，read_space 带 linked_id=' . $link['creation_id'] . ' 可以读全）';
                     $total -= $len - mb_strlen($lines[$k]['text']);
                 }
             }
