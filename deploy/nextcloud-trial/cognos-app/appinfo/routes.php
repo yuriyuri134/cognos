@@ -113,6 +113,8 @@ return ['routes' => [
     ['name' => 'creationSpace#get', 'url' => '/creations/{id}/data', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#sendMessage', 'url' => '/creations/{id}/messages', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#getMessages', 'url' => '/creations/{id}/messages', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
+    ['name' => 'creationSpace#editMessage', 'url' => '/creations/{id}/messages/{messageId}', 'verb' => 'PUT', 'requirements' => ['id' => '[0-9]+', 'messageId' => '[0-9]+']],
+    ['name' => 'creationSpace#deleteMessage', 'url' => '/creations/{id}/messages/{messageId}', 'verb' => 'DELETE', 'requirements' => ['id' => '[0-9]+', 'messageId' => '[0-9]+']],
     ['name' => 'creationSpace#space', 'url' => '/creations/{id}/space', 'verb' => 'GET', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#addSpaceTrace', 'url' => '/creations/{id}/space/traces', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+']],
     ['name' => 'creationSpace#answerHit', 'url' => '/creations/{id}/space/hits/{hitId}/answer', 'verb' => 'POST', 'requirements' => ['id' => '[0-9]+', 'hitId' => '[0-9]+']],

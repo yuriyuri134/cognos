@@ -403,7 +403,13 @@ def hands(workdir: Path, wt: dict | None = None) -> str:
     return "\n".join(lines)
 
 
-def prompt_from(history: list[dict], message: str, caller: str, subject: str = "") -> str:
+# 缓存只认开头完全一样的那一段。入口（这片空间现在的样子）每次都会变，放在开头会让后面整段对话都算不上缓存，
+# 所以开头只放不变的这几句，入口挪到对话后面、这次的话前面。
+STABLE_SYSTEM = ("你在 Cognos 里。这一处是哪里、有什么、之前发生过什么，写在对话后面「这一处现在的样子」那一节，"
+                 "每次进来都重新给；对方这次说的话在最后。")
+
+
+def prompt_from(history: list[dict], message: str, caller: str, subject: str = "", entry: str = "") -> str:
     lines = []
     if history:
         lines.append("## 这片空间里之前的对话")
@@ -418,6 +424,10 @@ def prompt_from(history: list[dict], message: str, caller: str, subject: str = "
             else:
                 who = "AI（以前回的，没记是谁）"
             lines.append(f"{who}：{item.get('content', '')}")
+        lines.append("")
+    if entry:
+        lines.append("## 这一处现在的样子（每次进来重新给）")
+        lines.append(entry)
         lines.append("")
     lines.append(f"## {caller}现在说")
     lines.append(message)
@@ -491,6 +501,115 @@ def record_run(job: dict, subject: str, system_text: str, prompt: str, started: 
         return None
 
 
+USAGE_FILE = RUN_LOG_DIR.parent / "usage.json"
+USAGE_LOCK = threading.Lock()
+
+
+def claude_usage(stdout: str) -> tuple[dict | None, dict | None]:
+    """从 stream-json 取这一次用了多少（result.usage）和账号额度（rate_limit_event）。"""
+    usage = limits = None
+    for line in (stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "rate_limit_event":
+            windows = (event.get("rate_limit_info") or {}).get("unifiedWindows") or {}
+            limits = {name: {"used": w.get("utilization"), "resets_at": w.get("resetsAt")}
+                      for name, w in windows.items() if isinstance(w, dict)}
+        elif event.get("type") == "result":
+            u = event.get("usage") or {}
+            usage = {"input": u.get("input_tokens") or 0, "cache_read": u.get("cache_read_input_tokens") or 0,
+                     "cache_write": u.get("cache_creation_input_tokens") or 0, "output": u.get("output_tokens") or 0}
+    return usage, limits
+
+
+def codex_usage(events_file: Path) -> dict | None:
+    usage = None
+    try:
+        lines = events_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "turn.completed":
+            u = event.get("usage") or {}
+            usage = usage or {"input": 0, "cache_read": 0, "cache_write": 0, "output": 0}
+            cached = u.get("cached_input_tokens") or 0
+            usage["input"] += max(0, (u.get("input_tokens") or 0) - cached)
+            usage["cache_read"] += cached
+            usage["cache_write"] += u.get("cache_write_input_tokens") or 0
+            usage["output"] += u.get("output_tokens") or 0
+    return usage
+
+
+def codex_limits() -> dict | None:
+    """桥里的 Codex 是 --ephemeral，不留会话记录；额度取本机 Codex 最近一次会话里记下的，附上那次的时间。"""
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "sessions"
+    try:
+        newest = max(home.rglob("rollout-*.jsonl"), key=lambda f: f.stat().st_mtime)
+    except (ValueError, OSError):
+        return None
+    found = None
+    try:
+        for line in newest.read_text(encoding="utf-8").splitlines():
+            if '"rate_limits"' in line:
+                found = line
+    except OSError:
+        return None
+    if not found:
+        return None
+    try:
+        rl = ((json.loads(found).get("payload") or {}).get("rate_limits")) or {}
+    except ValueError:
+        return None
+    out = {}
+    for key in ("primary", "secondary"):
+        w = rl.get(key)
+        if isinstance(w, dict) and w.get("used_percent") is not None:
+            name = "five_hour" if w.get("window_minutes") == 300 else "seven_day" if w.get("window_minutes") == 10080 else key
+            out[name] = {"used": w["used_percent"] / 100, "resets_at": w.get("resets_at")}
+    return {"windows": out, "seen_at": int(newest.stat().st_mtime)} if out else None
+
+
+def record_usage(job: dict, executor: str, usage: dict | None, limits: dict | None, seen_at: int | None = None) -> None:
+    """记下每次用了多少、账号额度最新是多少，Cognos 页面从 GET /usage 读。存不下不挡运行。"""
+    try:
+        with USAGE_LOCK:
+            try:
+                data = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            if limits:
+                data.setdefault("limits", {})[executor] = {"windows": limits, "seen_at": seen_at or int(time.time())}
+            if usage:
+                runs = data.setdefault("runs", [])
+                runs.append({"at": int(time.time()), "executor": executor, "run_id": job.get("run_id"),
+                             "space_type": job.get("space_type"), "space_id": str(job.get("space_id")),
+                             "subject": job.get("subject"), **usage})
+                del runs[:-200]
+            USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            USAGE_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception as error:  # noqa: BLE001
+        sys.stderr.write(f"[claude-bridge] 用量没记下：{error}\n")
+
+
+def usage_for(space_type: str, space_id: str) -> dict:
+    try:
+        data = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    last = None
+    for run in reversed(data.get("runs") or []):
+        if run.get("space_type") == space_type and run.get("space_id") == space_id:
+            last = run
+            break
+    return {"limits": data.get("limits") or {}, "last": last}
+
+
 def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict | None = None, job: dict | None = None) -> str:
     exe = shutil.which("claude.cmd") or shutil.which("claude")
     if exe is None:
@@ -501,7 +620,7 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
     with tempfile.TemporaryDirectory(prefix="cognos-claude-") as tmp:
         tmpdir = Path(tmp)
         # claude.cmd（批处理）遇到换行会丢掉后面的参数，所以入口写成文件传进去
-        system_text = system + "\n" + hands(workdir, wt)
+        system_text = (STABLE_SYSTEM if (job or {}).get("entry_in_prompt") else system) + "\n" + hands(workdir, wt)
         (tmpdir / "system.txt").write_text(system_text, encoding="utf-8")
         (tmpdir / "mcp.json").write_text(json.dumps({"mcpServers": {"cognos-space": {
             "command": sys.executable,
@@ -538,6 +657,8 @@ def run_claude(subject: str, system: str, prompt: str, workdir: Path, wt: dict |
             record_run(job or {}, subject, system_text, prompt, started, out, err, None, True)
             raise
         record_run(job or {}, subject, system_text, prompt, started, done.stdout, done.stderr, done.returncode, False)
+        if job is not None:
+            record_usage(job, "claude", *claude_usage(done.stdout))
     return answer_from(done.stdout, done.stderr)
 
 
@@ -584,7 +705,10 @@ def codex_job(body: dict, job: dict) -> dict:
             raise ValueError("对话编号无效")
         if body.get("caller_uid") != COGNOS_USER:
             raise ValueError("聊天账号与本机 Codex 应用凭据账号不一致")
-        return {**job, "executor": "codex", "mode": "chat", "caller_uid": body["caller_uid"]}
+        effort = body.get("reasoning_effort", "default")
+        if effort not in ("default", "low", "medium", "high", "xhigh", "max"):
+            raise ValueError("无效的思考强度")
+        return {**job, "executor": "codex", "mode": "chat", "caller_uid": body["caller_uid"], "reasoning_effort": effort}
     if body.get("executor") != "codex" or body.get("subject") != "Codex" or body.get("space_type") != "creation":
         raise ValueError("Codex 只接收在项目位置登记的 Codex 委托")
     if not re.fullmatch(r"[1-9][0-9]*", job["space_id"]):
@@ -609,18 +733,23 @@ def run_codex(job: dict) -> str:
     if job.get("mode") == "chat":
         tools = ("enter_space", "read_space", "check_changes", "list_attempts", "get_attempt")
         prompt = ("你在 Cognos 的一段对话里，被交互对象选来回话。下面是这一处的说明，再往下是这段对话的全文和他刚说的话。"
-                  "像在对话里一样直接回他；需要时用 Cognos 工具读，但你不能改东西。\n\n" + job["system"] + "\n\n" + job["prompt"])
+                  "像在对话里一样直接回他；需要时用 Cognos 工具读，但你不能改东西。\n\n"
+                  + ("" if job.get("entry_in_prompt") else job["system"] + "\n\n") + job["prompt"])
     else:
         tools = delegation_tools(may_edit=job["may_edit"], may_adopt=job["may_adopt"], may_manage_work=job["may_manage_work"])
         prompt = ("你在 Cognos 中收到一份已登记的委托。只处理当前委托与实际授予的范围。"
                   "需要时用 Cognos 工具读取当前信息，写出最终答复，桥会交回。\n"
                   f"工具绑定的实际运行编号：{job['run_id']}，位置会话编号：{job['space_id']}。\n\n"
-                  + job["system"] + "\n\n" + job["prompt"])
+                  + ("" if job.get("entry_in_prompt") else job["system"] + "\n\n") + job["prompt"])
     output = RUN_LOG_DIR / ("codex-" + job["run_id"])
     result = run(job["space_id"], prompt, output, subject=job.get("subject") or "Codex", model=CODEX_MODEL or None,
                  timeout=TIMEOUT, run_id=job["run_id"], tools=tools,
+                 reasoning_effort=None if job.get("reasoning_effort", "default") == "default" else job["reasoning_effort"],
                  environment={"COGNOS_URL": COGNOS_URL, "COGNOS_USER": job["caller_uid"],
                               "COGNOS_APP_PASSWORD": CODEX_APP_PASSWORD})
+    limits = codex_limits()
+    record_usage(job, "codex", codex_usage(output / "events.jsonl"), limits and limits["windows"],
+                 limits and limits["seen_at"])
     return result["content"]
 
 
@@ -1008,6 +1137,12 @@ class Handler(BaseHTTPRequestHandler):
                                  "commands": commands_allowed(), "busy": sorted(BUSY),
                                  "codex_supported": True, "codex_configured": codex_configured(),
                                  "pending": len(list(outbox("pending").glob("*.json")))})
+        elif self.path.startswith("/usage?"):
+            if not hmac.compare_digest(self.headers.get("X-Cognos-Bridge-Token", ""), TOKEN):
+                self.send_json(401, {"error": "口令不对"})
+                return
+            q = urllib.parse.parse_qs(self.path.split("?", 1)[1])
+            self.send_json(200, usage_for((q.get("space_type") or [""])[0], (q.get("space_id") or [""])[0]))
         else:
             self.send_json(404, {"error": "not found"})
 
@@ -1034,7 +1169,9 @@ class Handler(BaseHTTPRequestHandler):
                 "space_id": str(body["space_id"]),
                 "subject": str(body.get("subject") or "Claude Code"),
                 "system": str(body["system"]),
-                "prompt": prompt_from(history, str(body["message"]), str(body.get("caller") or "交互对象"), str(body.get("subject") or "Claude Code")),
+                "prompt": prompt_from(history, str(body["message"]), str(body.get("caller") or "交互对象"), str(body.get("subject") or "Claude Code"),
+                                      entry=str(body["system"])),
+                "entry_in_prompt": True,
                 "caller": str(body.get("caller") or "交互对象"),
                 "repo": bool(body.get("repo")),
                 "hit_id": body.get("hit_id"),

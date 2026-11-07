@@ -558,7 +558,8 @@ final class HermesAgentService {
                     '你只能读，不能改 Cognos 里的东西；想做的事写在回答里。',
                 ], $this->norm->agentLines($user->getUID(), $creationId)));
             $this->bridge->send('creation', (string)$creationId, 'GPT', $this->entries->renderText($entry), $history, $message, $caller,
-                array_merge($extra, ['executor' => 'codex', 'mode' => 'chat', 'reply_to' => $replyTo, 'caller_uid' => $user->getUID()]));
+                array_merge($extra, ['executor' => 'codex', 'mode' => 'chat', 'reply_to' => $replyTo, 'caller_uid' => $user->getUID(),
+                    'reasoning_effort' => $this->config->getUserValue($user->getUID(), 'cognos', 'agent_effort_c' . $creationId, 'default')]));
             $this->spaces->markSeen('creation', (string)$creationId, 'GPT');
             return null;
         }

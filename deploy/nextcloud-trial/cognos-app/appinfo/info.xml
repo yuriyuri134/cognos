@@ -23,6 +23,7 @@
     <command>OCA\Cognos\Command\ImportSpace</command>
     <command>OCA\Cognos\Command\NormSeed</command>
     <command>OCA\Cognos\Command\ReadNow</command>
+    <command>OCA\Cognos\Command\ImportConversations</command>
   </commands>
   <dependencies><nextcloud min-version="35" max-version="35"/></dependencies>
 </info>

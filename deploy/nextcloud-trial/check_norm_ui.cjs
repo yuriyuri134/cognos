@@ -30,9 +30,21 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === app + '/norm/projects/fixture/data') return res.end(JSON.stringify({project, conversation_id: 7, spaces: [project],
     parts: {stages: '演变', branches: '拆解', relations: '关系', compare: '并排对照', doc: '文档'}, messages: messages.length,
     links: [{creation_id: 42, title: 'Initium 原始讨论'}], events, arrive: arrived, drift, drift_done: null}));
+  const one = url.pathname.match(/^\/index\.php\/apps\/cognos\/creations\/7\/messages\/(\d+)$/);
+  if (one && req.method === 'PUT') {
+    const i = messages.findIndex(m => m.id === Number(one[1]));
+    const removed = messages.slice(i + 1).map(m => m.id); messages = messages.slice(0, i + 1); messages[i] = {...messages[i], content: body.message};
+    posts.push({url: req.url, body, method: 'PUT'}); return res.end(JSON.stringify({id: Number(one[1]), removed}));
+  }
+  if (one && req.method === 'DELETE') {
+    const i = messages.findIndex(m => m.id === Number(one[1]));
+    const removed = [messages[i].id, ...(messages[i].role === 'user' && messages[i + 1] && messages[i + 1].role !== 'user' ? [messages[i + 1].id] : [])];
+    messages = messages.filter(m => !removed.includes(m.id)); return res.end(JSON.stringify({removed}));
+  }
   if (url.pathname === app + '/creations/7/messages') {
-    if (req.method === 'POST') messages.push({id: messages.length + 1, role: 'user', content: body.message});
-    return res.end(JSON.stringify({messages, pending: false}));
+    if (req.method === 'POST' && body.message) messages.push({id: Math.max(0, ...messages.map(m => m.id)) + 1, role: 'user', content: body.message});
+    return res.end(JSON.stringify({messages, pending: false, usage: {limits: {claude: {windows: {five_hour: {used: 0.31, resets_at: 1794048000}}, seen_at: 1794037541}},
+      last: {at: 1794037541, executor: 'claude', subject: 'Claude Code', input: 2, cache_read: 12467, cache_write: 2412, output: 8}}}));
   }
   if (url.pathname === app + '/creations/7/agent') return res.end('{"agent":"claude"}');
   if (url.pathname === app + '/norm/events/1/answer') { events = []; return res.end('{"answered":true}'); }
@@ -61,14 +73,14 @@ live.run('norm-ui-offline', async checks => {
     await b.go(url); await b.until('document.querySelectorAll(".cg-msg").length === 60');
     assert(await b.evaluate('!document.querySelector("#cg-space-conversation").hidden && !document.querySelector(".cg-notice").open'));
     assert(await b.evaluate('document.querySelector(".cg-chat-log").clientHeight > 450'));
-    assert(await b.evaluate('document.querySelectorAll(".cg-msg")[59].textContent.endsWith("回答结束标记")'));
+    assert(await b.evaluate('document.querySelectorAll(".cg-msg .cg-msg-text")[59].textContent.endsWith("回答结束标记")'));
     assert(await b.noOverflow());
     await b.shoot('norm-ui-desktop.png');
     checks.push('Desktop defaults to wide conversation; 60 complete messages, long answer intact, notices collapsed.');
 
     await b.evaluate('window.firstMessage=document.querySelector(".cg-msg");window.historyLog=document.querySelector(".cg-chat-log");historyLog.scrollTop=200');
     await b.until('!document.querySelector(".cg-chat-latest").hidden');
-    await b.evaluate('window.oldTop=historyLog.scrollTop;const r=document.createRange();r.selectNodeContents(firstMessage.lastChild);getSelection().removeAllRanges();getSelection().addRange(r);');
+    await b.evaluate('window.oldTop=historyLog.scrollTop;const r=document.createRange();r.selectNodeContents(firstMessage.querySelector(".cg-msg-text"));getSelection().removeAllRanges();getSelection().addRange(r);');
     const selection = await b.evaluate('getSelection().toString()');
     await b.evaluate('testChat.reload()');
     assert(await b.evaluate('document.querySelector(".cg-msg")===firstMessage && Math.abs(historyLog.scrollTop-oldTop)<2'));
@@ -128,6 +140,20 @@ live.run('norm-ui-offline', async checks => {
     assert(await b.evaluate('(() => {const r=document.querySelector("#cg-map-full .cg-node-project").getBoundingClientRect();return r.left>=0 && r.right<=innerWidth})()'));
     await b.shoot('norm-ui-phone-map.png'); await b.click('#cg-map-close');
     checks.push('All work views and relation dialog open/return at 390px without page overflow.');
+
+    await view('conversation');
+    assert(await b.evaluate('document.querySelector(".cg-usage").textContent.includes("Claude 额度") && document.querySelector(".cg-usage").textContent.includes("缓存命中 84%")'));
+    const lastUser = await b.evaluate('[...document.querySelectorAll(".cg-msg-you")].pop().dataset.messageId');
+    await b.evaluate('window.confirm=()=>true;[...document.querySelectorAll(".cg-msg-you")].pop().querySelector(".cg-msg-act").click()');
+    await b.until('!!document.querySelector(".cg-msg-edit")');
+    await b.evaluate('document.querySelector(".cg-msg-edit").value="改过的问题";document.querySelector(".cg-msg-edit-bar .cg-msg-act").click()');
+    await b.until('[...document.querySelectorAll(".cg-msg-you")].pop().querySelector(".cg-msg-text").textContent==="改过的问题"');
+    assert(posts.some(x => x.method === 'PUT' && x.url.endsWith('/messages/' + lastUser) && x.body.message === '改过的问题'));
+    assert(posts.some(x => x.body.recall === Number(lastUser)));
+    const before = await b.evaluate('document.querySelectorAll(".cg-msg").length');
+    await b.evaluate('[...document.querySelectorAll(".cg-msg-you")].pop().querySelectorAll(".cg-msg-act")[1].click()');
+    await b.until('document.querySelectorAll(".cg-msg").length===' + (before - 1));
+    checks.push('Usage line shows quota and cache share; edit sends PUT then recall and shows the new text; delete removes the message.');
 
     messages = []; events = []; arrived.items = []; project.parts = []; project.board = null; project.way = {};
     await b.go(url); await b.until('!!window.testChat && !!document.querySelector(".cg-chat-log .cg-hint")');
