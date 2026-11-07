@@ -112,6 +112,10 @@
     const go = (space, text) => { const l = node('a', undefined, 'cg-go'); l.href = app + '/norm/projects/' + space; l.append(node('span', text), node('span', '进去看')); return l; };
     if (done.undone_at) {
       box.append(node('div', '撤回了，留在 Initium。', 'cg-hint'));
+    } else if ((a.action === 'new' || a.action === 'existing' || a.action === 'kept') && (!linked || linked.id !== a.space_id)) {
+      // 读者放进去以后，那个空间后来撤回、退回了，或者这段又被挪到了别处：照现在的说，不再显示「已放进」
+      box.append(node('div', '读者当时把它放进了「' + (a.space_title || '') + '」，后来' + (linked ? '它挪到了别处。' : '那个空间不在 Norm 里了，这段留在 Initium。'), 'cg-hint'));
+      if (linked) box.append(go(linked.id, '它现在在 Norm 里的「' + linked.title + '」'));
     } else if (a.action === 'new' || a.action === 'existing' || a.action === 'kept') {
       const row = node('div', undefined, 'cg-placed-row');
       const where = node('div'); where.append(node('span', a.action === 'kept' ? '还在 ' : '已放进 ', 'cg-small'), document.createTextNode('Norm · ' + (a.action === 'new' && !a.board ? '带着自己做法的 · ' : (a.board ? a.board + ' · ' : ''))));
