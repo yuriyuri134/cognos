@@ -550,6 +550,13 @@ final class HermesAgentService {
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
         $delegatedExecutor = !empty($extra['delegation_id']) ? ($extra['executor'] ?? null) : null;
+        if ($delegatedExecutor === null && $this->config->getUserValue($user->getUID(), 'cognos', 'agent_c' . $creationId, 'claude') === 'chatgpt') {
+            $entry = $this->entries->entry($space, 'ChatGPT', ['caller'=>$caller, 'message'=>$message], $this->norm->agentLines($user->getUID(), $creationId));
+            $this->bridge->send('creation', (string)$creationId, 'ChatGPT', $this->entries->renderText($entry), $history, $message, $caller,
+                array_merge($extra, ['executor'=>'chatgpt', 'mode'=>'chat', 'reply_to'=>$replyTo, 'caller_uid'=>$user->getUID(),
+                    'reasoning_effort'=>$this->config->getUserValue($user->getUID(), 'cognos', 'chatgpt_effort_c' . $creationId, 'default')]));
+            return null;
+        }
         // 这段对话选了 GPT：走本机 Codex（你的 ChatGPT 账号），每次带全文，和 Claude 看到的是同一段
         if ($delegatedExecutor === null && $this->config->getUserValue($user->getUID(), 'cognos', 'agent_c' . $creationId, 'claude') === 'gpt') {
             $entry = $this->entries->entry($space, 'GPT', ['caller' => $caller, 'message' => $message],
