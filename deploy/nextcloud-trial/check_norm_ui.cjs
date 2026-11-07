@@ -28,6 +28,28 @@ const driftDone = {id: 5, kind: 'drift', state: 'done', created_at: 1794000300, 
   bystander: {empty: [{quote: '往前走', why: '没说拿什么分辨'}], note: '大体说得出拿什么分辨'}}}};
 let versions = {stages: [{id: 9, who: 'Claude', created_at: 1794000200}]};
 const arrived = {since: 1794000000, items: [{created_at: 1794000100, text: '发生了变化', who: 'Claude'}]};
+// 历史和总观：它读完自己全部的原话以后写的。条目指着 Initium 里的原话（42）、这里的对话（7）、这里记下的事（0）
+let unread = {items: 1200, chars: 380000, chunks: 7, rounds: 2, runs: 9, from: 1793900000, to: 1794000000, total: 1300};
+const original = [{id: 900, role: 'user', content: '我想做一个帮我和 AI 一起想事情的系统，能排期，也能记住。', created_at: 1793900000},
+  {id: 901, role: 'user', content: '入口只要两部分：Initium 和 Norm。', created_at: 1793950000},
+  {id: 902, role: 'assistant', author: 'Claude', content: '好，**两部分**：Initium 和 Norm。', created_at: 1793950060}];
+const hEntries = {
+  101: {id: 101, key: '1.1', kind: '信', title: '想要一个一起想事情的系统', text: '你想做一个帮你和 AI 一起想事情的系统。', at: 1793900000, refs: [{src: 42, id: 900}], quotes: [{src: 42, id: 900, text: '我想做一个帮我和 AI 一起想事情的系统'}]},
+  102: {id: 102, key: '1.2', kind: '转了', title: '入口只要两部分', text: '你说入口只要 Initium 和 Norm 两部分，我就不再往项目管理上堆。', at: 1793950000, refs: [{src: 42, id: 901}, {src: 42, id: 902}], quotes: [{src: 42, id: 901, text: '入口只要两部分'}]},
+  103: {id: 103, key: '2.1', kind: '做了', title: '读者把对话放进 Norm', text: '做了读者，读完一段放进 Norm。', at: 1793990000, refs: [{src: 7, id: 5}, {src: 0, id: 3, text: '读了 Initium 里的「设计入口」，连到这里。'}], quotes: []},
+  104: {id: 104, key: '2.2', kind: '放下', title: '不做看板', text: '看板太重，放下。', at: 1793995000, refs: [], quotes: []}};
+const history = {version: 2, changed: '多了 1 段（「读者和认领」）', notes: ['「起头：一起想事情」已经转过了，这次它想改标题，没写为什么，没改。'], updated_at: 1794000500,
+  stages: [
+    {key: 's1', title: '起头：一起想事情', text: '那时我想做一个和 AI 一起想事情的系统。', turn: '你说入口只要两部分', turn_by: '你', turn_at: 102, kept: '还是要和 AI 一起想',
+      dropped: [{text: '不做看板：太重', late: true}], entries: [101, 102], late: [102],
+      corrections: [{field: 'text', before: '那时我想做项目管理。', now: '那时我想做一个和 AI 一起想事情的系统。', why: '后来读到最早那句', at: 1794000000}], from: 1793900000, to: 1793950000},
+    {key: 's2', title: '读者和认领', text: '我在做读者，让 Norm 里的空间来认领。', turn: '', entries: [103], late: [], dropped: [], corrections: [], from: 1793990000, to: 1793990000}],
+  entries: hEntries, unplaced: [104], skipped: [], sources: {42: 'Initium 原始讨论'}, own_conversation: 7,
+  versions: [{version: 2, changed: '多了 1 段', created_at: 1794000500, stages: 2}, {version: 1, changed: '多了 1 段（「起头」）', created_at: 1794000000, stages: 1}],
+  overviews: [{version: 1, now: '旧总观', text: '旧总观的全文', created_at: 1794000000}]};
+const overview = {id: 77, version: 2, now: '我现在是一个让 AI 和你一起想事情的系统，读者在把 Initium 里的东西放进 Norm。', created_at: 1794000500, upto: 1793995000,
+  lines: [{name: '读者和认领', at: '认领做完了，在 8780 上跑过一次', waits: '等你的额度刷新，跑一次全读', back: '额度刷新以后', refs: [{id: 103, title: '读者把对话放进 Norm', at: 1793990000}]}],
+  yours: [{what: '要不要合并这一批改动', why: '只有你能合', refs: [{id: 102, title: '入口只要两部分', at: 1793950000}]}], next: '先跑一次全读，看历史有没有漏掉转向。'};
 const posts = [];
 const server = http.createServer(async (req, res) => {
   let raw = ''; for await (const chunk of req) raw += chunk;
@@ -37,7 +59,9 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (url.pathname === app + '/norm/projects/fixture/data') return res.end(JSON.stringify({project, conversation_id: 7, spaces: [project],
     parts: {stages: '演变', branches: '拆解', relations: '关系', compare: '并排对照', doc: '文档'}, messages: messages.length,
-    links: [{creation_id: 42, title: 'Initium 原始讨论'}], events, arrive: arrived, drift, drift_done: driftDone, versions}));
+    links: [{creation_id: 42, title: 'Initium 原始讨论'}], events, arrive: arrived, drift, drift_done: driftDone, versions,
+    unread: drift && drift.state === 'reading' ? null : unread, history: url.searchParams.get('history') === '1' && project.history_meta ? history : null}));
+  if (url.pathname === app + '/creations/42/messages') return res.end(JSON.stringify({messages: original}));
   if (url.pathname === app + '/norm/projects/fixture/read') { drift = {id: 6, kind: 'drift', state: 'reading', created_at: 1794000400, result: {plan: [{label: '它自己', role: 'self'}]}}; return res.end('{"started":true}'); }
   if (url.pathname === app + '/norm/projects/fixture/part-version') { versions = {}; project.stages = [{when: '11/06', title: '换回来的阶段', text: '旧的'}]; return res.end('{"part":"stages"}'); }
   if (url.pathname === app + '/norm/projects/fixture/restore') { project.state = 'active'; return res.end('{}'); }
@@ -194,6 +218,60 @@ live.run('norm-ui-offline', async checks => {
     assert(posts.some(x => x.url.endsWith('/part-version') && x.body.version === 9));
     checks.push('A changed part shows who changed it and can be restored to the version before.');
 
+    // 读过自己以后：进来先看总观；依据点了到历史里那一条；原话在这里展开、能到那段对话里看前后
+    Object.assign(project, {overview, history_meta: {version: 2, stages: 2, entries: 4, unplaced: 1, to: 1793995000, updated_at: 1794000500}});
+    drift = null; unread = {items: 0, chars: 0, chunks: 0, rounds: 0, runs: 0, from: null, to: null, total: 1300};
+    await b.desktop(); await b.go(url);
+    await b.until('(s => !!s && !s.hidden && s.textContent.includes("第 2 版"))(document.querySelector("#cg-view-overview"))');
+    assert(await b.evaluate('document.querySelector("#cg-space-views [data-view=overview]").getAttribute("aria-pressed")==="true" && document.querySelector("#cg-space-conversation").hidden'));
+    assert(await b.evaluate('(s => s.querySelector(".cg-ov-now").textContent.includes("让 AI 和你一起想事情") && s.querySelector(".cg-ov-line dl").textContent.includes("等你的额度刷新") && s.querySelector(".cg-ov-your").textContent.includes("只有你能合") && s.textContent.includes("先跑一次全读") && s.textContent.includes("原话读到"))(document.querySelector("#cg-view-overview"))'));
+    // 原话都读过了、还有一条没归段：可以只合一次
+    assert(await b.evaluate('(s => s.textContent.includes("原话都读过了") && [...s.querySelectorAll(".cg-read-box button")].some(x => x.textContent.includes("把还没归段的 1 条合起来")))(document.querySelector("#cg-view-overview"))'));
+    await b.shoot('norm-ui-overview.png');
+    await b.click('#cg-view-overview .cg-ov-line .cg-ref');
+    await b.until('(s => !!s && !s.hidden && !!document.querySelector("#cg-h-103.cg-entry-found"))(document.querySelector("#cg-view-history"))');
+    assert(await b.evaluate('(s => s.querySelectorAll(".cg-stage").length===3 && s.querySelector(".cg-stage-now h3").textContent==="读者和认领" && s.textContent.includes("现在这一段") && s.querySelector(".cg-stage-fix").textContent.includes("后来读到最早那句") && s.querySelector(".cg-stage-fix").textContent.includes("那时我想做项目管理") && s.textContent.includes("没写为什么，没改") && s.querySelector(".cg-stage-turn").textContent.includes("你说入口只要两部分") && s.querySelector(".cg-stage-turn .cg-quote").textContent.includes("入口只要两部分") && s.textContent.includes("还没归进哪一段的 1 条") && s.textContent.includes("这一条没指到原话") && s.textContent.includes("不做看板：太重（后来补的）"))(document.querySelector("#cg-view-history"))'));
+    assert(await b.evaluate('!document.querySelector("#cg-view-history .cg-stage details").open && document.querySelector("#cg-view-history .cg-stage-now details").open'));
+    checks.push('With an overview the space opens on 总观 (lines with where they stop and what they wait for, what only you decide, next step, evidence links); everything read and one entry unplaced offers a merge-only run.');
+    // 第一段的条目：引文旁边点「原话」，在这里展开整句，能到那段对话里看前后
+    await b.click('#cg-view-history .cg-stage summary');
+    await b.click('#cg-h-101 .cg-orig-btn');
+    await b.until('(x => !!x && x.textContent.includes("能排期，也能记住") && x.querySelector("a").getAttribute("href")==="' + app + '/creations/42#m900" && x.querySelector("a").target==="_blank")(document.querySelector("#cg-h-101 .cg-orig-box"))');
+    await b.click('#cg-h-102 .cg-entry-refs .cg-orig-btn');
+    await b.until('(x => !!x && !!x.querySelector("strong") && !x.textContent.includes("**"))(document.querySelector("#cg-h-102 .cg-entry-refs .cg-orig-box"))');
+    await b.click('#cg-h-103 .cg-entry-refs .cg-orig:nth-of-type(2) .cg-orig-btn');
+    await b.until('(x => !!x && x.textContent.includes("连到这里"))(document.querySelector("#cg-h-103 .cg-entry-refs .cg-orig:nth-of-type(2) .cg-orig-box"))');
+    await b.shoot('norm-ui-history.png');
+    // 这里的对话里的一句：到对话那一栏，停在那句上
+    await b.click('#cg-h-103 .cg-entry-refs .cg-orig-btn');
+    await b.until('!!document.querySelector("#cg-h-103 .cg-orig-box a")');
+    assert.equal(await b.evaluate('document.querySelector("#cg-h-103 .cg-orig-box a").getAttribute("href")'), '#m5');
+    await b.click('#cg-h-103 .cg-orig-box a');
+    await b.until('!document.querySelector("#cg-space-conversation").hidden && !!document.querySelector(\'.cg-msg[data-message-id="5"].cg-msg-found\')');
+    assert(await b.evaluate('(r => r.top >= document.querySelector(".cg-chat-log").getBoundingClientRect().top - 2 && r.bottom <= innerHeight)(document.querySelector(\'.cg-msg[data-message-id="5"]\').getBoundingClientRect())'));
+    checks.push('History shows stages in order with the current one open, a correction with what it was and why, a refused silent change, the turn with its quote, dropped paths, unplaced and unsourced entries; originals expand in place (Markdown for AI), Initium ones link to /creations/42#m900 in a new tab, this space\'s own lines jump to the conversation and highlight it.');
+    await b.click('#cg-space-views [data-view="overview"]');
+    await b.click('#cg-view-overview .cg-read-box button');
+    const merged = x => x.url.endsWith('/norm/projects/fixture/read') && x.body.mode === 'merge';
+    for (let i = 0; i < 50 && !posts.some(merged); i++) await live.sleep(100);
+    assert(posts.some(merged), '只合一次没发 mode=merge');
+    await b.phone(); await b.go(url);
+    await b.until('!!document.querySelector("#cg-view-overview .cg-ov-now")');
+    for (const key of ['overview', 'history']) {
+      await view(key);
+      if (key === 'history') await b.until('!!document.querySelector("#cg-view-history .cg-stage-now")');
+      assert(await b.noOverflow(), key + ' overflows at 390px');
+      await b.shoot('norm-ui-phone-' + key + '.png');
+    }
+    checks.push('Merge-only run posts mode=merge; 总观 and 历史 have no page overflow at 390px.');
+    // 正在读：说读到哪了、这一轮读完以后还有几块
+    drift = {id: 8, kind: 'drift', state: 'reading', created_at: 1794000600, result: {final: false, plan: [{label: '第 1 块', role: 'past'}], run: {chunks: 5, items: 900, from: 1793900000, to: 1793990000, rest_chunks: 2}}};
+    await b.desktop(); await b.go(url);
+    await b.until('(s => !!s && s.textContent.includes("后面还有 2 块，下一轮再读") && s.querySelector(".cg-read-box button").disabled)(document.querySelector("#cg-view-overview"))');
+    drift = null; delete project.overview; delete project.history_meta;
+    unread = {items: 1200, chars: 380000, chunks: 7, rounds: 2, runs: 9, from: 1793900000, to: 1794000000, total: 1300};
+    checks.push('While reading, the page says which days it is reading and how many chunks are left for the next round.');
+
     // 撤回了的空间：说清楚不在 Norm 里，可以放回
     project.state = 'withdrawn';
     await b.go(url); await b.until('!!document.querySelector("#cg-space-top .cg-btn-gold")');
@@ -208,8 +286,12 @@ live.run('norm-ui-offline', async checks => {
     assert(await b.evaluate('!document.querySelector(".cg-ask") && !document.querySelector("#cg-space-conversation").hidden'));
     assert(await b.noOverflow());
     await view('self');
-    assert(await b.evaluate('document.querySelector("#cg-view-self .cg-self-act button").textContent==="让它读自己的经历，写第一版" && !document.querySelector("#cg-view-self .cg-self-older")'));
-    checks.push('Empty conversation, no decisions, and custom space with no supplied parts keep conversation available; a space without a self-account offers to write the first one.');
+    assert(await b.evaluate('document.querySelector("#cg-view-self .cg-self-act button").textContent==="让它读自己全部的原话" && document.querySelector("#cg-view-self").textContent.includes("读完要 9 次运行，分 2 轮") && !document.querySelector("#cg-view-self .cg-self-older")'));
+    await view('overview');
+    assert(await b.evaluate('(s => s.textContent.includes("它还没写过总观") && s.querySelector(".cg-read-box button").textContent==="让它读自己全部的原话")(document.querySelector("#cg-view-overview"))'));
+    await view('history');
+    assert(await b.evaluate('document.querySelector("#cg-view-history").textContent.includes("还没有。让它读一遍自己全部的原话")'));
+    checks.push('Empty conversation, no decisions, and custom space with no supplied parts keep conversation available; a space that has not read itself offers to read all its originals (with the run count) from 自述, 总观 and 历史.');
     assert.deepEqual(b.errors, []);
   } finally { b?.close(); await new Promise(resolve => server.close(resolve)); }
 });
