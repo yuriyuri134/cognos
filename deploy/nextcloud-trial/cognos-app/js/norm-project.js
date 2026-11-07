@@ -155,7 +155,15 @@
     const acts = node('div', undefined, 'cg-actions');
     e.options.forEach((o, i) => acts.append(button(o, i === 0 ? 'cg-btn-dark' : '', async ev => {
       ev.target.disabled = true;
-      try { await api('/norm/events/' + e.id + '/answer', { answer: o }); } catch (err) { alert(err.message); }
+      try { await api('/norm/events/' + e.id + '/answer', { answer: o }); } catch (err) { alert(err.message); load(false); return; }
+      // 定了就在这个空间的对话里说一句：agent 马上知道，照你定的接着做，对话里也留下你定过什么
+      if (data.conversation_id) {
+        const what = e.text.length > 200 ? e.text.slice(0, 200) + '…' : e.text;
+        try {
+          await api('/creations/' + data.conversation_id + '/messages', { message: '关于「' + what + '」，我定了：' + o + '。' });
+        } catch (err) { /* 没叫来 agent 也不要紧：定下的已经记住，它下次进来会看到 */ }
+        chat?.reload();
+      }
       load(false);
     })));
     box.append(left, acts); return box;

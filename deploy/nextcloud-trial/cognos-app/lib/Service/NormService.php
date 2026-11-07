@@ -345,6 +345,9 @@ final class NormService {
         if ($r === false || $r['kind'] !== 'decide') {
             throw new \InvalidArgumentException('没有这一件');
         }
+        if ($r['answer'] !== null) {
+            throw new \InvalidArgumentException('这一件已经定过了：' . $r['answer']);
+        }
         $answer = mb_substr(trim($answer), 0, 200);
         if ($answer === '') {
             throw new \InvalidArgumentException('要选一个');
