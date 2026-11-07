@@ -70,7 +70,7 @@
     if (latest && latest.state === 'failed') box.append(node('p', '上次没读完：' + (latest.error || '不知道为什么'), 'cg-hint'));
     if (!done) {
       if (!latest || latest.state !== 'reading') {
-        box.append(node('p', '读者不带上下文，也不知道 Cognos 是什么，只拿这段原话去读：它到底是什么、往哪走、接着需要什么。对话再长一点，它们会自己来读。', 'cg-hint'));
+        box.append(node('p', '读者不带上下文，也不知道 Cognos 是什么，只拿这段原话去读：它到底是什么、往哪走、接着需要什么。要它们读就点下面，读一次是 4 次运行。', 'cg-hint'));
         box.append(button('现在就读', 'cg-btn-dark', readNow));
       }
       S.body.replaceChildren(box); return;

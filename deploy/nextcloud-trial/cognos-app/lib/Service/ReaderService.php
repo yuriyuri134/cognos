@@ -121,6 +121,10 @@ TXT;
 
     /** 一段对话收到新回答以后：是 Initium 的就看要不要读，是 Norm 空间的就看要不要回头读。不读不报错。 */
     public function afterMessage(string $uid, int $creationId): void {
+        // 对话一长就自动读，先关着：一段试验的短对话也会花 4 次运行。要读就点「现在就读」。要开：occ config:app:set cognos reader_auto --value=yes
+        if ($this->config->getAppValue('cognos', 'reader_auto', 'no') !== 'yes') {
+            return;
+        }
         try {
             $space = $this->norm->spaceByConversation($uid, $creationId);
             if ($space !== null) {
