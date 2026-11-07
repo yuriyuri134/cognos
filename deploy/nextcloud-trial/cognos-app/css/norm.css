@@ -270,3 +270,13 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
   .cg-map { overflow: auto; }
   .cg-map svg { min-width: 760px; }
 }
+
+/* 改 / 删：悬停时出现，像 ChatGPT */
+.cg-msg-acts { display: flex; gap: 6px; margin-top: 2px; opacity: 0; transition: opacity .15s; }
+.cg-msg:hover .cg-msg-acts, .cg-msg-acts:focus-within, .cg-msg-edit-bar { opacity: 1; }
+.cg-msg-act { background: none; border: none; padding: 2px 6px; font-size: 12px; color: var(--cg-muted, inherit); cursor: pointer; border-radius: 4px; }
+.cg-msg-act:hover { background: var(--cg-chip, rgba(0,0,0,.06)); color: var(--cg-ink, inherit); }
+.cg-msg-edit { width: 100%; box-sizing: border-box; font: inherit; margin-bottom: 6px; }
+@media (hover: none) { .cg-msg-acts { opacity: 1; } }
+/* 额度和这段对话上一次回话用了多少 */
+.cg-usage { white-space: pre-line; font-size: 12px; color: var(--cg-muted, inherit); margin: 6px 0 0; line-height: 1.5; }
