@@ -1,5 +1,4 @@
-/* Norm 里的一个空间：中间是它的对话，上面是你不在时发生了什么、只有你能定的一件（读者回头读过、觉得它变了样时，
- * 最上面是几种接着活的办法）；右边是 agent 在这里的做法和它用的几块（演变、拆解、关系、并排对照、文档）。 */
+/* Norm 空间默认读对话；动态按需展开，演变、拆解等在同一个主工作区切换。 */
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
@@ -9,6 +8,9 @@
   const SVG = 'http://www.w3.org/2000/svg';
   const WAY = [['away', '你不在的时候'], ['progress', '怎样算往前走了'], ['ask', '什么时候找你']];
   let data = null; let arrived = null; let chat = null; let editingWay = false; let readTimer = null;
+  let currentView = 'conversation'; let viewKeys = ''; let topVersion = '';
+  const openNotices = new Set();
+  const viewScroll = new Map();
 
   function node(tag, text, cls) { const n = document.createElement(tag); if (text !== undefined && text !== null) n.textContent = text; if (cls) n.className = cls; return n; }
   function svg(tag, attrs, text) { const n = document.createElementNS(SVG, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text !== undefined) n.textContent = text; return n; }
@@ -51,12 +53,54 @@
     if (data.links.length) meta.push('连着 ' + data.links.length + ' 段 Initium 对话');
     if (p.state !== 'active') meta.push(p.state === 'back' ? '已退回 Initium' : '已撤回');
     $('cg-space-meta').textContent = meta.join(' · ');
-    renderTop(p); renderParts(p);
+    renderTop(p); renderParts(p); renderViews(p);
+  }
+
+  function setView(key) {
+    const changed = currentView !== key;
+    if (changed) viewScroll.set(currentView, $('cg-space-parts').scrollTop);
+    currentView = key;
+    $('cg-space-conversation').hidden = key !== 'conversation';
+    $('cg-space-parts').hidden = key === 'conversation';
+    for (const panel of $('cg-space-parts').children) panel.hidden = panel.dataset.view !== key;
+    for (const b of $('cg-space-views').children) b.setAttribute('aria-pressed', String(b.dataset.view === key));
+    if (changed) $('cg-space-parts').scrollTop = viewScroll.get(key) || 0;
+    if (key === 'conversation') chat?.show();
+  }
+
+  function renderViews(p) {
+    const views = [['conversation', '对话'], ...p.parts.map(k => [k, data.parts[k] || k]), ['about', '做法与来源']];
+    const keys = JSON.stringify(views);
+    if (keys !== viewKeys) {
+      viewKeys = keys;
+      $('cg-space-views').replaceChildren(...views.map(([key, label]) => {
+        const b = button(label, '', () => setView(key)); b.dataset.view = key;
+        b.setAttribute('aria-controls', key === 'conversation' ? 'cg-space-conversation' : 'cg-view-' + key);
+        return b;
+      }));
+    }
+    if (!views.some(([key]) => key === currentView)) currentView = 'conversation';
+    setView(currentView);
+  }
+
+  function notice(key, label, content) {
+    const details = node('details', undefined, 'cg-notice');
+    details.open = openNotices.has(key);
+    details.append(node('summary', label), content);
+    details.addEventListener('toggle', () => {
+      if (details.isConnected) details.open ? openNotices.add(key) : openNotices.delete(key);
+    });
+    return details;
   }
 
   // ---- 上面：回头读、刚带着做法进来、你不在时、只有你能定的 ----
   function renderTop(p) {
+    if (editingWay && $('cg-space-top').querySelector('textarea')) return;
+    const version = JSON.stringify([arrived, data.events, data.drift, data.drift_done, p.board, data.messages < 2, p.way, p.parts, p.summary, editingWay]);
+    if (version === topVersion) return;
+    topVersion = version;
     const top = $('cg-space-top'); top.replaceChildren();
+    const content = node('div'); const labels = [];
     const a = arrived;
     if (a && a.items && a.items.length) {
       const box = node('section', undefined, 'cg-block'); box.setAttribute('aria-label', away(a.since));
@@ -68,15 +112,16 @@
         const text = node('span', e.text); if (e.who) text.append(node('span', e.who, 'cg-away-who'));
         row.append(t, text); list.append(row);
       }
-      box.append(list); top.append(box);
+      box.append(list); content.append(box); labels.push(a.items.length + ' 条动态');
     }
     const waiting = (data.events || []).filter(e => e.kind === 'decide' && e.answer === null).sort((x, y) => x.id - y.id);
-    if (waiting.length) top.append(decideBlock(waiting[0], waiting.length));
+    if (waiting.length) { content.append(decideBlock(waiting[0], waiting.length)); labels.push(waiting.length + ' 件等你定'); }
     const drift = data.drift_done;
     const c = drift && drift.result && drift.result.compare;
-    if (data.drift && data.drift.state === 'reading') top.append(node('p', '读者正在回头读这里，读完会放在这里。', 'cg-block cg-hint'));
-    if (c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined)) top.append(driftBlock(drift, c, p));
-    if (!p.board && (data.messages || 0) < 2) top.append(ownBlock(p));
+    if (data.drift && data.drift.state === 'reading') { content.append(node('p', '读者正在回头读这里，读完会放在这里。', 'cg-block cg-hint')); labels.push('读者正在读'); }
+    if (c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined)) { content.append(driftBlock(drift, c, p)); labels.push('读者有新建议'); }
+    if (!p.board && (data.messages || 0) < 2) { content.append(ownBlock(p)); labels.push('这个空间的做法'); }
+    if (labels.length) top.append(notice('activity', '正在发生 · ' + labels.join(' · '), content));
   }
 
   function decideBlock(e, n) {
@@ -163,20 +208,32 @@
     box.append(acts); return box;
   }
 
-  // ---- 右边：做法和几块 ----
+  // ---- 主工作区里的几块；保留各视图的阅读和展开状态 ----
   function renderParts(p) {
-    const aside = $('cg-space-parts'); aside.replaceChildren();
+    const aside = $('cg-space-parts');
+    const contents = {};
+    for (const part of p.parts) contents[part] = JSON.stringify(p[part]);
     const hasWay = WAY.some(([k]) => (p.way || {})[k]);
-    if (hasWay && (p.board || (data.messages || 0) >= 2)) aside.append(howCard(p, false));
+    // 做法编辑期间，消息更新不覆盖正在输入的文本。
+    contents.about = JSON.stringify([editingWay ? 'editing' : p.way, editingWay, p.board, data.messages < 2, data.drift, data.drift_done, data.links]);
+    for (const panel of [...aside.children]) if (!(panel.dataset.view in contents)) panel.remove();
     for (const part of p.parts) {
+      const previous = $('cg-view-' + part);
+      if (previous && previous.dataset.version === contents[part]) continue;
       const sec = node('section'); const h = node('h2', data.parts[part] || part); sec.append(h);
+      sec.id = 'cg-view-' + part; sec.dataset.view = part; sec.dataset.version = contents[part];
       if (part === 'stages') sec.append(stages(p.stages || []));
       else if (part === 'branches') sec.append(branches(p.branches || []));
       else if (part === 'relations') sec.append(relations(p.relations || {}, h));
       else if (part === 'compare') sec.append(compare(p.compare || []));
       else if (part === 'doc') sec.append(p.doc ? node('div', p.doc, 'cg-doc') : node('p', '还没有。agent 会照这里的做法写。', 'cg-hint'));
-      aside.append(sec);
+      if (previous) previous.replaceWith(sec); else aside.append(sec);
     }
+    const previousAbout = $('cg-view-about');
+    if (previousAbout && (previousAbout.dataset.version === contents.about || (editingWay && previousAbout.querySelector('textarea')))) return;
+    const about = node('section'); about.id = 'cg-view-about'; about.dataset.view = 'about'; about.dataset.version = contents.about;
+    about.append(node('h2', '做法与来源'));
+    if (hasWay && (p.board || (data.messages || 0) >= 2)) about.append(howCard(p, false));
     const tail = node('section');
     tail.append(node('h2', '读者'));
     const d = data.drift;
@@ -186,12 +243,13 @@
       try { const r = await api('/norm/projects/' + p.id + '/read', {}); if (!r.started) alert(r.why || '没读'); } catch (e) { alert(e.message); }
       load(false);
     }));
-    aside.append(tail);
+    about.append(tail);
     if (data.links.length) {
       const src = node('section', undefined, 'cg-sources'); src.append(node('h2', '从 Initium 来'));
       for (const l of data.links) { const a = node('a', l.title || ('对话 ' + l.creation_id)); a.href = app + '/creations/' + l.creation_id; src.append(a); }
-      aside.append(src);
+      about.append(src);
     }
+    if (previousAbout) previousAbout.replaceWith(about); else aside.append(about);
   }
 
   function stages(list) {
@@ -243,7 +301,12 @@
     if (!(rel.nodes || []).length) return node('p', '还没有。', 'cg-hint');
     const b = node('button', undefined, 'cg-rel-mini'); b.type = 'button'; b.setAttribute('aria-label', '展开关系图');
     b.append(map(rel, true), node('span', '点开铺满', 'cg-open-hint'));
-    b.addEventListener('click', () => { $('cg-map-full').replaceChildren(map(rel, false)); $('cg-map-overlay').hidden = false; $('cg-map-close').focus(); });
+    b.addEventListener('click', () => {
+      const full = $('cg-map-full'); full.replaceChildren(map(rel, false));
+      $('cg-map-overlay').showModal();
+      full.scrollLeft = (full.scrollWidth - full.clientWidth) / 2;
+      $('cg-map-close').focus();
+    });
     return b;
   }
 
@@ -283,8 +346,7 @@
     return s;
   }
 
-  $('cg-map-close').addEventListener('click', () => { $('cg-map-overlay').hidden = true; });
-  $('cg-map-overlay').addEventListener('click', e => { if (e.target === $('cg-map-overlay')) $('cg-map-overlay').hidden = true; });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') $('cg-map-overlay').hidden = true; });
+  $('cg-map-close').addEventListener('click', () => $('cg-map-overlay').close());
+  $('cg-map-overlay').addEventListener('click', e => { if (e.target === $('cg-map-overlay')) $('cg-map-overlay').close(); });
   load(true);
 })();
