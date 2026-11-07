@@ -57,7 +57,7 @@ final class NormApiController extends OCSController {
     }
 
     #[NoAdminRequired]
-    public function readSpace(string $spaceType, string $spaceId, string $norm_space = '', int $linked_id = 0): DataResponse {
+    public function readSpace(string $spaceType, string $spaceId, string $norm_space = '', int $linked_id = 0, int $from = 0): DataResponse {
         $uid = $this->uid();
         $space = $this->resolve($uid, $spaceType, $spaceId, $norm_space);
         if ($space === null) {
@@ -73,7 +73,11 @@ final class NormApiController extends OCSController {
         }
         $out['waiting_for_you'] = array_values(array_filter($this->norm->events($uid, $space['id'], 'decide', 20), static fn(array $e): bool => $e['answer'] === null));
         $out['recent'] = array_slice($this->norm->events($uid, $space['id'], 'happened', 10), 0, 10);
-        $out['linked'] = $this->linkedText($uid, $space['id'], $linked_id);
+        // 只读一段原话时，别的都不给，免得一次返回太长
+        if ($linked_id > 0) {
+            return new DataResponse(['space' => ['id' => $space['id'], 'title' => $space['title'], 'linked' => $this->linkedText($uid, $space['id'], $linked_id, $from)]]);
+        }
+        $out['linked'] = $this->linkedText($uid, $space['id']);
         $out['formats'] = [
             'stages' => '[{"when": "时间", "title": "这一段叫什么", "text": "发生了什么", "current": true 只给现在这段, "proposed": true 是你提出、等人定的}]',
             'branches' => '[{"title": "分支", "parts": [{"title": "部分", "text": "说明"}]}]',
@@ -111,48 +115,67 @@ final class NormApiController extends OCSController {
         } catch (\InvalidArgumentException $e) {
             return new DataResponse(['message' => $e->getMessage()], 422);
         }
-        return new DataResponse(['message' => ($kind === 'decide' ? '留给交互对象定了' : '记下了') . '（#' . $id . '）。他打开「' . $space['title'] . '」时最先看到。']);
+        return new DataResponse(['message' => ($kind === 'decide' ? '留给交互对象定了' : '记下了') . '。他打开「' . $space['title'] . '」时会看到。']);
     }
 
     /**
-     * 放进这个空间的 Initium 对话的原话，最近放进来的在前。agent 要接着做，得读得到原话，不能只有一句转述和几个编号。
-     * 一共最多 12 万字，一段最多 8 万字；超出时人的话不截，只缩短早先的 AI 回答，并告诉 agent 怎么单独读全。
+     * 放进这个空间的 Initium 对话。
+     *
+     * 原来一次把所有连着的对话原话塞进 read_space（最多 12 万字）：连着几十段时，工具返回超出 agent 一次能收的长度，
+     * 被截掉或整个收不到，agent 只看到一句转述和几个编号，说「对话内容没有过来」。现在分开：
+     * - 不带 linked_id：给一张目录（每段的题目、多少条、什么时候放进来），加上最近放进来的那一段的第一页原话；
+     * - 带 linked_id：读那一段的原话，一页约 1.6 万字，按整条消息分页，读不完给 next_from 接着读。人说的话不截。
      */
-    private function linkedText(string $uid, string $spaceId, int $only = 0): array {
-        // 正常长度的对话整段给；只要一段（linked_id）时给到 20 万字
-        $budget = $only > 0 ? 200000 : 120000;
-        $out = [];
-        foreach (array_reverse($this->norm->links($uid, $spaceId)) as $link) {
-            if ($only > 0 && $link['creation_id'] !== $only) {
-                continue;
-            }
-            $messages = $this->creations->getMessages($link['creation_id'], $uid);
-            $item = ['creation_id' => $link['creation_id'], 'title' => $link['title'], 'messages' => count($messages)];
-            $cap = $only > 0 ? $budget : min(80000, $budget);
-            if ($cap < 2000) {
-                $item['text'] = null;
-                $item['note'] = '这段放不下了，用 read_space 带 linked_id=' . $link['creation_id'] . ' 单独读';
-                $out[] = $item;
-                continue;
-            }
-            // 人说的话一句不截（往往最有信息量，又最短），超出时从最早的 AI 回答开始缩短
-            $lines = array_map(static fn(array $m): array => ['user' => $m['role'] === 'user', 'text' => trim((string)$m['content'])], $messages);
-            $total = array_sum(array_map(static fn(array $l): int => mb_strlen($l['text']) + 6, $lines));
-            foreach ($lines as $k => $l) {
-                if ($total <= $cap) {
-                    break;
-                }
-                $len = mb_strlen($l['text']);
-                if (!$l['user'] && $len > 300) {
-                    $lines[$k]['text'] = mb_substr($l['text'], 0, 300) . '…（这条 AI 回答后面还有 ' . ($len - 300) . ' 字没给，read_space 带 linked_id=' . $link['creation_id'] . ' 可以读全）';
-                    $total -= $len - mb_strlen($lines[$k]['text']);
+    private const PAGE = 16000;
+
+    private function linkedText(string $uid, string $spaceId, int $only = 0, int $from = 0): array {
+        $links = array_reverse($this->norm->links($uid, $spaceId));
+        if ($only > 0) {
+            foreach ($links as $link) {
+                if ($link['creation_id'] === $only) {
+                    return ['page' => $this->page($uid, $link, $from)];
                 }
             }
-            $item['text'] = implode("\n\n", array_map(static fn(array $l): string => ($l['user'] ? '人' : 'AI') . '：' . $l['text'], $lines));
-            $budget -= mb_strlen($item['text']);
-            $out[] = $item;
+            return ['page' => null, 'note' => '这个空间没有连着这一段'];
         }
-        return $out;
+        $index = [];
+        foreach ($links as $link) {
+            $index[] = ['linked_id' => $link['creation_id'], 'title' => $link['title'],
+                'messages' => count($this->creations->getMessages($link['creation_id'], $uid)),
+                'linked_at' => date('Y-m-d H:i', (int)($link['created_at'] ?? 0))];
+        }
+        return [
+            'how' => '这里连着 ' . count($links) . ' 段 Initium 对话，最近放进来的在前。要读哪一段的原话：read_space 带 linked_id；一页读不完，返回里有 next_from，带上 from 接着读。',
+            'index' => $index,
+            'newest' => $links === [] ? null : $this->page($uid, $links[0], 0),
+        ];
+    }
+
+    /** 一段对话从第 $from 条起的一页原话。 */
+    private function page(string $uid, array $link, int $from): array {
+        $messages = $this->creations->getMessages($link['creation_id'], $uid);
+        $from = max(0, min($from, count($messages)));
+        $lines = [];
+        $size = 0;
+        $i = $from;
+        for (; $i < count($messages); $i++) {
+            $m = $messages[$i];
+            $line = ($m['role'] === 'user' ? '人' : 'AI') . '：' . trim((string)$m['content']);
+            $len = mb_strlen($line);
+            if ($lines !== [] && $size + $len > self::PAGE) {
+                break;
+            }
+            // 单条 AI 回答比一页还长：这一页只放它的前一页长，后面的下一页从下一条接着；人说的话整条给
+            if ($m['role'] !== 'user' && $len > self::PAGE * 2) {
+                $line = mb_substr($line, 0, self::PAGE * 2) . '…（这条 AI 回答还有 ' . ($len - self::PAGE * 2) . ' 字没给）';
+                $len = self::PAGE * 2;
+            }
+            $lines[] = $line;
+            $size += $len;
+        }
+        return ['linked_id' => $link['creation_id'], 'title' => $link['title'], 'messages' => count($messages),
+            'from' => $from, 'to' => $i, 'next_from' => $i < count($messages) ? $i : null,
+            'text' => implode("\n\n", $lines)];
     }
 
     /** 这段对话指的是哪个空间。 */
@@ -185,7 +208,7 @@ final class NormApiController extends OCSController {
             $creationId = $this->norm->spaceConversation($uid, $spaceId);
             $context = $this->creations->getContext($creationId, $uid);
             $this->hermes->chatCreation($creationId,
-                '（这句不是交互对象说的。读者刚把 Initium 里的「' . $title . '」放进这个空间。先用 read_space 看看这里，那段对话的原话在返回的 linked 里；'
+                '（这句不是交互对象说的。读者刚把 Initium 里的「' . $title . '」放进这个空间。先用 read_space 看看这里，那段对话是最近放进来的，原话在返回的 linked.newest 里，一页读不完按 next_from 接着读；'
                 . '照这里的做法看接下来能做什么，能做就做一点。做了什么、发生了什么，用 note_for_you 记下；只有交互对象能定的，用 note_for_you(kind=decide) 提出来。'
                 . '交互对象回来时会先看到那里。）', $context);
         } catch (\Throwable $error) {

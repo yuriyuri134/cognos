@@ -360,10 +360,10 @@ final class NormService {
         return $space === null ? null : ['link_id' => (int)$r['id'], 'space' => $space];
     }
 
-    /** @return list<array{creation_id: int, title: string}> */
+    /** @return list<array{creation_id: int, title: string, created_at: int}> */
     public function links(string $uid, string $spaceId): array {
         $q = $this->db->getQueryBuilder();
-        $rows = $q->select('l.creation_id', 'c.title')->from('cognos_norm_links', 'l')
+        $rows = $q->select('l.creation_id', 'l.created_at', 'c.title')->from('cognos_norm_links', 'l')
             ->leftJoin('l', 'cognos_creations', 'c', $q->expr()->eq('c.id', 'l.creation_id'))
             ->where($q->expr()->eq('l.user_id', $q->createNamedParameter($uid)))
             ->andWhere($q->expr()->eq('l.space_id', $q->createNamedParameter($spaceId)))
@@ -377,7 +377,7 @@ final class NormService {
                 continue;
             }
             $seen[$cid] = true;
-            $out[] = ['creation_id' => $cid, 'title' => (string)($r['title'] ?? '')];
+            $out[] = ['creation_id' => $cid, 'title' => (string)($r['title'] ?? ''), 'created_at' => (int)($r['created_at'] ?? 0)];
         }
         return $out;
     }
@@ -490,8 +490,12 @@ final class NormService {
                 }
             }
             $lines[] = '它用这几块：' . implode('、', array_map(static fn(string $p): string => self::PARTS[$p] . '（' . $p . '）', $space['parts'])) . '。';
-            foreach ($this->links($uid, $space['id']) as $l) {
-                $lines[] = '连着 Initium 里的对话「' . $l['title'] . '」（creation ' . $l['creation_id'] . '）。';
+            // 连着几十段时全列出来太长：只列最近几段，别的在 read_space 的目录里
+            $links = array_reverse($this->links($uid, $space['id']));
+            if ($links !== []) {
+                $lines[] = '这里连着 ' . count($links) . ' 段 Initium 对话。最近放进来的：'
+                    . implode('；', array_map(static fn(array $l): string => '「' . $l['title'] . '」（linked_id=' . $l['creation_id'] . '）', array_slice($links, 0, 5)))
+                    . '。原话你自己读得到：read_space 返回里有目录和最近一段的原话，别的段带 linked_id 读，读不完按 next_from 接着读。要接着做，先把原话读了再动手，不要只凭一句转述。';
             }
             foreach (array_slice(array_filter($this->events($uid, $space['id'], 'decide', 20), static fn(array $e): bool => $e['answer'] !== null), 0, 5) as $e) {
                 $lines[] = '交互对象定过：「' . $e['text'] . '」→ ' . $e['answer'];
@@ -514,6 +518,8 @@ final class NormService {
         $lines[] = 'read_space：读这个空间现在的样子和每一块的内容。write_part：改一块（先读再写，写的是改完的全部内容）。'
             . 'note_for_you：留给交互对象回来时看的一条，kind=happened 是你做了什么、发生了什么；kind=decide 是只有他能定的一件，给两三个选项。';
         $lines[] = '改理想、改目标、把一段理解改成新的、换这个空间的样子，这些不要直接改，用 note_for_you(kind=decide) 提出来，由交互对象定。';
+        $lines[] = 'kind=decide 只用在真要他拿主意的地方：方向、取舍、他的口味和范围。你自己该怎么工作、该读什么、工具够不够，这些不要问他：能做就直接做，做不到就在回答里说清卡在哪。';
+        $lines[] = '跟交互对象说话时用平常的话，不要提 linked_id、creation、#编号这类内部编号，他看不懂；说对话的题目。';
         return $lines;
     }
 
