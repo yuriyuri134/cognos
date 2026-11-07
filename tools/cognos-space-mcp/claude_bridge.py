@@ -403,12 +403,20 @@ def hands(workdir: Path, wt: dict | None = None) -> str:
     return "\n".join(lines)
 
 
-def prompt_from(history: list[dict], message: str, caller: str) -> str:
+def prompt_from(history: list[dict], message: str, caller: str, subject: str = "") -> str:
     lines = []
     if history:
         lines.append("## 这片空间里之前的对话")
         for item in history:
-            who = caller if item.get("role") == "user" else "你"
+            author = str(item.get("author") or "")
+            if item.get("role") == "user":
+                who = caller
+            elif author and author != subject:
+                who = author  # 别人回的（比如换着用的 GPT / Claude），不是你
+            elif author or subject != "GPT":
+                who = "你"
+            else:
+                who = "AI（以前回的，没记是谁）"
             lines.append(f"{who}：{item.get('content', '')}")
         lines.append("")
     lines.append(f"## {caller}现在说")
@@ -1026,7 +1034,7 @@ class Handler(BaseHTTPRequestHandler):
                 "space_id": str(body["space_id"]),
                 "subject": str(body.get("subject") or "Claude Code"),
                 "system": str(body["system"]),
-                "prompt": prompt_from(history, str(body["message"]), str(body.get("caller") or "交互对象")),
+                "prompt": prompt_from(history, str(body["message"]), str(body.get("caller") or "交互对象"), str(body.get("subject") or "Claude Code")),
                 "caller": str(body.get("caller") or "交互对象"),
                 "repo": bool(body.get("repo")),
                 "hit_id": body.get("hit_id"),

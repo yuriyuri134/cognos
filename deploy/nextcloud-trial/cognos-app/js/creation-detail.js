@@ -248,6 +248,8 @@
       || (next.reply_to !== null && next.reply_to !== undefined);
   }
 
+  function whoName(a) { return !a ? 'Agent' : a === 'GPT' || a === 'Codex' ? 'GPT' : /claude|cognos/i.test(a) ? 'Claude' : a; }
+
   function createMessageBubble(message, unanswered = false) {
     const role = message.role === 'user' ? 'user' : 'agent';
     const timestamp = new Date(message.created_at * 1000).toLocaleTimeString('zh-CN', {
@@ -258,7 +260,7 @@
     return `
       <div class="cognos-message cognos-message-${role}">
         <div class="cognos-message-header">
-          <span class="cognos-message-sender">${role === 'user' ? '你' : 'Agent'}</span>
+          <span class="cognos-message-sender">${role === 'user' ? '你' : escapeHtml(whoName(message.author))}</span>
           <span class="cognos-message-time">${timestamp}</span>
         </div>
         <div class="cognos-message-content">${role === 'user' ? formatMessageContent(message.content) : renderMarkdown(message.content)}</div>

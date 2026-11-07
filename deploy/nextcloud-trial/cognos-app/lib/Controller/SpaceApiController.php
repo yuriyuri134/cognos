@@ -343,7 +343,7 @@ final class SpaceApiController extends OCSController {
         };
         try {
             $received = $this->runs->receiveResult($run, $resultId, trim((string)($body['subject'] ?? '')), array_values($dependsOn),
-                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo)['id'], $finalize);
+                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo, (string)($run['subject'] ?? ''))['id'], $finalize);
         } catch (\DomainException $error) {
             return new DataResponse(['message' => $error->getMessage()], 403);
         } catch (\InvalidArgumentException $error) {

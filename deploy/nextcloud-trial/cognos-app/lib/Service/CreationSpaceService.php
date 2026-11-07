@@ -104,7 +104,7 @@ class CreationSpaceService {
     /**
      * @param ?int $replyTo 回答回的是哪一句；被反对叫回来的回答不回任何一句，传 0
      */
-    public function addMessage(int $creationId, string $userId, string $role, string $content, ?int $replyTo = null): array {
+    public function addMessage(int $creationId, string $userId, string $role, string $content, ?int $replyTo = null, ?string $author = null): array {
         $qb = $this->db->getQueryBuilder();
         $createdAt = time();
 
@@ -115,6 +115,7 @@ class CreationSpaceService {
                 'content' => $qb->createNamedParameter($content, IQueryBuilder::PARAM_STR),
                 'created_at' => $qb->createNamedParameter($createdAt, IQueryBuilder::PARAM_INT),
                 'reply_to' => $qb->createNamedParameter($replyTo, IQueryBuilder::PARAM_INT),
+                'author' => $qb->createNamedParameter($author === null || $author === '' ? null : mb_substr($author, 0, 64), $author === null || $author === '' ? IQueryBuilder::PARAM_NULL : IQueryBuilder::PARAM_STR),
             ])
             ->executeStatement();
 
@@ -134,6 +135,7 @@ class CreationSpaceService {
             'content' => $content,
             'created_at' => $createdAt,
             'reply_to' => $replyTo,
+            'author' => $author,
         ];
     }
 
@@ -160,6 +162,7 @@ class CreationSpaceService {
                 'content' => $row['content'],
                 'created_at' => (int)$row['created_at'],
                 'reply_to' => isset($row['reply_to']) ? (int)$row['reply_to'] : null,
+                'author' => isset($row['author']) && $row['author'] !== '' ? (string)$row['author'] : null,
             ];
         }
         $result->closeCursor();

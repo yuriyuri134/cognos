@@ -537,6 +537,7 @@ final class HermesAgentService {
             $history[] = [
                 'role' => $msg['role'],
                 'content' => $msg['content'],
+                'author' => $msg['author'] ?? null,
             ];
         }
         // controller 先存了这条用户消息再取上下文，它多半已经是最后一条

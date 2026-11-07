@@ -11,6 +11,7 @@
     const body = await r.json().catch(() => ({}));
     return { ok: r.ok, body };
   }
+  function whoName(a) { return !a ? 'Agent' : a === 'GPT' || a === 'Codex' ? 'GPT' : /claude|cognos/i.test(a) ? 'Claude' : a; }
   function mount(root, creationId, opts) {
     opts = opts || {};
     let count = -1;
@@ -29,7 +30,7 @@
       if (!messages.length) log.append(node('p', '还没有说过话。', 'cg-hint'));
       for (const m of messages) {
         const b = node('div', undefined, 'cg-msg ' + (m.role === 'user' ? 'cg-msg-you' : 'cg-msg-agent'));
-        b.append(node('span', m.role === 'user' ? '你' : 'Agent', 'cg-msg-who'), node('div', m.content, 'cg-msg-text'));
+        b.append(node('span', m.role === 'user' ? '你' : whoName(m.author), 'cg-msg-who'), node('div', m.content, 'cg-msg-text'));
         log.append(b);
       }
       log.scrollTop = log.scrollHeight;
