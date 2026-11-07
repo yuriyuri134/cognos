@@ -270,3 +270,5 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
   .cg-map { overflow: auto; }
   .cg-map svg { min-width: 760px; }
 }
+.cg-notice-must { border-color: var(--cg-accent); }
+.cg-notice-must > summary { color: var(--cg-accent); font-weight: 600; }

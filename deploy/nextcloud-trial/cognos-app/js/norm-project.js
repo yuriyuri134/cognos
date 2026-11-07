@@ -9,7 +9,7 @@
   const WAY = [['away', '你不在的时候'], ['progress', '怎样算往前走了'], ['ask', '什么时候找你']];
   let data = null; let arrived = null; let chat = null; let editingWay = false; let readTimer = null;
   let currentView = 'conversation'; let viewKeys = ''; let topVersion = '';
-  const openNotices = new Set();
+  const openNotices = new Set(); const closedNotices = new Set();
   const viewScroll = new Map();
 
   function node(tag, text, cls) { const n = document.createElement(tag); if (text !== undefined && text !== null) n.textContent = text; if (cls) n.className = cls; return n; }
@@ -83,12 +83,18 @@
     setView(currentView);
   }
 
-  function notice(key, label, content) {
-    const details = node('details', undefined, 'cg-notice');
-    details.open = openNotices.has(key);
-    details.append(node('summary', label), content);
+  // 只有你能定的（等你定的一件、读者的建议）在时，默认展开；你收起以后，同一件不再自己打开，来了新的一件才再打开。
+  function notice(key, label, content, mustSee) {
+    const details = node('details', undefined, 'cg-notice' + (mustSee ? ' cg-notice-must' : ''));
+    details.open = openNotices.has(key) || (mustSee !== '' && mustSee !== undefined && !closedNotices.has(mustSee));
+    const summary = node('summary', label); let byHand = false;
+    // 一开始自动展开也会触发 toggle；只记你亲手点的
+    summary.addEventListener('click', () => { byHand = true; });
+    details.append(summary, content);
     details.addEventListener('toggle', () => {
-      if (details.isConnected) details.open ? openNotices.add(key) : openNotices.delete(key);
+      if (!details.isConnected || !byHand) return;
+      byHand = false;
+      if (details.open) openNotices.add(key); else { openNotices.delete(key); if (mustSee) closedNotices.add(mustSee); }
     });
     return details;
   }
@@ -121,7 +127,8 @@
     if (data.drift && data.drift.state === 'reading') { content.append(node('p', '读者正在回头读这里，读完会放在这里。', 'cg-block cg-hint')); labels.push('读者正在读'); }
     if (c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined)) { content.append(driftBlock(drift, c, p)); labels.push('读者有新建议'); }
     if (!p.board && (data.messages || 0) < 2) { content.append(ownBlock(p)); labels.push('这个空间的做法'); }
-    if (labels.length) top.append(notice('activity', '正在发生 · ' + labels.join(' · '), content));
+    const must = [waiting.length ? 'decide-' + waiting[0].id : '', c && c.drifted && !(drift.applied && drift.applied.chosen !== undefined) ? 'drift-' + drift.id : ''].filter(Boolean).join('|');
+    if (labels.length) top.append(notice('activity', '正在发生 · ' + labels.join(' · '), content, must));
   }
 
   function decideBlock(e, n) {
