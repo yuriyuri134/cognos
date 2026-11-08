@@ -44,3 +44,20 @@
 11 月 7 日尚未完成自动往返；11 月 9 日已完成，详见本文开头。最新证据是 `chat-roundtrip-success-2026-11-09.json` 和 `cognos-chat-roundtrip-success.png`，历史失败记录继续保留。
 
 当前证据位于本机 `Documents/ChatGPT/111/chat-end-work/` 的 `chatgpt-web-verification.json`、`cognos-official-browser-smoke.json` 与 `cognos-chat-prepared*.png`。运行结果不入 Git。
+
+## 11 月 9 日：从使用角度补的几处（claude/project-thread-77aevs）
+
+真实往返跑通以后，按「天天用」来看还差这些，这次改了前五条：
+
+1. **每回一句就在 ChatGPT 里新开一条聊天**：侧栏被刷屏，每次都把入口和整段对话粘进去，越聊越长。现在一段 Cognos 对话接着用同一条 ChatGPT 聊天，只发它没看过的：别人（Claude、Codex）后来说的、你这次说的，入口变了才再给入口。前面的话被改过、删过，或那条聊天在 ChatGPT 里被删了，就退回新开一条、带全文。对应关系记在 `evidence/chatgpt-browser-runs/threads/`（不入库）。接着的聊天里上一条回复一直在页面上，所以要等出现新的一条才算回完，不会把旧回复抄回来。
+2. **回复只抄纯文字**：标题、列表、代码块、表格、链接、公式都丢了。现在照网页上的结构抄成 Markdown，抄不出来退回纯文字。回答末尾带「在 ChatGPT 里打开这条聊天」。
+3. **开页抢焦点、标签越堆越多**：现在默认在后台开页，回完关掉自己开的那页（聊天还在 ChatGPT 记录里）；没回完、出错的页照旧留着。要看着它打字，起适配器前设 `COGNOS_CHATGPT_FOREGROUND=1`。后台页能不能正常出回复，要在 8780 上实测。
+4. **没连上就发，页面报「状态未知，勿重复派发」**：Cognos 原来把桥回的 428/503 当成不知道开没开工。现在算没发出去，直接说原因；桥在拒绝之前先去连一次 Chrome（最多等 15 秒），Chrome 弹出提示点允许，再点「再叫一次」。
+5. **ChatGPT 以为自己有 Cognos 的工具**：Norm 空间的入口写着「read_space 读得到原话」，它其实用不了。入口里现在照实说它只看得到给它的文字，要读原话、要改东西请换 Claude。
+
+还没做的：
+
+- 额度：Cognos 的额度显示里没有 ChatGPT 聊天端的。
+- 回复只抄最后的正文，ChatGPT 的「思考过程」和它在网页里调用的工具结果不带回来。
+- 一直依赖你那个 Chrome 开着、远程调试开着；Chrome 重开后要重新允许。这条路本身的风险（OpenAI 条款、远程调试对整个浏览器开放）没变。
+- 和这条路并行的另一条：`http_server.py`（端口 8645）让你在 ChatGPT 里聊天时用连接器读写 Cognos，不操控浏览器。

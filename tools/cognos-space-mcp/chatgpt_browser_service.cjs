@@ -14,6 +14,10 @@ const PORT = Number(process.env.COGNOS_CHATGPT_PORT || 8644);
 const HOME = 'https://chatgpt.com/';
 const EFFORTS = ['default', 'low', 'medium', 'high'];
 const GENERATION_MS = 10 * 60 * 1000;
+// 一段 Cognos 对话接着用同一条 ChatGPT 聊天：只认 chatgpt.com 上的聊天地址（含 ChatGPT 项目里的）
+const THREAD = /^https:\/\/chatgpt\.com\/(?:g\/[A-Za-z0-9-]+\/)?c\/[A-Za-z0-9-]+$/;
+// 默认在后台开页，不抢你正在用的标签；要看着它打字就设 COGNOS_CHATGPT_FOREGROUND=1
+const FOREGROUND = process.env.COGNOS_CHATGPT_FOREGROUND === '1';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function authorized() {
   try { return fs.readFileSync(CONSENT, 'utf8').trim() === 'official_chrome_autoconnect_v1'; }
@@ -53,7 +57,12 @@ function uidFor(snapshot, role, pattern) {
 function validateJob(job) {
   if (!job || !/^[a-zA-Z0-9]{32}$/.test(job.run_id || '') || !/^[1-9][0-9]*$/.test(job.space_id || '')
       || typeof job.prompt !== 'string' || !job.prompt.trim() || job.prompt.length > 500000
-      || !EFFORTS.includes(job.reasoning_effort)) throw Error('无效的聊天端运行请求');
+      || !EFFORTS.includes(job.reasoning_effort)
+      || (job.thread_url != null && (!THREAD.test(job.thread_url) || typeof job.followup !== 'string' || !job.followup.trim() || job.followup.length > 500000)))
+    throw Error('无效的聊天端运行请求');
+}
+function chatId(url) {
+  return (String(url||'').match(/\/c\/([A-Za-z0-9-]+)/) || [])[1] || '';
 }
 function signature(job) {
   return crypto.createHash('sha256').update(JSON.stringify([job.space_id,job.prompt,job.reasoning_effort])).digest('hex');
@@ -72,11 +81,63 @@ function pageState() {
   const effort = slider ? {value:Number(slider.getAttribute('aria-valuenow')),max:Number(slider.getAttribute('aria-valuemax'))} : null;
   const wrappers = Array.from(document.querySelectorAll('[data-chatgpt-search-unit-key$=":assistant"]')).filter(visible);
   const latest = wrappers.at(-1);
-  const content = latest ? Array.from(latest.children).filter(e=>!e.hasAttribute('data-conversation-role') && visible(e)).map(e=>e.innerText).join('\n\n').trim() : '';
+  // 把看得到的回复按 Markdown 抄下来：标题、列表、代码、表格、链接、公式不丢；抄不出来时退回纯文字
+  const skip = e => /^(BUTTON|SVG|STYLE|SCRIPT|NOSCRIPT|TEMPLATE)$/i.test(e.tagName) || e.hidden || e.getAttribute('aria-hidden') === 'true'
+    || /(^|\s)sr-only(\s|$)/.test(e.getAttribute('class') || '') || getComputedStyle(e).display === 'none';
+  const md = (node) => {
+    if (node.nodeType === 3) return node.nodeValue.replace(/\s+/g, ' ');
+    if (node.nodeType !== 1) return '';
+    const e = node, tag = e.tagName.toUpperCase(), kids = () => Array.from(e.childNodes).map(c => md(c)).join('');
+    if (e.classList.contains('katex')) {
+      const tex = e.querySelector('annotation[encoding="application/x-tex"]')?.textContent || '';
+      if (tex) return e.closest('.katex-display') ? '\n\n$$' + tex + '$$\n\n' : '$' + tex + '$';
+    }
+    if (skip(e)) return '';
+    if (/^H[1-6]$/.test(tag)) return '\n\n' + '#'.repeat(Number(tag[1])) + ' ' + kids().trim() + '\n\n';
+    if (tag === 'P') return '\n\n' + kids().trim() + '\n\n';
+    if (tag === 'BR') return '\n';
+    if (tag === 'HR') return '\n\n---\n\n';
+    if (tag === 'STRONG' || tag === 'B') { const t = kids().trim(); return t ? '**' + t + '**' : ''; }
+    if (tag === 'EM' || tag === 'I') { const t = kids().trim(); return t ? '*' + t + '*' : ''; }
+    if (tag === 'DEL' || tag === 'S') { const t = kids().trim(); return t ? '~~' + t + '~~' : ''; }
+    if (tag === 'CODE' && !e.closest('pre')) return '`' + e.textContent + '`';
+    if (tag === 'PRE') {
+      const code = e.querySelector('code'), cm = e.querySelector('.cm-content');
+      const lang = (code?.className.match(/language-([\w+#.-]+)/) || [])[1] || '';
+      const text = (code ? code.textContent : cm ? cm.innerText : e.innerText).replace(/\n+$/, '');
+      return '\n\n```' + lang + '\n' + text + '\n```\n\n';
+    }
+    if (tag === 'A') { const t = kids().trim(), href = e.getAttribute('href') || ''; return /^https?:/.test(href) && t ? '[' + t + '](' + href + ')' : t; }
+    if (tag === 'IMG') { const alt = e.getAttribute('alt') || ''; return alt ? '[图：' + alt + ']' : ''; }
+    if (tag === 'UL' || tag === 'OL') {
+      const items = Array.from(e.children).filter(li => li.tagName.toUpperCase() === 'LI' && !skip(li));
+      return '\n\n' + items.map((li, i) => {
+        // 一项里套着的列表紧跟在这一项下面，往里缩两格
+        const body = Array.from(li.childNodes).map(c => md(c)).join('').replace(/\n{3,}/g, '\n\n').trim()
+          .replace(/\n\n+(?=(?:[-*]|\d+\.) )/g, '\n');
+        const mark = tag === 'OL' ? (Number(e.getAttribute('start') || 1) + i) + '. ' : '- ';
+        return mark + body.replace(/\n(?!\n|$)/g, '\n  ');
+      }).join('\n') + '\n\n';
+    }
+    if (tag === 'BLOCKQUOTE') return '\n\n' + kids().trim().split('\n').map(l => '> ' + l).join('\n') + '\n\n';
+    if (tag === 'TABLE') {
+      const rows = Array.from(e.querySelectorAll('tr')).map(tr => Array.from(tr.children).map(c => md(c).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim()));
+      if (!rows.length) return '';
+      const width = Math.max(...rows.map(r => r.length)), line = r => '| ' + Array.from({length: width}, (_, i) => r[i] || '').join(' | ') + ' |';
+      return '\n\n' + [line(rows[0]), '|' + ' --- |'.repeat(width), ...rows.slice(1).map(line)].join('\n') + '\n\n';
+    }
+    if (/^(DIV|SECTION|ARTICLE|LI)$/.test(tag)) { const t = kids(); return /\n/.test(t) ? '\n' + t + '\n' : t; }
+    return kids();
+  };
+  const tidy = t => t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const parts = latest ? Array.from(latest.children).filter(e=>!e.hasAttribute('data-conversation-role') && visible(e)) : [];
+  const plain = parts.map(e=>e.innerText).join('\n\n').trim();
+  let content = plain;
+  try { const formatted = tidy(parts.map(e => md(e)).join('\n\n')); if (formatted) content = formatted; } catch {}
   const complete = latest?.closest('[data-talvt-turn-state]')?.getAttribute('data-talvt-turn-state') === 'complete';
   const workMode = Array.from(document.querySelectorAll('[role="checkbox"],input[type="checkbox"]')).find(e=>visible(e) && /work|工作/i.test(e.getAttribute('aria-label') || ''));
   return {url:location.href,account,composer:!!composer,draft:composer?.innerText || composer?.value || '',stop,
-    picker:picker?.innerText || '',effort,content,complete,work:workMode?.getAttribute('aria-checked')==='true'};
+    picker:picker?.innerText || '',effort,content,plain,complete,turns:wrappers.length,work:workMode?.getAttribute('aria-checked')==='true'};
 }
 class ChatConnection {
   constructor(options={}) {
@@ -87,7 +148,7 @@ class ChatConnection {
     const allowed = ['list_pages','new_page','close_page','take_snapshot','evaluate_script','click','fill','press_key'];
     if (!allowed.includes(name)) throw Error('未允许的浏览器操作');
     if (!['list_pages','new_page'].includes(name) && !this.owned.has(args.pageId)) throw Error('此页面不属于 Cognos，拒绝操作');
-    if (name==='new_page' && (args.url!==HOME || args.isolatedContext)) throw Error('只允许在现有登录中打开 ChatGPT 验证页面');
+    if (name==='new_page' && ((args.url!==HOME && !THREAD.test(args.url)) || args.isolatedContext)) throw Error('只允许在现有登录中打开 ChatGPT 验证页面');
     if (name==='evaluate_script' && args.function !== pageState.toString()) throw Error('只允许读取聊天页面可见状态');
     let r;
     try { r=await this.client.callTool({name,arguments:args}, undefined, {timeout:this.state.state==='connecting'?180000:60000}); }
@@ -104,10 +165,10 @@ class ChatConnection {
     if (!state.url.startsWith('https://chatgpt.com/')) throw Error('页面离开了 ChatGPT，已停止');
     return state;
   }
-  async newPage() {
+  async newPage(url=HOME) {
     const before = (await this.call('list_pages')).structuredContent?.pages;
     if (!Array.isArray(before)) throw Error('浏览器页面目录格式已变化');
-    const result = await this.call('new_page',{url:HOME,background:false,timeout:45000});
+    const result = await this.call('new_page',{url,background:!FOREGROUND,timeout:45000});
     const pages = result.structuredContent?.pages || [];
     const created = pages.filter(p=>!before.some(old=>old.id===p.id) && p.url.startsWith('https://chatgpt.com/'));
     if (created.length!==1) throw Error('无法确认 Cognos 新建的聊天页，未读取其他页面');
@@ -191,18 +252,22 @@ class ChatConnection {
     }
     let pageId,submitted=false;
     try {
-      pageId=await this.newPage();
+      pageId=await this.newPage(job.thread_url || HOME);
       let state=await this.loaded(pageId);
       if (state.account!==this.account) {this.state={...disconnected(),message:'ChatGPT 登录账号已变化，请重新连接确认'};throw Error(this.state.message);}
-      if ((state.draft||'').trim() || state.stop || state.work) throw Error('新聊天页面不是空闲聊天状态，未发送消息');
+      // 接着上一条聊天：页面真打开了那条聊天（没被删掉、没跳回首页）才只发新内容；否则在新聊天里带全文
+      const continued=!!job.thread_url && chatId(state.url)===chatId(job.thread_url) && state.turns>0;
+      if (!continued && state.turns>0) throw Error('新聊天页面里已经有回复，未发送消息');
+      if ((state.draft||'').trim() || state.stop || state.work) throw Error('聊天页面不是空闲状态，未发送消息');
+      const text=continued?job.followup:job.prompt, before=state.turns;
       await this.setEffort(pageId,job.reasoning_effort);
       const snapshot=textResult(await this.call('take_snapshot',{pageId}));
-      const composer=uidFor(snapshot,'textbox',/询问 ChatGPT|Ask ChatGPT/i);
-      await this.call('fill',{pageId,uid:composer,value:job.prompt});
+      const composer=uidFor(snapshot,'textbox',/询问 ChatGPT|Ask ChatGPT|有问题，尽管问|Ask anything/i);
+      await this.call('fill',{pageId,uid:composer,value:text});
       state=await this.read(pageId);
-      if(state.account!==this.account || (state.draft||'').trim()!==job.prompt.trim() || state.stop) throw Error('聊天输入未通过确认，未发送消息');
+      if(state.account!==this.account || (state.draft||'').trim()!==text.trim() || state.stop) throw Error('聊天输入未通过确认，未发送消息');
       // Persist BEFORE Enter. A crash or timeout never causes an automatic second send.
-      const receipt={run_id:job.run_id,space_id:job.space_id,hash,state:'sending',at:new Date().toISOString(),url:state.url};
+      const receipt={run_id:job.run_id,space_id:job.space_id,hash,state:'sending',continued,at:new Date().toISOString(),url:state.url};
       fs.writeFileSync(filename,JSON.stringify(receipt,null,2),{flag:'wx'});
       submitted=true;
       await this.call('press_key',{pageId,key:'Enter'});
@@ -212,11 +277,14 @@ class ChatConnection {
         await this.sleep(1000);
         state=await this.read(pageId);
         if (state.account!==this.account) throw Error('ChatGPT 账号发生变化，已停止读取');
-        if (state.complete && !state.stop && state.content) {
+        // 接着的聊天里上一条回复一直在页面上：要等出现新的一条回复，不能把旧的当成这次的
+        if (state.turns>before && state.complete && !state.stop && state.content) {
           stableCount=state.content===stable?stableCount+1:0; stable=state.content;
           if(stableCount>=1) {
-            const result={content:state.content,provider:'chatgpt_chat',source_url:state.url,reasoning_effort:job.reasoning_effort};
+            const result={content:state.content,provider:'chatgpt_chat',source_url:state.url,continued,reasoning_effort:job.reasoning_effort};
             fs.writeFileSync(filename,JSON.stringify({...receipt,state:'complete',result},null,2));
+            // 回复已经抄回来、聊天也留在 ChatGPT 的记录里：关掉这次自己开的页，不让标签越堆越多
+            try { await this.call('close_page',{pageId}); this.owned.delete(pageId); } catch {}
             return result;
           }
         } else {stable='';stableCount=0;}
@@ -274,5 +342,5 @@ function serve() {
   const stop=async()=>{server.close();await connection.close();process.exit(0);};
   process.on('SIGTERM',stop);process.on('SIGINT',stop);
 }
-module.exports={status,open,reply,ChatConnection,mcpArgs,pageState,uidFor,jsonResult,validateJob,signature,disconnected,authorized};
+module.exports={status,open,reply,ChatConnection,mcpArgs,pageState,uidFor,jsonResult,validateJob,signature,chatId,disconnected,authorized,THREAD};
 if(require.main===module && process.argv[2]==='serve') serve();

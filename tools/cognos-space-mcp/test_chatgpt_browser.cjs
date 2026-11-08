@@ -36,10 +36,10 @@ async function main() {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cognos-chat-offline-'));
   try {
     const c=new ChatConnection({authorized:()=>true,receipts:dir,sleep:async()=>{}});
-    c.state={ready:true};c.account='fixture\nPlus';c.newPage=async()=>1;c.loaded=async()=>({account:c.account,draft:'\n'});c.setEffort=async(_page,value)=>assert.equal(value,'high');
+    c.state={ready:true};c.account='fixture\nPlus';c.newPage=async()=>1;c.loaded=async()=>({account:c.account,draft:'\n',turns:0,url:'https://chatgpt.com/'});c.setEffort=async(_page,value)=>assert.equal(value,'high');
     const sequence=[];let submitted=false;
     c.read=async()=>({url:'https://chatgpt.com/c/fixture',account:c.account,draft:submitted?'':job.prompt,
-      complete:submitted,stop:false,content:submitted?'真实页面的完整回复':''});
+      complete:submitted,stop:false,turns:submitted?1:0,content:submitted?'真实页面的完整回复':''});
     c.call=async(name,args)=>{sequence.push(name);if(name==='take_snapshot')return {content:[{type:'text',text:'uid=5 textbox "询问 ChatGPT"'}]};
       if(name==='fill')assert.equal(args.value,job.prompt);
       if(name==='press_key') {assert.equal(args.key,'Enter');submitted=true;assert(fs.existsSync(path.join(dir,job.run_id+'.json')));}
