@@ -134,11 +134,16 @@ TXT;
             if ($history['unplaced'] === []) {
                 return ['started' => false, 'why' => '没有还没归段的条目'];
             }
+            // 还有原话没读时（一轮读完、合起来那步没做成），只合进历史，总观和自述等读到头再写
+            $left = $this->unread($uid, $space);
+            $final = $left['items'] === 0;
+            $info = ['chunks' => 0, 'rest_chunks' => $left['chunks'], 'rest_chars' => $left['chars'], 'rest_from' => $left['from'], 'rest_to' => $left['to']];
             $readers = [['label' => '合起来', 'role' => 'merge', 'space_id' => $spaceId, 'space_title' => $space['title'],
                 'self_version' => $space['self']['version'] ?? null,
-                'system' => self::mergeSystem($space, $spaces, $history, true, ['chunks' => 0], $tz),
-                'prompt' => "这次没有新读的原话：只把上面「以前读过、还没归进哪一段的条目」归进历史，再写总观、自述，看样子合不合身。\n\n按一开始说的，只输出那一个 JSON 对象。"]];
-            $reading = $this->start($uid, 'drift', $runSpace, $spaceId, [], $readers, self::bystanderSystem($space), (string)$space['title'], ['final' => true]);
+                'system' => self::mergeSystem($space, $spaces, $history, $final, $info, $tz),
+                'prompt' => "这次没有新读的原话：只把上面「以前读过、还没归进哪一段的条目」归进历史" . ($final ? '，再写总观、自述，看样子合不合身' : '') . "。\n\n按一开始说的，只输出那一个 JSON 对象。"]];
+            $reading = $this->start($uid, 'drift', $runSpace, $spaceId, [], $readers, self::bystanderSystem($space), (string)$space['title'],
+                ['final' => $final] + ($final ? [] : ['run' => $info]));
             return ['started' => true, 'reading' => $reading];
         }
         $round = $this->spaceRound($uid, $space, $history, $spaces);
@@ -857,7 +862,7 @@ TXT;
                 . "switch 换成现成的样子时 board 填那个样子；都装不下就 board 填 null，parts 从 stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）里挑，way 写换了以后 agent 在这里怎么工作。\n"
                 . '现成的样子有：' . implode('、', array_keys(NormService::BOARDS)) . "。别的带着自己做法的空间：\n" . ($others === [] ? '（没有）' : implode("\n", $others)) . "\n\n";
         }
-        $out .= "只输出一个 JSON 对象，不要别的字：\n"
+        $out .= "只输出一个 JSON 对象，不要别的字。怎么分段先想好，排的草稿不要写出来：回答的第一个字就是 {，最后一个字是 }。\n"
             . '{"what": "一句话：现在的我是什么", '
             . '"stages": [' . ($first ? '' : '{"key": "s3", "add": ["1.2"]}, ')
             . '{"key": "' . ($first ? 'new' : 's4') . '", "title": "…", "text": "…", "add": ["1.3", "2.1"], "turn": "…", "turn_by": "…", "turn_at": "2.1", "kept": "…", "dropped": ["…"]}, '

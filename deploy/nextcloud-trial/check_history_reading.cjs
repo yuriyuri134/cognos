@@ -3,6 +3,8 @@
  *       开一个「验证：历史实测」空间，连一段三天的 Initium 对话（第二天转了向、放下了一条路，第三天定了一件事），读一轮（2 次运行），最后撤掉这个空间
  *   HISTORY_SPACE=<空间 id> node deploy/nextcloud-trial/check_history_reading.cjs
  *       读这个空间的下一轮（块数 + 1 次运行；一轮最多 5 块）。真空间先在页面上看清要几次运行，额度是你的
+ *   HISTORY_SPACE=<空间 id> HISTORY_MODE=merge node deploy/nextcloud-trial/check_history_reading.cjs
+ *       上一轮合起来那步没做成时，只把还没归段的条目合一次（2 次运行）
  * 等它读完（一块的约几分钟；5 块并排读再合一次，最多约 45 分钟），看：读了几块几句、记下几条、摘句和编号对上多少、分了几段、在哪转的、
  * 总观写了什么；再登录打开空间页：总观、历史，展开一句原话，桌面和 390px 各截一张。
  * 报告 evidence/history-reading.json（各段、总观全文、对原话的数）；截图 evidence/history-reading-overview.png、history-reading-history.png、
@@ -69,6 +71,7 @@ live.run('history-reading', async (checks, report) => {
   const test = !process.env.HISTORY_SPACE;
   const ids = test ? setup() : null;
   const spaceId = test ? ids.space : process.env.HISTORY_SPACE;
+  const merge = !test && process.env.HISTORY_MODE === 'merge';
   if (test) {
     report.setup = ids;
     checks.push('开了验证空间「验证：历史实测」：连着一段三天的 Initium 对话（10 句，第二天放下番茄、改种叶菜，第三天定下只种叶菜），这里的对话 1 句');
@@ -76,12 +79,13 @@ live.run('history-reading', async (checks, report) => {
   try {
     const before = await req('/norm/projects/' + spaceId + '/data');
     const p0 = before.project, u = before.unread;
-    assert(u && u.items > 0, '没有没读的原话：' + JSON.stringify(u));
+    if (merge) assert(p0.history_meta && p0.history_meta.unplaced > 0, '没有还没归段的条目：' + JSON.stringify(p0.history_meta));
+    else assert(u && u.items > 0, '没有没读的原话：' + JSON.stringify(u));
     report.before = {title: p0.title, unread: u, history: p0.history_meta, overview: p0.overview ? p0.overview.version : 0, self: p0.self ? p0.self.version : 0};
     checks.push('「' + p0.title + '」还有 ' + u.items + ' 句没读（约 ' + u.chars + ' 字），' + u.chunks + ' 块，读完要 ' + u.runs + ' 次运行'
-      + (u.rounds > 1 ? '，分 ' + u.rounds + ' 轮；这次读第一轮' : ''));
+      + (u.rounds > 1 ? '，分 ' + u.rounds + ' 轮；这次读第一轮' : '') + (merge ? '；这次只合 ' + p0.history_meta.unplaced + ' 条还没归段的' : ''));
 
-    const started = await req('/norm/projects/' + spaceId + '/read', 'POST', {}, 202);
+    const started = await req('/norm/projects/' + spaceId + '/read', 'POST', merge ? {mode: 'merge'} : {}, 202);
     assert(started.started && started.reading && started.reading.state === 'reading', '没开始读：' + (started.reading ? started.reading.error : started.why));
     const res0 = started.reading.result;
     report.plan = res0.plan.map(x => ({label: x.label, role: x.role, chars: x.chars, items: x.items}));
@@ -100,11 +104,11 @@ live.run('history-reading', async (checks, report) => {
     report.stats = st; report.readings = (r.readings || []).map(x => ({label: x.label, what: x.what, open: x.open, entries: x.entries, missed: x.missed, stats: x.stats, raw: x.raw}));
     report.merge = {what: c.what, stages: c.stages, overview: c.overview, merge_error: c.merge_error, raw: r.compare_raw ? r.compare_raw.slice(0, 4000) : null};
     report.error = d.error;
-    assert(st.chunks_ok === st.chunks && st.entries > 0, '有块没读出东西：' + JSON.stringify(report.readings.filter(x => x.missed)));
+    if (!merge) assert(st.chunks_ok === st.chunks && st.entries > 0, '有块没读出东西：' + JSON.stringify(report.readings.filter(x => x.missed)));
     assert(!c.merge_error, '合起来那一步：' + c.merge_error);
-    checks.push('读完：' + st.chunks + ' 块都读出来了，记下 ' + st.entries + ' 条；摘的原话 ' + st.quotes + ' 句，对上 ' + st.quotes_ok + ' 句；指的编号 ' + st.refs + ' 个，对上 '
+    if (!merge) checks.push('读完：' + st.chunks + ' 块都读出来了，记下 ' + st.entries + ' 条；摘的原话 ' + st.quotes + ' 句，对上 ' + st.quotes_ok + ' 句；指的编号 ' + st.refs + ' 个，对上 '
       + st.refs_ok + ' 个；' + st.no_source + ' 条没指到原话');
-    assert(st.quotes_ok > 0 && st.no_source <= st.entries / 2, '对得上原话的太少');
+    if (!merge) assert(st.quotes_ok > 0 && st.no_source <= st.entries / 2, '对得上原话的太少');
 
     const full = await req('/norm/projects/' + spaceId + '/data?history=1');
     const h = full.history, pj = full.project;
