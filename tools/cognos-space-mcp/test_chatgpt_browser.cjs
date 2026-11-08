@@ -29,7 +29,7 @@ async function main() {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cognos-chat-offline-'));
   try {
     const c=new ChatConnection({authorized:()=>true,receipts:dir,sleep:async()=>{}});
-    c.state={ready:true};c.account='fixture\nPlus';c.newPage=async()=>1;c.loaded=async()=>({account:c.account});c.setEffort=async(_page,value)=>assert.equal(value,'high');
+    c.state={ready:true};c.account='fixture\nPlus';c.newPage=async()=>1;c.loaded=async()=>({account:c.account,draft:'\n'});c.setEffort=async(_page,value)=>assert.equal(value,'high');
     const sequence=[];let submitted=false;
     c.read=async()=>({url:'https://chatgpt.com/c/fixture?temporary-chat=true',account:c.account,draft:submitted?'':job.prompt,
       complete:submitted,stop:false,content:submitted?'真实页面的完整回复':''});

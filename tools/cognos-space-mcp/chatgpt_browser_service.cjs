@@ -92,7 +92,7 @@ class ChatConnection {
     let r;
     try { r=await this.client.callTool({name,arguments:args}, undefined, {timeout:this.state.state==='connecting'?180000:60000}); }
     catch { this.state={...disconnected(),message:'Chrome 连接已中断，请重新连接。'}; throw Error(this.state.message); }
-    if (r.isError) {this.state={...disconnected(),message:'浏览器操作未完成，请检查 Chrome 后重新连接。'};throw Error(this.state.message);}
+    if (r.isError) {this.state={...disconnected(),message:'浏览器操作未完成，请检查 Chrome 后重新连接。'};throw Error(name+': '+textResult(r).slice(0,1600));}
     if (r.structuredContent?.reconnected) {
       this.owned.clear(); this.state={...disconnected(),message:'Chrome 已重新连接，请重新检查连接后再发送。'};
       throw Error(this.state.message);
@@ -194,13 +194,13 @@ class ChatConnection {
       pageId=await this.newPage();
       let state=await this.loaded(pageId);
       if (state.account!==this.account) {this.state={...disconnected(),message:'ChatGPT 登录账号已变化，请重新连接确认'};throw Error(this.state.message);}
-      if (state.draft || state.stop || state.work) throw Error('新聊天页面不是空闲聊天状态，未发送消息');
+      if ((state.draft||'').trim() || state.stop || state.work) throw Error('新聊天页面不是空闲聊天状态，未发送消息');
       await this.setEffort(pageId,job.reasoning_effort);
       const snapshot=textResult(await this.call('take_snapshot',{pageId}));
       const composer=uidFor(snapshot,'textbox',/询问 ChatGPT|Ask ChatGPT/i);
       await this.call('fill',{pageId,uid:composer,value:job.prompt});
       state=await this.read(pageId);
-      if(state.account!==this.account || state.draft!==job.prompt || state.stop) throw Error('聊天输入未通过确认，未发送消息');
+      if(state.account!==this.account || (state.draft||'').trim()!==job.prompt.trim() || state.stop) throw Error('聊天输入未通过确认，未发送消息');
       // Persist BEFORE Enter. A crash or timeout never causes an automatic second send.
       const receipt={run_id:job.run_id,space_id:job.space_id,hash,state:'sending',at:new Date().toISOString(),url:state.url};
       fs.writeFileSync(filename,JSON.stringify(receipt,null,2),{flag:'wx'});
