@@ -8,7 +8,7 @@ const {createRequire} = require('node:module');
 const HERE = __dirname;
 const ROOT = path.resolve(HERE, '../..');
 const SECRETS = path.join(ROOT, 'deploy/nextcloud-trial/.secrets');
-const RECEIPTS = path.join(ROOT, 'deploy/nextcloud-trial/evidence/chatgpt-browser');
+const RECEIPTS = path.join(ROOT, 'deploy/nextcloud-trial/evidence/chatgpt-browser-runs');
 const CONSENT = path.join(SECRETS, 'chatgpt-browser-enabled');
 const PORT = Number(process.env.COGNOS_CHATGPT_PORT || 8644);
 const HOME = 'https://chatgpt.com/?temporary-chat=true';
@@ -63,7 +63,7 @@ function pageState() {
   const visible = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
   const buttons = Array.from(document.querySelectorAll('button'));
   const profile = buttons.filter(e=>visible(e) && /个人资料菜单|profile menu/i.test(e.getAttribute('aria-label') || ''));
-  const account = profile.map(e=>(e.parentElement?.innerText || '').trim()).find(t=>t && t.length<200) || '';
+  const account = profile.map(e=>(e.parentElement?.innerText || '').split('\n').filter(line=>!/^正在加载个人资料$|^Loading profile$/i.test(line.trim())).join('\n').trim()).find(t=>t && t.length<200) || '';
   const composer = Array.from(document.querySelectorAll('[contenteditable="true"][role="textbox"],textarea')).find(visible);
   const stop = buttons.some(e=>visible(e) && /停止(生成|回复)|stop (generating|response)/i.test(e.getAttribute('aria-label') || e.innerText));
   const picker = buttons.find(e=>visible(e) && /选择 ChatGPT 模型|choose ChatGPT model/i.test(e.getAttribute('aria-label') || ''));
@@ -90,7 +90,7 @@ class ChatConnection {
     if (name==='new_page' && (args.url!==HOME || args.isolatedContext)) throw Error('只允许在现有登录中打开 ChatGPT 验证页面');
     if (name==='evaluate_script' && args.function !== pageState.toString()) throw Error('只允许读取聊天页面可见状态');
     let r;
-    try { r=await this.client.callTool({name,arguments:args}, undefined, {timeout:60000}); }
+    try { r=await this.client.callTool({name,arguments:args}, undefined, {timeout:this.state.state==='connecting'?180000:60000}); }
     catch { this.state={...disconnected(),message:'Chrome 连接已中断，请重新连接。'}; throw Error(this.state.message); }
     if (r.isError) {this.state={...disconnected(),message:'浏览器操作未完成，请检查 Chrome 后重新连接。'};throw Error(this.state.message);}
     if (r.structuredContent?.reconnected) {
@@ -116,9 +116,9 @@ class ChatConnection {
   }
   async loaded(pageId) {
     let state;
-    for (let i=0;i<25;i++) {
+    for (let i=0;i<50;i++) {
       state=await this.read(pageId);
-      if (state.account && state.composer) return state;
+      if (state.account && !/正在加载|loading/i.test(state.account) && state.composer && state.picker) return state;
       await this.sleep(1000);
     }
     throw Error('ChatGPT 页面未就绪。请检查现有 Chrome 的登录和网络。');
@@ -128,8 +128,8 @@ class ChatConnection {
     if (this.state.ready) return this.state;
     if (!this.canAccess()) return disconnected();
     this.state={...disconnected(),state:'connecting',message:'正在连接现有 Chrome；如 Chrome 提示，请确认允许 Cognos 连接。'};
-    this.connecting=this.connect().catch(async()=>{
-      this.state={...disconnected(),message:'未连接成功。请在 Chrome 的 chrome://inspect/#remote-debugging 启用远程调试，并确认浏览器的连接提示后重试。'};
+    this.connecting=this.connect().catch(async(error)=>{
+      this.state={...disconnected(),detail:error.message,message:'未连接成功。请在 Chrome 的 chrome://inspect/#remote-debugging 启用远程调试，并确认浏览器的连接提示后重试。'};
       await this.close();
     }).finally(()=>{this.connecting=null;});
     return this.state;
@@ -224,9 +224,7 @@ class ChatConnection {
       throw Error('聊天端尚未取得完整回复，请检查 Chrome 中保留的聊天页；不会自动重复发送。');
     } finally {
       // Keep submitted pages visible as provenance, including uncertain outcomes.
-      if(pageId!==undefined && !submitted) {
-        await this.call('close_page',{pageId}).catch(()=>{}); this.owned.delete(pageId);
-      }
+      // Keep failed validation pages visible for inspection.
     }
   }
 }

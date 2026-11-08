@@ -11,6 +11,9 @@ async function main() {
   assert(args.includes('--performanceCrux=false'));
   assert(args.includes('--pageIdRouting=true'));
   assert(!args.some(a=>/isolated|userDataDir|browserUrl|wsEndpoint|headless|no-sandbox/i.test(a)));
+  const loading=new ChatConnection({sleep:async()=>{}}); let reads=0;
+  loading.read=async()=>({account:'fixture',composer:true,picker:++reads>=3?'High':''});
+  await loading.loaded(1);assert.equal(reads,3,'Wait for the model picker, not merely the early input skeleton');
   validateJob(job);
   for(const bad of [{reasoning_effort:'extended'},{run_id:'../unsafe'},{prompt:''},{space_id:'other'}]) assert.throws(()=>validateJob({...job,...bad}));
   assert.notEqual(signature(job),signature({...job,prompt:'另一条'}));
