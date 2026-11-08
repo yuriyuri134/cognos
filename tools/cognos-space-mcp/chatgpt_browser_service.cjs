@@ -11,7 +11,7 @@ const SECRETS = path.join(ROOT, 'deploy/nextcloud-trial/.secrets');
 const RECEIPTS = path.join(ROOT, 'deploy/nextcloud-trial/evidence/chatgpt-browser-runs');
 const CONSENT = path.join(SECRETS, 'chatgpt-browser-enabled');
 const PORT = Number(process.env.COGNOS_CHATGPT_PORT || 8644);
-const HOME = 'https://chatgpt.com/?temporary-chat=true';
+const HOME = 'https://chatgpt.com/';
 const EFFORTS = ['default', 'low', 'medium', 'high'];
 const GENERATION_MS = 10 * 60 * 1000;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));

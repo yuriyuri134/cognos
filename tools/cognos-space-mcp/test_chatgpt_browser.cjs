@@ -14,6 +14,13 @@ async function main() {
   const loading=new ChatConnection({sleep:async()=>{}}); let reads=0;
   loading.read=async()=>({account:'fixture',composer:true,picker:++reads>=3?'High':''});
   await loading.loaded(1);assert.equal(reads,3,'Wait for the model picker, not merely the early input skeleton');
+  const normal=new ChatConnection({authorized:()=>true});
+  normal.client={callTool:async({name,arguments:args})=>{
+    if(name==='list_pages')return {structuredContent:{pages:[]}};
+    assert.equal(name,'new_page');assert.equal(args.url,'https://chatgpt.com/');
+    return {structuredContent:{pages:[{id:9,url:args.url}]}};
+  }};
+  assert.equal(await normal.newPage(),9);
   validateJob(job);
   for(const bad of [{reasoning_effort:'extended'},{run_id:'../unsafe'},{prompt:''},{space_id:'other'}]) assert.throws(()=>validateJob({...job,...bad}));
   assert.notEqual(signature(job),signature({...job,prompt:'另一条'}));
@@ -31,7 +38,7 @@ async function main() {
     const c=new ChatConnection({authorized:()=>true,receipts:dir,sleep:async()=>{}});
     c.state={ready:true};c.account='fixture\nPlus';c.newPage=async()=>1;c.loaded=async()=>({account:c.account,draft:'\n'});c.setEffort=async(_page,value)=>assert.equal(value,'high');
     const sequence=[];let submitted=false;
-    c.read=async()=>({url:'https://chatgpt.com/c/fixture?temporary-chat=true',account:c.account,draft:submitted?'':job.prompt,
+    c.read=async()=>({url:'https://chatgpt.com/c/fixture',account:c.account,draft:submitted?'':job.prompt,
       complete:submitted,stop:false,content:submitted?'真实页面的完整回复':''});
     c.call=async(name,args)=>{sequence.push(name);if(name==='take_snapshot')return {content:[{type:'text',text:'uid=5 textbox "询问 ChatGPT"'}]};
       if(name==='fill')assert.equal(args.value,job.prompt);
