@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import base64
 import ast
+import hashlib
 import hmac
 import json
 import os
@@ -108,6 +109,8 @@ MODEL = os.environ.get("CLAUDE_BRIDGE_MODEL", "")
 SPACES_DIR = Path(os.environ.get("COGNOS_SPACES_DIR") or Path.home() / "Documents" / "cognos-spaces")
 COMMANDS = os.environ.get("COGNOS_BRIDGE_COMMANDS", "") == "1"
 TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
+# 发给聊天端时没连上：先去连，最多等这么多秒（Cognos 叫桥只等 30 秒）
+CHATGPT_CONNECT_WAIT = int(os.environ.get("COGNOS_CHATGPT_CONNECT_WAIT", "15"))
 # 10/27：PowerShell 配置文件里设的中转站 key 会被继承，claude 就不走交互对象自己的订阅登录了。
 # 默认起 claude 前把这几个去掉；真想走中转站，设 COGNOS_BRIDGE_KEEP_API_ENV=1
 API_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
@@ -120,6 +123,9 @@ SELF_MERGE = os.environ.get("COGNOS_SELF_MERGE", "") == "1"
 RUN_LOG_DIR = Path(os.environ.get("COGNOS_RUN_LOG_DIR") or REPO / "deploy" / "nextcloud-trial" / "evidence" / "claude-bridge" / "runs")
 RUN_LABEL = os.environ.get("COGNOS_RUN_LABEL", "").strip()
 OUTBOX_DIR = Path(os.environ.get("COGNOS_BRIDGE_OUTBOX") or REPO / "deploy" / "nextcloud-trial" / "evidence" / "claude-bridge" / "outbox")
+# 每段 Cognos 对话接着用的那条 ChatGPT 聊天（地址和对到哪一句了），不入库
+CHATGPT_THREADS_DIR = Path(os.environ.get("COGNOS_CHATGPT_THREADS") or REPO / "deploy" / "nextcloud-trial" / "evidence" / "chatgpt-browser-runs" / "threads")
+CHATGPT_THREAD_URL = re.compile(r"https://chatgpt\.com/(?:g/[A-Za-z0-9-]+/)?c/[A-Za-z0-9-]+")
 RETRY_SECONDS = int(os.environ.get("COGNOS_BRIDGE_RETRY", "30"))
 # 同一时间只让一个线程重发，免得同一个结果从两处同时发出去（Cognos 会去重，但没必要）
 OUTBOX_LOCK = threading.Lock()
@@ -692,6 +698,111 @@ def answer_from(stdout: str, stderr: str = "") -> str:
     return answer
 
 
+def chatgpt_browser(action: str = "status", job: dict | None = None) -> dict:
+    if action not in ("status", "open", "reply"):
+        raise ValueError("无效的聊天端操作")
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeError("聊天端需要本机 Node.js")
+    result = subprocess.run([node, str(HERE / "chatgpt_browser.cjs"), action],
+                            input=json.dumps(job or {}, ensure_ascii=False), capture_output=True,
+                            encoding="utf-8", timeout=700 if action == "reply" else 18)
+    data = json.loads(result.stdout)
+    if result.returncode or data.get("error"):
+        raise RuntimeError(data.get("error") or "聊天端浏览器不可用")
+    return data
+
+
+def _chat_head(role: str, content: str) -> list:
+    # 只取开头一段、去掉空白来认一句：早先的回答在上下文里可能被缩短，开头不变
+    return [role, re.sub(r"\s+", "", str(content))[:400]]
+
+
+def _chat_print(items: list) -> str:
+    return hashlib.sha256(json.dumps(items, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _thread_file(space_id: str) -> Path:
+    return CHATGPT_THREADS_DIR / f"creation-{space_id}.json"
+
+
+def chatgpt_thread(space_id: str, history: list[dict], message: str, caller: str, entry: str) -> dict:
+    """这段对话接着哪条 ChatGPT 聊天、这次只要发哪些新的。
+
+    存着的聊天对得上（ChatGPT 最后一次回的那句和它之前的对话都没变）才接着用，只发它没看过的：
+    别人（Claude、Codex）后来说的、你后来说的、入口变了的话连入口。对不上（改过、删过前面的话，
+    或者 ChatGPT 还没回过）就不接，在新聊天里带全文。
+    """
+    heads = [_chat_head(str(item.get("role")), str(item.get("content", ""))) for item in history]
+    state: dict = {"base": heads + [_chat_head("user", message)],
+                   "entry": hashlib.sha256(entry.encode("utf-8")).hexdigest()}
+    try:
+        saved = json.loads(_thread_file(space_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return state
+    last = max((i for i, item in enumerate(history)
+                if item.get("role") == "assistant" and item.get("author") == "ChatGPT"), default=-1)
+    url = str(saved.get("url") or "")
+    if last < 0 or not CHATGPT_THREAD_URL.fullmatch(url) or saved.get("print") != _chat_print(heads[:last + 1]):
+        return state
+    later = history[last + 1:]
+    lines = []
+    if later:
+        lines.append("## 你上次回答以后，这段对话里又说了")
+        for item in later:
+            who = caller if item.get("role") == "user" else (item.get("author") or "AI（没记是谁）")
+            lines.append(f"{who}：{item.get('content', '')}")
+        lines.append("")
+    if saved.get("entry") != state["entry"]:
+        lines += ["## 这一处现在的样子（变了，重新给）", entry, ""]
+    lines += [f"## {caller}现在说", message]
+    return {**state, "thread_url": url, "followup": "\n".join(lines)}
+
+
+def remember_chatgpt_thread(space_id: str, state: dict, source_url: str, content: str) -> None:
+    match = CHATGPT_THREAD_URL.search(str(source_url or ""))
+    if not match or not state:
+        return
+    CHATGPT_THREADS_DIR.mkdir(parents=True, exist_ok=True)
+    saved = {"url": match.group(0), "entry": state.get("entry"),
+             "print": _chat_print(list(state.get("base") or []) + [_chat_head("assistant", content)]),
+             "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    tmp = _thread_file(space_id).with_suffix(".tmp")
+    tmp.write_text(json.dumps(saved, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(_thread_file(space_id))
+
+
+def chatgpt_ready() -> dict:
+    """聊天端连上了没有；没连上就去连（Chrome 弹出提示要你点允许），等一小会儿。"""
+    state = chatgpt_browser()
+    if state.get("ready") or state.get("state") == "authorization_required":
+        return state
+    if state.get("state") != "connecting":
+        state = chatgpt_browser("open")
+    deadline = time.time() + CHATGPT_CONNECT_WAIT
+    while not state.get("ready") and state.get("state") == "connecting" and time.time() < deadline:
+        time.sleep(1)
+        state = chatgpt_browser()
+    if not state.get("ready") and state.get("state") == "connecting":
+        state = {**state, "message": "正在连 Chrome：Chrome 若弹出「允许远程调试」请点允许，然后点这句下面的「再叫一次」。"}
+    return state
+
+
+def chatgpt_job(body: dict, job: dict) -> dict:
+    if (body.get("executor") != "chatgpt" or body.get("subject") != "ChatGPT"
+            or body.get("space_type") != "creation" or body.get("mode") != "chat"
+            or body.get("caller_uid") != COGNOS_USER or not re.fullmatch(r"[1-9][0-9]*", job["space_id"])
+            or any(body.get(k) for k in ("repo", "delegation_id", "hit_id", "open_id"))):
+        raise ValueError("无效的聊天端请求")
+    effort = body.get("reasoning_effort", "default")
+    if effort not in ("default", "low", "medium", "high"):
+        raise ValueError("聊天端只支持默认、低、中、高思考强度")
+    history = [item for item in (body.get("history") or []) if isinstance(item, dict)]
+    thread = chatgpt_thread(job["space_id"], history, str(body.get("message") or ""),
+                            str(body.get("caller") or "交互对象"), str(body.get("system") or ""))
+    return {**job, "executor":"chatgpt", "caller_uid":body["caller_uid"], "reasoning_effort":effort, "chat_thread":thread}
+
+
 def codex_configured() -> bool:
     return bool(CODEX_APP_PASSWORD and shutil.which("codex"))
 
@@ -940,6 +1051,20 @@ def work(job: dict) -> None:
         try:
             if job.get("executor") == "codex":
                 content = run_codex(job)
+            elif job.get("executor") == "chatgpt":
+                thread = job.get("chat_thread") or {}
+                ask = {"prompt":job["prompt"], "reasoning_effort":job["reasoning_effort"], "run_id":job["run_id"], "space_id":job["space_id"]}
+                if thread.get("thread_url"):
+                    ask.update(thread_url=thread["thread_url"], followup=thread["followup"])
+                answer = chatgpt_browser("reply", ask)
+                content = answer["content"]
+                if CHATGPT_THREAD_URL.search(str(answer.get("source_url") or "")):
+                    # 回答末尾带上 ChatGPT 里那条聊天，想在那边接着聊、看它的思考过程都能点过去
+                    content += f"\n\n[在 ChatGPT 里打开这条聊天]({CHATGPT_THREAD_URL.search(answer['source_url']).group(0)})"
+                try:
+                    remember_chatgpt_thread(space_id, thread, answer.get("source_url"), content)
+                except OSError as error:
+                    sys.stderr.write(f"[claude-bridge] 没记下 ChatGPT 聊天地址：{error}\n")
             else:
                 if job.get("repo"):
                     wt = open_worktree(space_type, space_id, job.get("hit_id"), job.get("base_branch"), job.get("open_id"))
@@ -1147,7 +1272,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path not in ("/chat", "/codex", "/read"):
+        if self.path not in ("/chat", "/codex", "/read", "/chatgpt", "/chatgpt/browser"):
             self.send_json(404, {"error": "not found"})
             return
         if not hmac.compare_digest(self.headers.get("X-Cognos-Bridge-Token", ""), TOKEN):
@@ -1155,6 +1280,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/read":
             self.do_read()
+            return
+        if self.path == "/chatgpt/browser":
+            try:
+                data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+                if data.get("caller_uid") != COGNOS_USER or data.get("action") not in ("open", "status"):
+                    raise ValueError("无效的聊天端连接请求")
+                self.send_json(200, chatgpt_browser(data["action"]))
+            except Exception:
+                self.send_json(503, {"ready":False, "message":"聊天端浏览器连接不可用"})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1186,14 +1320,25 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("run_id 不对")
             if self.path == "/codex":
                 job = codex_job(body, job)
-            elif body.get("executor") == "codex":
-                raise ValueError("Codex 委托须使用专用 /codex 入口")
+            elif self.path == "/chatgpt":
+                job = chatgpt_job(body, job)
+            elif body.get("executor") in ("codex", "chatgpt"):
+                raise ValueError("该回复者须使用自己的专用入口")
         except (KeyError, TypeError, ValueError) as error:
             self.send_json(400, {"error": f"请求不完整：{error}"})
             return
         if self.path == "/codex" and not codex_configured():
             self.send_json(422, {"error": "本机 Codex CLI 或 Cognos 应用凭据尚未配置"})
             return
+        if self.path == "/chatgpt":
+            try:
+                connection = chatgpt_ready()
+                if not connection.get("ready"):
+                    self.send_json(428, {"error":connection.get("message") or "请先连接聊天端"})
+                    return
+            except Exception:
+                self.send_json(503, {"error":"聊天端浏览器未连接；不会改走 Codex"})
+                return
         key = f"{job['space_type']}/{job['space_id']}"
         with BUSY_LOCK:
             if key in BUSY:

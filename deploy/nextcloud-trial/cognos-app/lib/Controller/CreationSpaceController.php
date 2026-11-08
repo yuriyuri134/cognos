@@ -181,7 +181,7 @@ final class CreationSpaceController extends Controller {
                     'messages' => $saved,
                     'pending' => true,
                     'queued' => true,
-                    'who' => $this->bridge->subjectFor('creation', (string)$id),
+                    'who' => ($this->runs->activeForSpace('creation', (string)$id)[0]['subject'] ?? $this->bridge->subjectFor('creation', (string)$id)),
                 ]);
             } catch (\Throwable $error) {
                 // 原话已经留下了，只是没叫来人：把它和原因一起回给页面，别让人以为没发出去再发一遍
@@ -192,8 +192,8 @@ final class CreationSpaceController extends Controller {
             }
 
             if ($agentResponse === null) {
-                // Claude Code 在本机接着做，做完自己把回答发回来
-                return new DataResponse(['messages' => $saved, 'pending' => true, 'who' => $this->bridge->subjectFor('creation', (string)$id)]);
+                // 实际运行者接着做，完成后把回答发回原对话
+                return new DataResponse(['messages' => $saved, 'pending' => true, 'who' => ($this->runs->activeForSpace('creation', (string)$id)[0]['subject'] ?? $this->bridge->subjectFor('creation', (string)$id))]);
             }
 
             $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'assistant', $agentResponse, $replyTo);
