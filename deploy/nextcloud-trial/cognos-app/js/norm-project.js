@@ -620,7 +620,8 @@
     if (rest.length) {
       const row = node('div', undefined, 'cg-entry-refs');
       row.append(node('span', (e.quotes || []).length ? '还依据' : '依据', 'cg-small'));
-      for (const r of rest) row.append(origEl(r, h));
+      // 同一段对话的几句，只在第一句写对话的名字
+      rest.forEach((r, i) => row.append(origEl(r, h, i > 0 && Number(rest[i - 1].src) === Number(r.src))));
       it.append(row);
     }
     if (!(e.refs || []).length) it.append(node('p', '这一条没指到原话。', 'cg-small cg-warn'));
@@ -634,11 +635,11 @@
   }
 
   // 原话：点一下在这里展开那一句（整句），还能到那段对话里看前后
-  function origEl(r, h) {
+  function origEl(r, h, short) {
     const wrap = node('div', undefined, 'cg-orig');
     const own = h.own_conversation !== null && Number(r.src) === Number(h.own_conversation);
     const where = Number(r.src) === 0 ? '这里记下的事' : own ? '这里的对话' : '「' + ((h.sources || {})[r.src] || '一段对话') + '」';
-    const b = node('button', '原话 · ' + where, 'cg-link-btn cg-orig-btn'); b.type = 'button'; b.setAttribute('aria-expanded', 'false');
+    const b = node('button', short ? '又一句' : '原话 · ' + where, 'cg-link-btn cg-orig-btn'); b.type = 'button'; b.setAttribute('aria-expanded', 'false');
     wrap.append(b);
     b.addEventListener('click', async () => {
       const open = wrap.querySelector('.cg-orig-box');
