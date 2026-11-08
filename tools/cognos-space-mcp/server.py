@@ -335,6 +335,35 @@ TOOLS += [
         "acknowledged":{"type":"boolean"}},"required":["space_id","work_id","parts","basis"]}},
 ]
 
+NORM_SPACE = {"type": "string", "description": "只在 Norm 自己的对话里填：要读、要改的是哪个空间（read_space 不填时会列出来）"}
+TOOLS += [
+    {"name": "read_space",
+     "description": ("读你所在的 Norm 空间现在的样子：它是什么、agent 在这里的做法（交互对象不在时做什么、怎样算往前走、什么时候找他）、"
+                     "用哪几块和每一块现在的内容、还等着他定的事、最近发生的，以及放进这里的 Initium 对话（linked：目录和最近一段的原话，别的段用 linked_id 读）。动手改之前先读。"),
+     "inputSchema": {"type": "object", "properties": {"space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE,
+                     "linked_id": {"type": "integer", "description": "读放进这里的某一段对话的原话（linked.index 里的 linked_id）。一页读不完时返回 next_from"},
+                     "from": {"type": "integer", "description": "和 linked_id 一起用：从第几条接着读（上一页给的 next_from）"}},
+                     "required": ["space_id"]}},
+    {"name": "write_part",
+     "description": ("改这个空间的一块：stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）。"
+                     "content 是这一块改完以后的全部内容，格式见 read_space 返回的 formats；先读再写，别丢了原来的。"
+                     "你提出、还要交互对象定的一段演变，带上 proposed: true。改理想、改目标、把一段理解改成新的，不要直接写，用 note_for_you 提出来。"),
+     "inputSchema": {"type": "object", "properties": {
+         "space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE,
+         "part": {"type": "string", "enum": ["stages", "branches", "relations", "compare", "doc"]},
+         "content": {"description": "这一块的全部内容：doc 是一段文字，其余是 JSON"}},
+         "required": ["space_id", "part", "content"]}},
+    {"name": "note_for_you",
+     "description": ("给交互对象留一条，他打开这个空间时最先看到。kind=happened：你做了什么、发生了什么，一句话，读的人不用再问；"
+                     "kind=decide：只有他能定的一件，写清要定什么，options 给两三个选项（每个几个字）。"),
+     "inputSchema": {"type": "object", "properties": {
+         "space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE,
+         "kind": {"type": "string", "enum": ["happened", "decide"]},
+         "text": {"type": "string"},
+         "options": {"type": "array", "items": {"type": "string"}}},
+         "required": ["space_id", "kind", "text"]}},
+]
+
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
 if ONLY:
     TOOLS = [t for t in TOOLS if t["name"] in ONLY]
@@ -495,6 +524,10 @@ def write_work(name,args):
     return json.dumps({**data,"request_id":body["request_id"]},ensure_ascii=False)
 
 
+# 这片空间不在项目的某个位置上时，尝试和工作都没有登记的地方：Cognos 回 404。这不是出错，照实告诉它
+NO_LOCATION = "这里不在项目的任何位置上，没有登记的{what}。（不是出错：这种空间本来就没有这一项。）"
+
+
 def space_path(args: dict) -> str:
     if BOUND_ID and (str(args.get("space_type") or "creation") != BOUND_TYPE or str(args["space_id"]) != BOUND_ID):
         raise RuntimeError("这次连接只接入指定的项目位置，不能改用另一片空间。")
@@ -602,16 +635,42 @@ def run_tool(name: str, args: dict) -> str:
     if name in ("list_attempts", "get_attempt"):
         path=space_path(args)+"/attempts"
         if name=="get_attempt":path+="/"+urllib.parse.quote(str(args["attempt_id"]),safe="")
-        return json.dumps(call_api("GET",path),ensure_ascii=False)
+        try:
+            return json.dumps(call_api("GET",path),ensure_ascii=False)
+        except CognosAPIError as error:
+            if name == "list_attempts" and error.status == 404:
+                return NO_LOCATION.format(what="尝试")
+            raise
     if name in ("list_work_items", "get_work_item", "preview_work_split"):
         path = space_path(args) + "/work-items"
         if name != "list_work_items":
             path += "/" + urllib.parse.quote(str(args["work_id"]), safe="")
-        if name == "preview_work_split":
-            data = call_api("POST", path + "/split/preview", body={"parts": args["parts"]})
-        else:
-            data = call_api("GET", path)
+        try:
+            if name == "preview_work_split":
+                data = call_api("POST", path + "/split/preview", body={"parts": args["parts"]})
+            else:
+                data = call_api("GET", path)
+        except CognosAPIError as error:
+            if name == "list_work_items" and error.status == 404:
+                return NO_LOCATION.format(what="工作")
+            raise
         return json.dumps(data, ensure_ascii=False, indent=1)
+    if name in ("read_space", "write_part", "note_for_you"):
+        path = space_path(args) + "/norm"
+        extra = {"norm_space": args["norm_space"]} if args.get("norm_space") else {}
+        if name == "read_space":
+            if args.get("linked_id"):
+                extra["linked_id"] = int(args["linked_id"])
+                if args.get("from"):
+                    extra["from"] = int(args["from"])
+            data = call_api("GET", path, extra or None)
+            return json.dumps(data, ensure_ascii=False, indent=1)
+        if name == "write_part":
+            data = call_api("POST", path + "/part", body={**extra, "part": args["part"], "content": args["content"], "subject": SUBJECT})
+        else:
+            data = call_api("POST", path + "/note", body={**extra, "kind": args["kind"], "text": args["text"],
+                                                          "options": args.get("options") or [], "subject": SUBJECT})
+        return data["message"]
     if name == "start_work":
         data = call_api("POST", space_path(args) + "/runs", body={"subject": SUBJECT, "purpose": args.get("purpose", "")})
         return f"已登记，run_id 是 {data['run']['id']}。做完用 hand_back 交回时带上它。"

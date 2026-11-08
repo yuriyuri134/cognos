@@ -53,6 +53,7 @@ final class HermesAgentService {
         private LifecycleService $lifecycle,
         private IConfig $config,
         private LoggerInterface $logger,
+        private NormService $norm,
         ?RestoreGuardService $restoreGuard = null,
     ) {
         $this->restoreGuard = $restoreGuard ?? new RestoreGuardService($config);
@@ -536,6 +537,7 @@ final class HermesAgentService {
             $history[] = [
                 'role' => $msg['role'],
                 'content' => $msg['content'],
+                'author' => $msg['author'] ?? null,
             ];
         }
         // controller 先存了这条用户消息再取上下文，它多半已经是最后一条
@@ -548,6 +550,19 @@ final class HermesAgentService {
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
         $delegatedExecutor = !empty($extra['delegation_id']) ? ($extra['executor'] ?? null) : null;
+        // 这段对话选了 GPT：走本机 Codex（你的 ChatGPT 账号），每次带全文，和 Claude 看到的是同一段
+        if ($delegatedExecutor === null && $this->config->getUserValue($user->getUID(), 'cognos', 'agent_c' . $creationId, 'claude') === 'gpt') {
+            $entry = $this->entries->entry($space, 'GPT', ['caller' => $caller, 'message' => $message],
+                array_merge([
+                    'enter_space / read_space：读这一处现在的样子；放进 Norm 的对话，read_space 里有它连着的空间和原话。',
+                    '你只能读，不能改 Cognos 里的东西；想做的事写在回答里。',
+                ], $this->norm->agentLines($user->getUID(), $creationId)));
+            $this->bridge->send('creation', (string)$creationId, 'GPT', $this->entries->renderText($entry), $history, $message, $caller,
+                array_merge($extra, ['executor' => 'codex', 'mode' => 'chat', 'reply_to' => $replyTo, 'caller_uid' => $user->getUID(),
+                    'reasoning_effort' => $this->config->getUserValue($user->getUID(), 'cognos', 'agent_effort_c' . $creationId, 'default')]));
+            $this->spaces->markSeen('creation', (string)$creationId, 'GPT');
+            return null;
+        }
         if ($delegatedExecutor === 'codex' || $delegatedExecutor === 'claude-code'
             || $this->config->getAppValue('cognos', 'creation_agent', 'hermes') === 'claude-code') {
             // 在 Cognos 自己的空间里，被叫来的是替 Cognos 说话的那位
@@ -562,7 +577,9 @@ final class HermesAgentService {
                 ['caller' => $caller, 'message' => $message],
                 // 不在项目里的空间没有决定和当前内容可依据，不给 note_basis
                 array_merge(array_values(array_filter($abilities,
-                    static fn(string $line): bool => !empty($space['project_context']) || (!str_starts_with($line, 'note_basis') && !str_starts_with($line, 'adopt')))), $canDo),
+                    static fn(string $line): bool => !empty($space['project_context']) || (!str_starts_with($line, 'note_basis') && !str_starts_with($line, 'adopt')))), $canDo,
+                    // 这段对话是 Norm 里一个空间的（或已经放进 Norm）：这里是什么、怎么工作、能改哪几块
+                    $delegatedExecutor === 'codex' ? [] : $this->norm->agentLines($user->getUID(), $creationId)),
             );
             $this->bridge->send('creation', (string)$creationId, $subject, $this->entries->renderText($entry), $history, $message, $caller,
                 array_merge($extra, ['reply_to' => $replyTo, 'decision_ids' => SpaceEntryService::decisionIds($entry), 'caller_uid' => $user->getUID()]));

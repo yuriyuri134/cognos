@@ -19,7 +19,6 @@
     elements.newCreationForm = document.getElementById('cognos-new-creation-form');
     elements.creationForm = document.getElementById('cognos-creation-form');
     elements.cancelBtn = document.getElementById('cognos-cancel-creation');
-    elements.titleInput = document.getElementById('cognos-creation-title');
     elements.messageInput = document.getElementById('cognos-creation-message');
     elements.status = document.getElementById('cognos-creation-status');
     elements.loading = document.getElementById('cognos-creations-loading');
@@ -35,7 +34,7 @@
 
   function showNewCreationForm() {
     elements.newCreationForm.hidden = false;
-    elements.titleInput.focus();
+    elements.messageInput.focus();
   }
 
   function hideNewCreationForm() {
@@ -47,16 +46,14 @@
   async function handleCreateCreation(e) {
     e.preventDefault();
 
-    const title = elements.titleInput.value.trim();
+    // 不用起标题：拿写下的第一行当名字
     const initialMessage = elements.messageInput.value.trim();
-
-    if (!title) {
-      elements.status.textContent = '请输入标题';
-      return;
-    }
+    if (!initialMessage) return;
+    const firstLine = initialMessage.split('\n')[0].trim();
+    const title = [...firstLine].length > 40 ? [...firstLine].slice(0, 40).join('') + '…' : firstLine;
 
     try {
-      elements.status.textContent = '创建中...';
+      elements.status.textContent = '写下了，正在进对话……';
       const response = await fetch('/index.php/apps/cognos/creations/data', {
         method: 'POST',
         headers: {
@@ -77,7 +74,7 @@
       window.location.href = `/index.php/apps/cognos/creations/${creationId}`;
     } catch (error) {
       console.error('Create creation error:', error);
-      elements.status.textContent = '创建失败，请重试';
+      elements.status.textContent = '没存上，再试一次';
     }
   }
 

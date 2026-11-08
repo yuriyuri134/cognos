@@ -31,7 +31,10 @@ def delegation_tools(*, may_edit: bool, may_adopt: bool, may_manage_work: bool) 
     return tools
 
 
-def command(workspace: Path, subject: str, tools: tuple[str, ...] = ENTRY_TOOLS) -> list[str]:
+def command(workspace: Path, subject: str, tools: tuple[str, ...] = ENTRY_TOOLS,
+            reasoning_effort: str | None = None) -> list[str]:
+    if reasoning_effort is not None and reasoning_effort not in ("low", "medium", "high", "xhigh", "max"):
+        raise ValueError("无效的思考强度")
     exe = shutil.which("codex")
     if not exe:
         raise RuntimeError("找不到本机 codex，请安装并登录后再接入")
@@ -48,12 +51,14 @@ def command(workspace: Path, subject: str, tools: tuple[str, ...] = ENTRY_TOOLS)
            "--json", "--color", "never", "-C", str(workspace)]
     for key, value in cfg.items():
         cmd += ["-c", key + "=" + json.dumps(value, ensure_ascii=False)]
+    if reasoning_effort is not None:
+        cmd += ["-c", "model_reasoning_effort=" + json.dumps(reasoning_effort)]
     return cmd + ["-"]
 
 
 def run(space_id: str, prompt: str, output: Path, *, subject: str = "Codex", model: str | None = None,
         timeout: int = 600, run_id: str | None = None, tools: tuple[str, ...] = ENTRY_TOOLS,
-        environment: dict[str, str] | None = None):
+        environment: dict[str, str] | None = None, reasoning_effort: str | None = None):
     if not space_id.isdigit() or not subject.strip():
         raise ValueError("需要有效的位置会话编号和主体名字")
     if run_id is not None and (not re.fullmatch(r"[a-f0-9]{32}", run_id) or {"start_work", "hand_back"}.intersection(tools)):
@@ -73,7 +78,7 @@ def run(space_id: str, prompt: str, output: Path, *, subject: str = "Codex", mod
         env.setdefault("COGNOS_MCP_STATE_DIR", str(output / "handoff-state"))
     result = {"events": str(output / "events.jsonl"), "subject": subject, "space_id": space_id}
     with tempfile.TemporaryDirectory(prefix="cognos-codex-") as tmp:
-        cmd = command(Path(tmp), subject, tools)
+        cmd = command(Path(tmp), subject, tools, reasoning_effort=reasoning_effort)
         final_message = Path(tmp) / "final.txt"
         if model:
             cmd[-1:-1] = ["--model", model]

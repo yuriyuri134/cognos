@@ -33,6 +33,7 @@
     loadCreationsList();
     loadCreationAndMessages();
     window.CognosSpacePanel?.init(state.creationId);
+    window.CognosAgentPick?.mount(document.getElementById('chat-input-form'), state.creationId);
   }
 
   function cacheElements() {
@@ -60,6 +61,11 @@
     elements.mobileMenuBtn?.addEventListener('click', toggleSidebar);
     elements.sidebarToggle?.addEventListener('click', toggleSidebar);
     elements.messagesContainer?.addEventListener('click', (e) => {
+      const act = e.target.closest('.msg-act');
+      if (act) {
+        handleMessageAction(act.dataset.act, parseInt(act.dataset.messageId, 10), act);
+        return;
+      }
       const button = e.target.closest('.space-keep-btn');
       if (!button) return;
       if (button.classList.contains('recall-btn')) {
@@ -73,6 +79,73 @@
       const message = state.messages.find(m => String(m.id) === button.dataset.messageId);
       if (message) window.CognosSpacePanel?.keep(message.content);
     });
+  }
+
+  // 像 ChatGPT 那样：改一句，它后面的都去掉，用改过的这句再叫一次；删一句，连回它的回答一起删
+  async function handleMessageAction(act, messageId, button) {
+    if (state.sending || state.pending) return;
+    const bubble = button.closest('.cognos-message');
+    const message = state.messages.find(m => m.id === messageId);
+    if (!message || !bubble) return;
+    if (act === 'edit') {
+      const box = bubble.querySelector('.cognos-message-content');
+      box.innerHTML = '';
+      const area = document.createElement('textarea');
+      area.className = 'msg-edit-area';
+      area.value = message.content;
+      area.rows = Math.min(14, Math.max(3, message.content.split('\n').length + 1));
+      const bar = document.createElement('div');
+      bar.className = 'msg-edit-bar';
+      bar.innerHTML = '<button type="button" class="msg-act" data-act="save" data-message-id="' + messageId + '">发送</button>'
+        + '<button type="button" class="msg-act" data-act="cancel" data-message-id="' + messageId + '">取消</button>';
+      box.append(area, bar);
+      area.focus();
+      return;
+    }
+    if (act === 'cancel') { renderMessages(); return; }
+    if (act === 'save') {
+      const text = bubble.querySelector('.msg-edit-area')?.value.trim();
+      if (!text) return;
+      const r = await changeMessage('PUT', messageId, { message: text });
+      if (!r) return;
+      const i = state.messages.findIndex(m => m.id === messageId);
+      state.messages = state.messages.slice(0, i + 1);
+      state.messages[i] = { ...state.messages[i], content: text };
+      renderMessages();
+      await callAgent({ recall: messageId });
+      return;
+    }
+    if (act === 'delete') {
+      const what = message.role === 'user' ? '删掉这句和回它的回答？' : '删掉这条回答？';
+      if (!window.confirm(what)) return;
+      const r = await changeMessage('DELETE', messageId);
+      if (!r) return;
+      const gone = new Set(r.removed || [messageId]);
+      state.messages = state.messages.filter(m => !gone.has(m.id));
+      renderMessages();
+    }
+  }
+
+  async function changeMessage(method, messageId, body) {
+    try {
+      const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages/${messageId}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', requesttoken: OC.requestToken },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        state.notice = data.message || `HTTP ${response.status}`;
+        renderMessages();
+        return null;
+      }
+      state.notice = null;
+      return data;
+    } catch (error) {
+      state.notice = '连不上 Cognos：' + error.message;
+      renderMessages();
+      return null;
+    }
   }
 
   async function handleHang(messageId) {
@@ -180,10 +253,12 @@
       const messagesData = await messagesResponse.json();
       state.messages = messagesData.messages || [];
       state.lastRun = messagesData.runs?.[0] || null;
+      showUsage(messagesData.usage);
 
       renderCreation();
       renderMessages();
       resumePendingIfWaiting(messagesData.pending, messagesData.pending_who);
+      readWhatWasWritten();
     } catch (error) {
       console.error('Load error:', error);
       elements.chatTitle.textContent = '加载失败';
@@ -192,9 +267,32 @@
     }
   }
 
+  // 刚写下、还没叫过谁的一段：agent 自己来读，不用你点
+  let autoRead = false;
+  function readWhatWasWritten() {
+    if (autoRead || state.pending || state.sending || state.lastRun) return;
+    const last = state.messages[state.messages.length - 1];
+    if (!last || last.role !== 'user' || state.messages.some(m => m.role !== 'user')) return;
+    autoRead = true;
+    callAgent({ recall: last.id });
+  }
+
   function renderCreation() {
     if (!state.creation) return;
     elements.chatTitle.textContent = state.creation.title;
+  }
+
+  function showUsage(usage) {
+    let el = document.getElementById('cognos-usage-line');
+    if (!el) {
+      const form = document.getElementById('chat-input-form');
+      if (!form) return;
+      el = document.createElement('p');
+      el.id = 'cognos-usage-line';
+      el.className = 'cognos-usage-line';
+      form.after(el);
+    }
+    window.CognosUsage?.show(el, usage);
   }
 
   function renderMessages() {
@@ -236,6 +334,8 @@
       || (next.reply_to !== null && next.reply_to !== undefined);
   }
 
+  function whoName(a) { return !a ? 'Agent' : a === 'GPT' || a === 'Codex' ? 'GPT' : /claude|cognos/i.test(a) ? 'Claude' : a; }
+
   function createMessageBubble(message, unanswered = false) {
     const role = message.role === 'user' ? 'user' : 'agent';
     const timestamp = new Date(message.created_at * 1000).toLocaleTimeString('zh-CN', {
@@ -246,12 +346,14 @@
     return `
       <div class="cognos-message cognos-message-${role}">
         <div class="cognos-message-header">
-          <span class="cognos-message-sender">${role === 'user' ? '你' : 'Agent'}</span>
+          <span class="cognos-message-sender">${role === 'user' ? '你' : escapeHtml(whoName(message.author))}</span>
           <span class="cognos-message-time">${timestamp}</span>
         </div>
         <div class="cognos-message-content">${role === 'user' ? formatMessageContent(message.content) : renderMarkdown(message.content)}</div>
-        ${role === 'user' ? `<button type="button" class="space-keep-btn" data-message-id="${message.id}" title="把这句原话留在空间里，作为意图或事实">留在空间里</button>` : ''}
-        ${role === 'user' ? `<button type="button" class="space-keep-btn hang-btn" data-message-id="${message.id}" title="把这句挂成没完的：它会一直拉着，AI 从它接着走，直到卡在只有你或现实能给的地方">挂着</button>` : ''}
+        <div class="msg-actions">
+          ${role === 'user' ? `<button type="button" class="msg-act" data-act="edit" data-message-id="${message.id}" title="改这句，后面的对话会去掉，用改过的这句重新回">改</button>` : ''}
+          <button type="button" class="msg-act" data-act="delete" data-message-id="${message.id}" title="${role === 'user' ? '删掉这句和回它的回答' : '删掉这条回答'}">删</button>
+        </div>
         ${unanswered ? `<button type="button" class="space-keep-btn recall-btn" data-message-id="${message.id}" title="这句没人回，用它再叫一次">没人回，再叫一次</button>` : ''}
       </div>
     `;
@@ -301,6 +403,7 @@
       const data = await response.json();
       const messages = data.messages || [];
       state.lastRun = data.runs?.[0] || null;
+      showUsage(data.usage);
       const answered = messages.some(m => m.role !== 'user' && m.created_at >= since);
       window.CognosSpacePanel?.reload();
       if (answered || !data.pending) {

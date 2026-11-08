@@ -8,6 +8,7 @@ use OCA\Cognos\Service\ClaudeBridgeService;
 use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
 use OCA\Cognos\Service\HermesAgentService;
+use OCA\Cognos\Service\NormService;
 use OCA\Cognos\Service\PushBackService;
 use OCA\Cognos\Service\RunService;
 use OCA\Cognos\Service\SpaceEntryService;
@@ -35,6 +36,7 @@ final class CreationSpaceController extends Controller {
         private ClaudeBridgeService $bridge,
         private IConfig $config,
         private RunService $runs,
+        private NormService $norm,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -51,9 +53,12 @@ final class CreationSpaceController extends Controller {
     #[NoCSRFRequired]
     public function detail(int $id): TemplateResponse {
         // space-panel 要先于 creation-detail 载入，后者 init 时会调 window.CognosSpacePanel
-        Util::addScript('cognos', 'space-panel');
+        // 右边是读者（readers.js）；它要在 creation-detail.js 之前，那边一开始就叫它
+        Util::addScript('cognos', 'agent-pick');
+        Util::addScript('cognos', 'readers');
         Util::addScript('cognos', 'creation-detail');
         Util::addStyle('cognos', 'creation-detail');
+        Util::addStyle('cognos', 'norm');
         return new TemplateResponse('cognos', 'creation-detail', ['creationId' => $id]);
     }
 
@@ -64,7 +69,13 @@ final class CreationSpaceController extends Controller {
             return new DataResponse(['message' => 'Authentication required'], 401);
         }
         try {
-            return new DataResponse(['creations' => $this->creations->list($user->getUID())]);
+            // Norm 自己的那段对话、还在 Norm 里的空间各自的那段，不算在 Initium 里
+            $hidden = array_flip($this->norm->hiddenConversationIds($user->getUID()));
+            // 撤回的空间留下的空对话（一句话都没说过）也不列：它不是你在 Initium 里写的东西
+            $leftover = array_flip($this->norm->inactiveConversationIds($user->getUID()));
+            $list = array_values(array_filter($this->creations->list($user->getUID()), static fn(array $c): bool =>
+                !isset($hidden[(int)$c['id']]) && !(isset($leftover[(int)$c['id']]) && (int)$c['message_count'] === 0)));
+            return new DataResponse(['creations' => $list]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch creations'], 500);
         }
@@ -197,6 +208,42 @@ final class CreationSpaceController extends Controller {
         }
     }
 
+    /** 改你说过的一句（它后面的对话一起去掉），页面接着用这句再叫一次 agent。 */
+    #[NoAdminRequired]
+    public function editMessage(int $id, int $messageId): DataResponse {
+        return $this->changeMessage($id, function (string $uid) use ($id, $messageId) {
+            $content = trim((string)($this->request->getParams()['message'] ?? ''));
+            if ($content === '') throw new \InvalidArgumentException('Message is required');
+            return $this->creations->editMessage($id, $uid, $messageId, $content);
+        });
+    }
+
+    /** 删掉一句（你说的话连同回它的回答）。 */
+    #[NoAdminRequired]
+    public function deleteMessage(int $id, int $messageId): DataResponse {
+        return $this->changeMessage($id, fn(string $uid) => $this->creations->deleteMessage($id, $uid, $messageId));
+    }
+
+    private function changeMessage(int $id, callable $change): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        try {
+            if ($this->creations->get($id, $user->getUID()) === null) {
+                return new DataResponse(['message' => 'Creation not found'], 404);
+            }
+            if ($this->runs->activeForSpace('creation', (string)$id) !== []) {
+                return new DataResponse(['message' => '还有人在回这段对话，等它回完再改。'], 409);
+            }
+            return new DataResponse($change($user->getUID()));
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 404);
+        } catch (\Throwable $error) {
+            return new DataResponse(['message' => 'Failed: ' . $error->getMessage()], 500);
+        }
+    }
+
     #[NoAdminRequired]
     public function getMessages(int $id): DataResponse {
         $user = $this->users->getUser();
@@ -211,7 +258,8 @@ final class CreationSpaceController extends Controller {
             $runs = $this->runs->forSpace('creation', (string)$id);
             $active = $this->runs->activeForSpace('creation', (string)$id);
             return new DataResponse(['messages' => $messages, 'pending' => $active !== [],
-                'pending_who' => $active[0]['subject'] ?? null, 'runs' => $runs]);
+                'pending_who' => $active[0]['subject'] ?? null, 'runs' => $runs,
+                'usage' => $this->bridge->usage('creation', (string)$id)]);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch messages'], 500);
         }

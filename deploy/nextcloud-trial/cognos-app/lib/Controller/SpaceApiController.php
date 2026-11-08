@@ -51,6 +51,7 @@ final class SpaceApiController extends OCSController {
         private \OCA\Cognos\Service\WorkItemService $workItems,
         private \OCA\Cognos\Service\RunDriftService $runDrift,
         private \OCA\Cognos\Service\AttemptService $attempts,
+        private \OCA\Cognos\Service\ReaderService $readers,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -342,7 +343,7 @@ final class SpaceApiController extends OCSController {
         };
         try {
             $received = $this->runs->receiveResult($run, $resultId, trim((string)($body['subject'] ?? '')), array_values($dependsOn),
-                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo)['id'], $finalize);
+                fn(): int => (int)$this->creations->addMessage((int)$spaceId, $uid, 'assistant', $content, $replyTo, (string)($run['subject'] ?? ''))['id'], $finalize);
         } catch (\DomainException $error) {
             return new DataResponse(['message' => $error->getMessage()], 403);
         } catch (\InvalidArgumentException $error) {
@@ -361,6 +362,8 @@ final class SpaceApiController extends OCSController {
         $this->config->deleteAppValue('cognos', 'agent_pending_who_creation_' . (int)$spaceId);
         // Claim the durable intent after commit; external work is never inside the receipt transaction.
         $this->processFollowup($resultId,$uid);
+        // 对话又长了一截：够了就让读者读（Initium 的），或回头读（Norm 空间的）。读不读都不挡这条回答
+        $this->readers->afterMessage($uid, (int)$spaceId);
         return new DataResponse(['message' => $message, 'run' => $received['run'], 'duplicate' => false, 'decisions_missing' => $missing,
             'basis_changed' => $changed], 201);
     }

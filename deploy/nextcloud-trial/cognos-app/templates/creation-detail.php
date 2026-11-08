@@ -1,7 +1,4 @@
 <?php
-\OCP\Util::addScript('cognos', 'space-panel');
-\OCP\Util::addScript('cognos', 'creation-detail');
-\OCP\Util::addStyle('cognos', 'creation-detail');
 ?>
 
 <div class="cognos-chat-app" data-creation-id="<?php p($_['creationId']); ?>">
@@ -13,7 +10,7 @@
           <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
       </button>
-      <h2 class="sidebar-title">创立空间</h2>
+      <h2 class="sidebar-title"><a href="/index.php/apps/cognos/creations">Initium</a></h2>
     </div>
 
     <button class="new-creation-btn" id="new-creation-btn">
@@ -52,8 +49,8 @@
         <h1 class="chat-title" id="chat-title" contenteditable="true" spellcheck="false">加载中...</h1>
       </div>
       <div class="header-actions">
-        <button class="space-panel-toggle" id="space-panel-toggle" aria-label="显示或收起「这里」" title="这片空间里有什么" aria-pressed="true">
-          这里
+        <button class="space-panel-toggle" id="space-panel-toggle" aria-label="显示或收起读者读完这段" title="几个读者只读原话，各自读完这段" aria-pressed="true">
+          读者
         </button>
         <button class="icon-btn" id="share-btn" aria-label="分享" title="分享">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -116,10 +113,10 @@
     </footer>
   </main>
 
-  <!-- 右侧「这里」：这片空间的入口，和被叫进来的 agent 看到的是同一份 -->
-  <aside class="space-panel" id="space-panel" aria-label="这里">
+  <!-- 右侧：几个读者只读这段原话，各自读完；比较它们读得不一样的地方，放进 Norm（见 ReaderService） -->
+  <aside class="space-panel" id="space-panel" aria-label="读完这段">
     <div class="space-panel-header">
-      <h2 class="space-panel-title">这里</h2>
+      <h2 class="space-panel-title">读完这段</h2>
       <button class="icon-btn" id="space-panel-close" aria-label="收起">
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
           <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
