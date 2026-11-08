@@ -1,5 +1,7 @@
 """No-Docker checks for candidate preflight and isolation gating."""
 import tempfile
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
@@ -49,6 +51,16 @@ class ExperimentTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "quarantined"):
                 install_candidate(candidate, "0.40.0", state, "image", docker, inspect, occ)
             docker.assert_not_called()
+
+    def test_drill_help_accepts_explicit_live_app_path(self):
+        script = Path(__file__).with_name("backup_restore.py")
+        result = subprocess.run(
+            [sys.executable, str(script), "drill", "--help"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--candidate-app", result.stdout)
+        self.assertIn("--production-app", result.stdout)
 
     def test_isolated_staging_sequence_and_fail_closed(self):
         candidate = Path("/tmp/separate-cognos-app")
