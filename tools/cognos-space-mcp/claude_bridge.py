@@ -117,6 +117,10 @@ API_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
 KEEP_API_ENV = os.environ.get("COGNOS_BRIDGE_KEEP_API_ENV", "") == "1"
 REPO = Path(os.environ.get("COGNOS_REPO") or HERE.parent.parent)
 SELF_BASE = os.environ.get("COGNOS_SELF_BASE", "master")
+# 报告存不进 Nextcloud 时，对话里最多贴多少字的 diff
+DIFF_LIMIT = 12000
+# 报告文件里带整份 diff，太大会拖慢 WebDAV：超过这个就不贴 diff，只留文件列表
+REPORT_DIFF_LIMIT = 400000
 SELF_CHECK = os.environ.get("COGNOS_SELF_CHECK", "").strip()
 PHP_CONTAINER = os.environ.get("COGNOS_PHP_CONTAINER", "cognos-nextcloud-trial-app-1")
 SELF_MERGE = os.environ.get("COGNOS_SELF_MERGE", "") == "1"
@@ -206,6 +210,18 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
             checks = check_changes(path, base)
         except Exception as error:  # 检查本身坏了也要说出来，不能当成过了
             checks = {"ok": False, "text": f"检查没跑起来：{error}"}
+        # 这次到底改了什么：报告要用。取 base..HEAD，它自己提交的也算进去
+        try:
+            change = {
+                "branch": branch,
+                "base": base,
+                "commit": commit,
+                "stat": git("diff", "--stat", f"{base}..HEAD", cwd=path),
+                "diff": git("diff", f"{base}..HEAD", cwd=path),
+            }
+        except Exception as error:  # 取不到 diff 不能把这次的改动弄丢，照实说
+            change = {"branch": branch, "base": base, "commit": commit, "stat": "", "diff": "", "error": str(error)}
+        checks["change"] = change
         git("worktree", "remove", "--force", str(path))
         text = (f"\n\n---\n改动提交在本机分支 `{branch}`（{commit}），从 `{base}` 切出来，没有推。"
                 f"\n\n检查（{'过了' if checks['ok'] else '没过'}）：\n{checks['text']}")
@@ -221,6 +237,98 @@ def close_worktree(wt: dict, subject: str, summary: str) -> tuple[str, str | Non
     # 没改：下一次还从这一次的起点接着
     keep = base if base.startswith("cognos-self/") else None
     return "\n\n---\n这次没有改代码。", keep, None
+
+
+def change_report(subject: str, answer: str, change: dict, checks_text: str = "") -> str:
+    """改了代码时的报告（Markdown）：它自己的回答（里面有「改了什么」）、改了哪些文件、检查、整份 diff。"""
+    lines = [
+        f"# {subject} 改了什么",
+        "",
+        f"- 分支：`{change['branch']}`（{change['commit']}），从 `{change['base']}` 切出来，没有推",
+        f"- 时间：{time.strftime('%Y-%m-%d %H:%M')}",
+        f"- 在仓库里看：`git diff {change['base']}...{change['branch']}`",
+        "",
+        "## 它的回答",
+        "",
+        answer.strip(),
+        "",
+        "## 改了哪些文件",
+        "",
+        "```",
+        change["stat"].strip() or "（没有文件列表）",
+        "```",
+    ]
+    if checks_text.strip():
+        lines += ["", "## 检查", "", "```", checks_text.strip(), "```"]
+    diff = change["diff"]
+    if diff.strip():
+        if len(diff) > REPORT_DIFF_LIMIT:
+            lines += ["", "## 怎么改的", "", f"改动太大（{len(diff)} 字），这里不贴整份 diff，按上面那条命令在仓库里看。"]
+        else:
+            lines += ["", "## 怎么改的", "", "```diff", diff.rstrip(), "```"]
+    elif change.get("error"):
+        lines += ["", "## 怎么改的", "", f"取不到 diff：{change['error']}"]
+    return "\n".join(lines) + "\n"
+
+
+def dav(method: str, path: str, data: bytes | None = None):
+    """交互对象 Nextcloud 文件里的一个路径（WebDAV）。"""
+    url = (COGNOS_URL.rstrip("/") + "/remote.php/dav/files/" + urllib.parse.quote(COGNOS_USER, safe="")
+           + "/" + urllib.parse.quote(path.strip("/")))
+    token = base64.b64encode(f"{COGNOS_USER}:{APP_PASSWORD}".encode("utf-8")).decode("ascii")
+    headers = {"Authorization": "Basic " + token}
+    if data is not None:
+        headers["Content-Type"] = "text/markdown; charset=utf-8"
+    return urllib.request.urlopen(urllib.request.Request(url, method=method, data=data, headers=headers), timeout=60)
+
+
+def save_report(space_type: str, space_id: str, name: str, report: str) -> str:
+    """报告存进交互对象的 Nextcloud 文件（Cognos/改动报告/<空间>/），返回在 Cognos 里打开它的链接。"""
+    folder = ""
+    for part in ("Cognos", "改动报告", f"{space_type}-{space_id}"):
+        folder += "/" + part
+        try:
+            dav("MKCOL", folder).read()
+        except urllib.error.HTTPError as error:
+            if error.code != 405:  # 405：已经有了
+                raise
+    with dav("PUT", f"{folder}/{name}", report.encode("utf-8")) as response:
+        file_id = response.headers.get("OC-FileId", "")
+    digits = "".join(ch for ch in file_id.split("oc")[0] if ch.isdigit())
+    if digits:
+        return f"/index.php/f/{int(digits)}"
+    return "/index.php/apps/files/?dir=" + urllib.parse.quote(folder)
+
+
+def attach_change(space_type: str, space_id: str, subject: str, answer: str, change: dict | None,
+                  checks_text: str = "", tail: str = "") -> str:
+    """收好仓库副本以后：改了代码就写一份报告，回答末尾只附它的链接。
+
+    报告存不进 Nextcloud 时，才把文件列表和 diff 直接贴进对话。$tail 是已经接在回答后面的那句
+    （分支、检查、有没有合进跑着的那份），报告里就不用再写一遍。
+    """
+    if change is None:
+        return ""
+    report = change_report(subject, answer, change, checks_text)
+    name = change["branch"].replace("/", "-") + ".md"
+    # 本机这片空间的工作目录里也留一份
+    try:
+        local = workdir_for(space_type, space_id) / "changes" / name
+        local.parent.mkdir(parents=True, exist_ok=True)
+        local.write_text(report, encoding="utf-8")
+    except OSError as error:
+        local = None
+        sys.stderr.write(f"[claude-bridge] 报告的本地副本没写下来：{error}\n")
+    try:
+        link = save_report(space_type, space_id, name, report)
+        return f"\n\n报告：[{name}]({link})"
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        diff = change["diff"]
+        if len(diff) > DIFF_LIMIT:
+            diff = diff[:DIFF_LIMIT] + "\n…"
+        where = f"在你电脑上：`{local}`" if local else "本机也没留成副本"
+        return (f"\n\n（报告没存进 Nextcloud：{error}。{where}）"
+                f"\n\n改了哪些文件：\n```\n{change['stat'].strip()}\n```\n\n怎么改的：\n```diff\n{diff}\n```")
 
 
 def grow(branch: str) -> dict:
@@ -396,6 +504,8 @@ def hands(workdir: Path, wt: dict | None = None) -> str:
             "产品代码在 deploy/nextcloud-trial/cognos-app/，项目全貌在 PROJECT-OVERVIEW.md。",
             "- 前提的 governs 写着它管着这里的哪段代码。"
             "改完不用提交：你做完以后桥会把改动提交到这条分支，由交互对象来看、来合。不要切别的分支，不要推。",
+            "- 改了代码，回答最后写一节「改了什么」：每个文件一两句，改了什么、为什么、和哪条前提有关，"
+            "交互对象不读代码也要看得懂。桥会把你的回答、改了哪些文件和整份 diff 写成一份报告，回答末尾附上链接。",
         ]
     else:
         lines.append(f"- 这片空间自己的工作目录：{workdir}。只能在这里面读写文件；做出来的东西放这里，下次进来还在。")
@@ -1082,14 +1192,19 @@ def work(job: dict) -> None:
         new_bridge = False
         if wt is not None:
             try:
-                tail, branch, checks = close_worktree(wt, subject, content)
+                answer = content
+                tail, branch, checks = close_worktree(wt, subject, answer)
                 content += tail
                 new_bridge = bool(checks and checks.get("grown", {}).get("bridge"))
+                change = (checks or {}).get("change")
+                checked = checks["text"] if checks else ""
                 if checks is not None:
                     checks = {"ok": checks["ok"], "text": checks["text"]}
                 if back:
                     back["branch"] = branch
                     back["checks"] = checks
+                # 报告要在结果发回去之前写好：回答末尾带的是报告链接，不是一大段 diff
+                content += attach_change(space_type, space_id, subject, answer, change, checked, tail)
             except Exception as error:
                 content += f"\n\n---\n仓库副本 {wt['path']}（分支 {wt['branch']}）没收好：{error}。改动还在那里。"
         result = {
