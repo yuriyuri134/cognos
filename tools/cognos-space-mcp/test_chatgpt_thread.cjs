@@ -47,6 +47,11 @@ async function main() {
     ({c,seen}=fixture(dir,{url:'https://chatgpt.com/',turns:0}));
     reply=await c.reply({...job,run_id:'e'.repeat(32)});
     assert.equal(seen.filled,job.prompt);assert.equal(reply.continued,false);
+    // ChatGPT has no matching effort control: send anyway and say so, instead of refusing the whole message.
+    ({c,seen}=fixture(dir,{url:thread,turns:2}));
+    c.setEffort=async()=>{throw Error('ChatGPT 未切换到所选思考强度，未发送消息。');};
+    reply=await c.reply({...job,run_id:'f'.repeat(32),reasoning_effort:'high'});
+    assert.equal(seen.filled,job.followup);assert.match(reply.content,/没能切到所选的思考强度/);assert.equal(reply.reasoning_effort,'unchanged');
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 
   const jsdomPath=process.env.JSDOM_PATH;

@@ -111,6 +111,8 @@ COMMANDS = os.environ.get("COGNOS_BRIDGE_COMMANDS", "") == "1"
 TIMEOUT = int(os.environ.get("COGNOS_BRIDGE_TIMEOUT", "1800"))
 # 发给聊天端时没连上：先去连，最多等这么多秒（Cognos 叫桥只等 30 秒）
 CHATGPT_CONNECT_WAIT = int(os.environ.get("COGNOS_CHATGPT_CONNECT_WAIT", "15"))
+# 等聊天端回一次最多多久：和适配器的 COGNOS_CHATGPT_TIMEOUT_MIN（默认 30 分钟）对齐，多留两分钟收尾
+CHATGPT_REPLY_TIMEOUT = int(float(os.environ.get("COGNOS_CHATGPT_TIMEOUT_MIN", "30")) * 60) + 120
 # 10/27：PowerShell 配置文件里设的中转站 key 会被继承，claude 就不走交互对象自己的订阅登录了。
 # 默认起 claude 前把这几个去掉；真想走中转站，设 COGNOS_BRIDGE_KEEP_API_ENV=1
 API_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
@@ -706,7 +708,7 @@ def chatgpt_browser(action: str = "status", job: dict | None = None) -> dict:
         raise RuntimeError("聊天端需要本机 Node.js")
     result = subprocess.run([node, str(HERE / "chatgpt_browser.cjs"), action],
                             input=json.dumps(job or {}, ensure_ascii=False), capture_output=True,
-                            encoding="utf-8", timeout=700 if action == "reply" else 18)
+                            encoding="utf-8", timeout=CHATGPT_REPLY_TIMEOUT if action == "reply" else 18)
     data = json.loads(result.stdout)
     if result.returncode or data.get("error"):
         raise RuntimeError(data.get("error") or "聊天端浏览器不可用")
@@ -1078,6 +1080,8 @@ def work(job: dict) -> None:
                 sys.stderr.write(f"[claude-bridge] Codex 运行 {job['run_id']} 未完成（{type(error).__name__}），请核对本机运行日志。\n")
                 content = f"（{subject} 这次没做完。本机运行记录在 runs/codex-{job['run_id']}。）"
             else:
+                if job.get("executor") == "chatgpt":
+                    sys.stderr.write(f"[claude-bridge] ChatGPT 运行 {job['run_id']} 没做完：{error}（详情见 evidence/chatgpt-browser-runs/adapter.log）\n")
                 content = f"（{subject} 这次没做完：{error}）"
         new_bridge = False
         if wt is not None:

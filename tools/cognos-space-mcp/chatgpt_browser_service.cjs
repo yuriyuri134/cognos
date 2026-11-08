@@ -13,7 +13,13 @@ const CONSENT = path.join(SECRETS, 'chatgpt-browser-enabled');
 const PORT = Number(process.env.COGNOS_CHATGPT_PORT || 8644);
 const HOME = 'https://chatgpt.com/';
 const EFFORTS = ['default', 'low', 'medium', 'high'];
-const GENERATION_MS = 10 * 60 * 1000;
+// 一次最多等多久：ChatGPT 在网页里自己用工具（比如 GitHub）时常常要十几二十分钟
+const GENERATION_MS = Number(process.env.COGNOS_CHATGPT_TIMEOUT_MIN || 30) * 60 * 1000;
+// 适配器自己的日志：每次连接、发送、回完、出错各一行（不记你说的原话，只记长度）
+const LOG = path.join(RECEIPTS, 'adapter.log');
+function log(event, data={}) {
+  try { fs.mkdirSync(RECEIPTS,{recursive:true}); fs.appendFileSync(LOG, JSON.stringify({at:new Date().toISOString(),event,...data})+'\n'); } catch {}
+}
 // 一段 Cognos 对话接着用同一条 ChatGPT 聊天：只认 chatgpt.com 上的聊天地址（含 ChatGPT 项目里的）
 const THREAD = /^https:\/\/chatgpt\.com\/(?:g\/[A-Za-z0-9-]+\/)?c\/[A-Za-z0-9-]+$/;
 // 默认在后台开页，不抢你正在用的标签；要看着它打字就设 COGNOS_CHATGPT_FOREGROUND=1
@@ -190,6 +196,7 @@ class ChatConnection {
     if (!this.canAccess()) return disconnected();
     this.state={...disconnected(),state:'connecting',message:'正在连接现有 Chrome；如 Chrome 提示，请确认允许 Cognos 连接。'};
     this.connecting=this.connect().catch(async(error)=>{
+      log('connect_failed',{error:error.message});
       this.state={...disconnected(),detail:error.message,message:'未连接成功。请在 Chrome 的 chrome://inspect/#remote-debugging 启用远程调试，并确认浏览器的连接提示后重试。'};
       await this.close();
     }).finally(()=>{this.connecting=null;});
@@ -208,6 +215,7 @@ class ChatConnection {
     try {
       const state=await this.loaded(pageId);
       this.account=state.account;
+      log('connected',{});
       this.state={ready:true,state:'ready',transport:'existing_chrome',account:this.account,
         message:'已连接 Chrome 的 ChatGPT（'+this.account.replaceAll('\n',' / ')+'）。发送后使用该账号的聊天额度。'};
     } finally { await this.call('close_page',{pageId}); this.owned.delete(pageId); }
@@ -260,7 +268,15 @@ class ChatConnection {
       if (!continued && state.turns>0) throw Error('新聊天页面里已经有回复，未发送消息');
       if ((state.draft||'').trim() || state.stop || state.work) throw Error('聊天页面不是空闲状态，未发送消息');
       const text=continued?job.followup:job.prompt, before=state.turns;
-      await this.setEffort(pageId,job.reasoning_effort);
+      // 切不到所选强度（ChatGPT 改了界面、或当前模型没有这一档）：照它现在的设置发，回答末尾说一声，不再整句不发
+      let effortNote='';
+      try { await this.setEffort(pageId,job.reasoning_effort); }
+      catch(error) {
+        if (!/强度/.test(error.message)) throw error;
+        effortNote='（这次没能切到所选的思考强度，按 ChatGPT 当前的设置回答。）';
+        log('effort_skipped',{run_id:job.run_id,reason:error.message});
+        try { await this.call('press_key',{pageId,key:'Escape'}); } catch {}
+      }
       const snapshot=textResult(await this.call('take_snapshot',{pageId}));
       const composer=uidFor(snapshot,'textbox',/询问 ChatGPT|Ask ChatGPT|有问题，尽管问|Ask anything/i);
       await this.call('fill',{pageId,uid:composer,value:text});
@@ -270,6 +286,8 @@ class ChatConnection {
       const receipt={run_id:job.run_id,space_id:job.space_id,hash,state:'sending',continued,at:new Date().toISOString(),url:state.url};
       fs.writeFileSync(filename,JSON.stringify(receipt,null,2),{flag:'wx'});
       submitted=true;
+      const started=Date.now();
+      log('sent',{run_id:job.run_id,space_id:job.space_id,continued,chars:text.length,url:state.url});
       await this.call('press_key',{pageId,key:'Enter'});
       let stable='',stableCount=0;
       const deadline=Date.now()+GENERATION_MS;
@@ -281,7 +299,8 @@ class ChatConnection {
         if (state.turns>before && state.complete && !state.stop && state.content) {
           stableCount=state.content===stable?stableCount+1:0; stable=state.content;
           if(stableCount>=1) {
-            const result={content:state.content,provider:'chatgpt_chat',source_url:state.url,continued,reasoning_effort:job.reasoning_effort};
+            const result={content:state.content+(effortNote?'\n\n'+effortNote:''),provider:'chatgpt_chat',source_url:state.url,continued,reasoning_effort:effortNote?'unchanged':job.reasoning_effort};
+            log('replied',{run_id:job.run_id,space_id:job.space_id,continued,chars:state.content.length,url:state.url,seconds:Math.round((Date.now()-started)/1000)});
             fs.writeFileSync(filename,JSON.stringify({...receipt,state:'complete',result},null,2));
             // 回复已经抄回来、聊天也留在 ChatGPT 的记录里：关掉这次自己开的页，不让标签越堆越多
             try { await this.call('close_page',{pageId}); this.owned.delete(pageId); } catch {}
@@ -289,19 +308,33 @@ class ChatConnection {
           }
         } else {stable='';stableCount=0;}
       }
-      throw Error('聊天端尚未取得完整回复，请检查 Chrome 中保留的聊天页；不会自动重复发送。');
+      throw Error('聊天端等了 '+Math.round(GENERATION_MS/60000)+' 分钟还没取得完整回复，请看 Chrome 里留着的那页；不会自动重复发送。');
+    } catch(error) {
+      log('failed',{run_id:job.run_id,space_id:job.space_id,submitted,error:error.message});
+      throw error;
     } finally {
       // Keep submitted pages visible as provenance, including uncertain outcomes.
       // Keep failed validation pages visible for inspection.
     }
   }
 }
-async function request(route,body={},timeout=5000) {
-  const response=await fetch('http://127.0.0.1:'+PORT+route,{method:'POST',headers:{'Content-Type':'application/json','X-Cognos-Bridge-Token':token()},
-    body:JSON.stringify(body),signal:AbortSignal.timeout(timeout)});
-  const result=await response.json();
-  if(!response.ok) throw Error(result.error || '聊天端连接服务不可用');
-  return result;
+// 不用 fetch：Node 的 fetch 等回复头最多 5 分钟，ChatGPT 一想久就断成「fetch failed」，回复丢掉
+function request(route,body={},timeout=5000) {
+  const payload=Buffer.from(JSON.stringify(body));
+  return new Promise((resolve,reject)=>{
+    const req=http.request({host:'127.0.0.1',port:PORT,path:route,method:'POST',
+      headers:{'Content-Type':'application/json','Content-Length':payload.length,'X-Cognos-Bridge-Token':token()}},res=>{
+      let raw='';res.setEncoding('utf8');res.on('data',c=>raw+=c);
+      res.on('end',()=>{
+        let result;try{result=JSON.parse(raw||'{}');}catch{return reject(Error('聊天端连接服务回了看不懂的内容'));}
+        if(res.statusCode<200||res.statusCode>=300) return reject(Error(result.error||'聊天端连接服务不可用'));
+        resolve(result);
+      });
+    });
+    const timer=setTimeout(()=>req.destroy(Error('等聊天端连接服务超过 '+Math.round(timeout/1000)+' 秒')),timeout);
+    req.on('error',reject);req.on('close',()=>clearTimeout(timer));
+    req.end(payload);
+  });
 }
 async function status() {
   if(!authorized()) return disconnected();
@@ -311,8 +344,11 @@ async function open() {
   if(!authorized()) return disconnected();
   try {return await request('/connect');} catch(error) {
     // Only an explicit connect may start the local adapter. It never starts Chrome.
-    if(error.cause?.code!=='ECONNREFUSED') throw error;
-    const child=require('node:child_process').spawn(process.execPath,[__filename,'serve'],{detached:true,stdio:'ignore',windowsHide:true});
+    if(error.code!=='ECONNREFUSED') throw error;
+    // 适配器自己崩了也要留得下原因：输出接到日志目录里
+    fs.mkdirSync(RECEIPTS,{recursive:true});
+    const out=fs.openSync(path.join(RECEIPTS,'adapter.out.log'),'a');
+    const child=require('node:child_process').spawn(process.execPath,[__filename,'serve'],{detached:true,stdio:['ignore',out,out],windowsHide:true});
     child.unref();
     for(let i=0;i<25;i++) {await delay(100);try{return await request('/connect');}catch{}}
     throw Error('本机聊天端连接服务未启动');
@@ -337,7 +373,9 @@ function serve() {
       send(404,{error:'不存在的连接操作'});
     } catch(error) {send(503,{error:error.message});}
   });
-  server.on('error',()=>process.exit(1));
+  server.requestTimeout=0;
+  server.on('error',error=>{log('server_error',{error:error.message});process.exit(1);});
+  log('serve',{port:PORT,timeout_min:GENERATION_MS/60000,foreground:FOREGROUND});
   server.listen(PORT,'127.0.0.1');
   const stop=async()=>{server.close();await connection.close();process.exit(0);};
   process.on('SIGTERM',stop);process.on('SIGINT',stop);
