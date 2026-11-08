@@ -177,7 +177,7 @@ def drill(args):
     candidate = None
     if args.candidate_app:
         from experimental_candidate import validate_candidate
-        candidate = validate_candidate(args.candidate_app, ROOT/'cognos-app', m['cognos_version'])
+        candidate = validate_candidate(args.candidate_app, args.production_app or ROOT/'cognos-app', m['cognos_version'])
     token=uuid.uuid4().hex[:10];prefix='cognos-restore-'+token
     stage=ROOT/'.restore-drills'/token;stage.parent.mkdir(exist_ok=True);private_dir(stage)
     # This extractor processes only the local credential archive; it never executes source code on the host.
@@ -238,6 +238,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
     b=sub.add_parser('backup');b.add_argument('--bridge-pid',type=int);b.add_argument('--bridge-no-commands',action='store_true');b.add_argument('--bridge-no-self-merge',action='store_true');b.add_argument('--extra-outbox',type=Path);b.add_argument('--skip-images',action='store_true')
     d=sub.add_parser('drill');d.add_argument('backup',type=Path);d.add_argument('--port',type=int,default=8781);d.add_argument('--candidate-app',type=Path,help='Separate Cognos app checkout to install only in the quarantined restore')
+    d.add_argument('--production-app',type=Path,help='Original live Cognos app checkout; used only to reject it as the candidate source')
     v=sub.add_parser('verify');v.add_argument('backup',type=Path)
     p=sub.add_parser('publish-ingress');p.add_argument('state',type=Path)
     args=parser.parse_args()
