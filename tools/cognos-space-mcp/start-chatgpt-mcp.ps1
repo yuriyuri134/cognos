@@ -3,7 +3,7 @@
 # 这个窗口关掉（或 Ctrl+C），隧道和入口就都停了；临时隧道每次的地址都不一样，重开以后要在 ChatGPT 里改地址。
 # 只开 MCP 入口这一个口子，8780 本身不开到公网。
 param(
-    [int]$Port = 8644
+    [int]$Port = 8645
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,9 +16,9 @@ $python = (Get-Command python -ErrorAction Stop).Source
 $cloudflared = Get-Command cloudflared -ErrorAction SilentlyContinue
 
 $env:PYTHONIOENCODING = 'utf-8'
-$env:COGNOS_CHATGPT_PORT = "$Port"
+$env:COGNOS_CHATGPT_MCP_PORT = "$Port"
 # 本机有 cloudflared 就只听 127.0.0.1；用 docker 跑隧道时容器要从 host.docker.internal 进来，只能听 0.0.0.0（地址里有口令）
-$env:COGNOS_CHATGPT_HOST = $(if ($cloudflared) { '127.0.0.1' } else { '0.0.0.0' })
+$env:COGNOS_CHATGPT_MCP_HOST = $(if ($cloudflared) { '127.0.0.1' } else { '0.0.0.0' })
 
 $server = Start-Process -FilePath $python -ArgumentList @('-u', (Join-Path $here 'http_server.py')) `
     -WorkingDirectory $repo -WindowStyle Hidden -PassThru `

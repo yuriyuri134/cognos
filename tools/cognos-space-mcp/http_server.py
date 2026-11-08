@@ -18,8 +18,8 @@ ChatGPT 写下的东西记在 COGNOS_SUBJECT 名下，默认 ChatGPT。只开空
   COGNOS_URL / COGNOS_USER  同 server.py
   COGNOS_SUBJECT        默认 ChatGPT
   COGNOS_TOOLS          默认见 DEFAULT_TOOLS
-  COGNOS_CHATGPT_HOST   默认 127.0.0.1（隧道用 docker 跑时要设 0.0.0.0）
-  COGNOS_CHATGPT_PORT   默认 8644
+  COGNOS_CHATGPT_MCP_HOST   默认 127.0.0.1（隧道用 docker 跑时要设 0.0.0.0）
+  COGNOS_CHATGPT_MCP_PORT   默认 8645
 """
 from __future__ import annotations
 
@@ -131,8 +131,8 @@ def main() -> None:
     module = load_server()
     if not module.PASSWORD:
         raise SystemExit("没有应用密码：设 COGNOS_APP_PASSWORD，或写到 deploy/nextcloud-trial/.secrets/chatgpt-app-password")
-    host = os.environ.get("COGNOS_CHATGPT_HOST", "127.0.0.1")
-    port = int(os.environ.get("COGNOS_CHATGPT_PORT", "8644"))
+    host = os.environ.get("COGNOS_CHATGPT_MCP_HOST", "127.0.0.1")
+    port = int(os.environ.get("COGNOS_CHATGPT_MCP_PORT", "8645"))
     httpd = ThreadingHTTPServer((host, port), make_handler(module, token))
     print(f"cognos-space（给 ChatGPT）在 http://{host}:{port}/mcp/<口令> 上，主体 {module.SUBJECT}", flush=True)
     httpd.serve_forever()
