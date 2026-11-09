@@ -83,7 +83,7 @@ SECRETS = HERE.parent.parent / "deploy" / "nextcloud-trial" / ".secrets"
 SERVER = HERE / "server.py"
 PUBLIC_STATE = SECRETS.parent / ".public-access-state.json"
 TOOLS = ["leave_trace", "add_reading", "search_traces", "hold_premise", "hit_premise", "answer_hit", "hang_open", "stop_here", "note_basis", "write_content", "adopt", "list_work_items", "get_work_item", "preview_work_split", "update_work_item", "split_work_item", "list_attempts", "get_attempt",
-         "read_space", "write_part", "note_for_you"]
+         "read_space", "write_part", "note_for_you", "note_correction"]
 WEB_TOOLS = ["WebSearch", "WebFetch"]
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 

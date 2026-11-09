@@ -400,3 +400,12 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
   .cg-ov-line dt { margin-top: 4px; }
   .cg-stage { padding-left: 14px; }
 }
+
+/* 被纠正 */
+.cg-corr-sum { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--cg-line); margin: 8px 0 14px; }
+.cg-corr-sum > div { margin: 2px 0; }
+.cg-corr { padding: 10px 0; border-top: 1px solid var(--cg-line); }
+.cg-corr-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cg-corr-pull { font-weight: 600; padding: 0 8px; border-radius: 8px; border: 1px solid var(--cg-warm-line, var(--cg-line)); }
+.cg-corr p { margin: 8px 0 4px; }
+.cg-corr-before { white-space: pre-wrap; font-size: 13px; color: var(--cg-muted); margin-top: 6px; }

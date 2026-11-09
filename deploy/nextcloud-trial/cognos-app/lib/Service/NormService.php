@@ -44,8 +44,18 @@ final class NormService {
     public const HISTORY_ENTRY = 'hist_entry';
     public const HISTORY_STAGES = 'hist_stages';
     public const OVERVIEW = 'overview';
+    /** 交互对象纠正了 agent 的一次：他那句话、agent 前面那条回答、漏在哪 */
+    public const CORRECTION = 'correction';
+    /**
+     * 漏的两股力（2026-11-09 从小林一年多的 19 条纠正里看出来的，见 docs/纠正标本/AI漏在哪-2026-11-09.md）。
+     * 收：想尽快有一个做完了的东西。窄：只在已经给到手里的东西里转。
+     */
+    public const PULLS = [
+        '收' => '想尽快有一个做完了的东西：换成好做的题（挑能建的、能测的、改动小的，把大概念收成机制，去验证手段，换个名字），步子太小，跳到结论，或者把问题原样推回给他',
+        '窄' => '只在已经给到手里的东西里转：答字面、答旁边的题，猜了意图就动手或交回去，不看他已有的材料，只搜他说过的词，不往外找',
+    ];
     /** 这几种存在同一张表里，但不是「发生了什么」：events() 不给它们 */
-    private const NOT_EVENTS = ['self', self::HISTORY_ENTRY, self::HISTORY_STAGES, self::OVERVIEW];
+    private const NOT_EVENTS = ['self', self::HISTORY_ENTRY, self::HISTORY_STAGES, self::OVERVIEW, self::CORRECTION];
     /** 历史条目的几种 */
     public const ENTRY_KINDS = ['做了', '转了', '放下', '定了', '信'];
 
@@ -122,7 +132,131 @@ final class NormService {
         $out['self'] = $out['self_history'][0] ?? null;
         $out['overview'] = $this->overview($uid, $id);
         $out['history_meta'] = $this->historyMeta($uid, $id);
+        $out['corrections'] = $this->corrections($uid, $id, 60);
         return $out;
+    }
+
+    // ---- 纠正：交互对象说 agent 上一条没走好的那几次 ----
+
+    /**
+     * 记下一次纠正（只追加）。同一句话（said_id）记过就不再记，返回原来那条。
+     * @param array{pull: string, how: string, said: string, said_id?: int, said_at?: int, before?: string, before_id?: int, before_who?: string, conversation?: int, title?: string, source?: string, who?: string} $c
+     * @return array{id: int, new: bool}
+     */
+    public function addCorrection(string $uid, string $spaceId, array $c): array {
+        if ($this->fetch($uid, $spaceId) === null) {
+            throw new \InvalidArgumentException('没有这个空间');
+        }
+        $pull = trim((string)($c['pull'] ?? ''));
+        if (!isset(self::PULLS[$pull])) {
+            throw new \InvalidArgumentException('pull 是「收」或「窄」');
+        }
+        $how = mb_substr(trim((string)($c['how'] ?? '')), 0, 600);
+        if ($how === '') {
+            throw new \InvalidArgumentException('要写一句：你上一条是怎样' . $pull . '的');
+        }
+        $said = trim((string)($c['said'] ?? ''));
+        if ($said === '') {
+            throw new \InvalidArgumentException('找不到他纠正你的那句话');
+        }
+        $saidId = (int)($c['said_id'] ?? 0);
+        if ($saidId > 0) {
+            foreach ($this->corrections($uid, $spaceId, 200) as $old) {
+                if ($old['said_id'] === $saidId) {
+                    return ['id' => $old['id'], 'new' => false];
+                }
+            }
+        }
+        $q = $this->db->getQueryBuilder();
+        $q->insert('cognos_norm_events')->values([
+            'user_id' => $q->createNamedParameter($uid),
+            'space_id' => $q->createNamedParameter($spaceId),
+            'kind' => $q->createNamedParameter(self::CORRECTION),
+            'who' => $q->createNamedParameter(mb_substr((string)($c['who'] ?? 'agent'), 0, 64)),
+            'text' => $q->createNamedParameter($how),
+            'options' => $q->createNamedParameter(json_encode([
+                'pull' => $pull,
+                // 他的话一个字不截（表里这一列是长文本）；前面那条回答留开头一段，够看出它当时怎么走的
+                'said' => $said, 'said_id' => $saidId, 'said_at' => (int)($c['said_at'] ?? 0),
+                'before' => mb_substr(trim((string)($c['before'] ?? '')), 0, 2400), 'before_id' => (int)($c['before_id'] ?? 0),
+                'before_who' => mb_substr((string)($c['before_who'] ?? ''), 0, 64),
+                'conversation' => (int)($c['conversation'] ?? 0), 'title' => mb_substr((string)($c['title'] ?? ''), 0, 200),
+                'source' => (string)($c['source'] ?? 'agent'),
+            ], JSON_UNESCAPED_UNICODE)),
+            'created_at' => $q->createNamedParameter(time(), IQueryBuilder::PARAM_INT),
+        ])->executeStatement();
+        $this->touch($uid, $spaceId);
+        return ['id' => (int)$q->getLastInsertId(), 'new' => true];
+    }
+
+    /**
+     * 这个空间记下的纠正，新的在前（按他说那句话的时间；种进来的标本用原来的时间）。不给 spaceId 是这个账号所有空间的。
+     * @return list<array{id: int, space_id: string, pull: string, how: string, said: string, said_id: int, said_at: int, before: string, before_id: int, before_who: string, conversation: int, title: string, source: string, who: string, created_at: int}>
+     */
+    public function corrections(string $uid, ?string $spaceId, int $limit = 60): array {
+        $q = $this->db->getQueryBuilder();
+        $q->select('*')->from('cognos_norm_events')
+            ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+            ->andWhere($q->expr()->eq('kind', $q->createNamedParameter(self::CORRECTION)));
+        if ($spaceId !== null) {
+            $q->andWhere($q->expr()->eq('space_id', $q->createNamedParameter($spaceId)));
+        }
+        $rows = $q->orderBy('id', 'DESC')->setMaxResults(max(1, $limit))->executeQuery()->fetchAll();
+        $out = array_map(static function (array $r): array {
+            $m = json_decode((string)($r['options'] ?? ''), true);
+            $m = is_array($m) ? $m : [];
+            return [
+                'id' => (int)$r['id'], 'space_id' => (string)$r['space_id'], 'pull' => (string)($m['pull'] ?? ''), 'how' => (string)$r['text'],
+                'said' => (string)($m['said'] ?? ''), 'said_id' => (int)($m['said_id'] ?? 0), 'said_at' => (int)($m['said_at'] ?? 0) ?: (int)$r['created_at'],
+                'before' => (string)($m['before'] ?? ''), 'before_id' => (int)($m['before_id'] ?? 0), 'before_who' => (string)($m['before_who'] ?? ''),
+                'conversation' => (int)($m['conversation'] ?? 0), 'title' => (string)($m['title'] ?? ''),
+                'source' => (string)($m['source'] ?? 'agent'), 'who' => (string)($r['who'] ?? ''), 'created_at' => (int)$r['created_at'],
+            ];
+        }, $rows);
+        usort($out, static fn(array $a, array $b): int => [$b['said_at'], $b['id']] <=> [$a['said_at'], $a['id']]);
+        return $out;
+    }
+
+    /**
+     * 给被叫进这个空间的 agent：它以前在这里（和别的空间里）被纠正过的几次，原样的一段，不是一条规则。
+     * 这里的最多 5 次，别处的最多 3 次；每次：它当时怎么说的开头、他怎么说、它自己说漏在哪。
+     */
+    public function correctionLines(string $uid, string $spaceId, ?\DateTimeZone $tz = null): string {
+        $here = array_slice($this->corrections($uid, $spaceId, 5), 0, 5);
+        // 别处的只拿还在 Norm 里的空间（撤回的、「验证：」开头的检查空间不算）
+        $q = $this->db->getQueryBuilder();
+        $live = array_flip(array_map(static fn(array $r): string => (string)$r['id'], array_filter(
+            $q->select('id', 'title')->from('cognos_norm_projects')
+                ->where($q->expr()->eq('user_id', $q->createNamedParameter($uid)))
+                ->andWhere($q->expr()->orX($q->expr()->isNull('state'), $q->expr()->eq('state', $q->createNamedParameter('active'))))
+                ->executeQuery()->fetchAll(),
+            static fn(array $r): bool => !str_starts_with((string)$r['title'], '验证：'))));
+        $elsewhere = array_slice(array_values(array_filter($this->corrections($uid, null, 60),
+            static fn(array $c): bool => $c['space_id'] !== $spaceId && isset($live[$c['space_id']]))), 0, 3);
+        if ($here === [] && $elsewhere === []) {
+            return '';
+        }
+        $tz ??= new \DateTimeZone('Asia/Shanghai');
+        $one = static function (array $c) use ($tz): string {
+            $when = (new \DateTimeImmutable('@' . $c['said_at']))->setTimezone($tz)->format('n/j');
+            $before = $c['before'] !== '' ? '当时' . ($c['before_who'] !== '' ? $c['before_who'] : 'AI') . '说：「' . self::clip($c['before'], 220) . '」' : '';
+            return '- ' . $when . ($c['title'] !== '' ? '（' . $c['title'] . '）' : '') . '，漏在「' . $c['pull'] . '」。' . $before
+                . "\n  他说：「" . self::clip($c['said'], 400) . '」' . "\n  漏在哪：" . $c['how'];
+        };
+        $out = '下面是你以前被交互对象纠正过的几次，原样摘的。不是规则，是你自己当时怎么滑过去的：回答之前看看这次是不是又要往同一处滑。'
+            . "\n两股力：收＝" . self::PULLS['收'] . "；窄＝" . self::PULLS['窄'] . '。';
+        if ($here !== []) {
+            $out .= "\n在这个空间里：\n" . implode("\n", array_map($one, $here));
+        }
+        if ($elsewhere !== []) {
+            $out .= "\n在别的空间里：\n" . implode("\n", array_map($one, $elsewhere));
+        }
+        return $out;
+    }
+
+    private static function clip(string $text, int $max): string {
+        $text = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+        return mb_strlen($text) > $max ? mb_substr($text, 0, $max) . '……' : $text;
     }
 
     // ---- 自述：这个空间的主体写给自己的 ----
@@ -883,6 +1017,10 @@ final class NormService {
             if ($hist !== '') {
                 $lines[] = $hist;
             }
+            $corr = $this->correctionLines($uid, $space['id']);
+            if ($corr !== '') {
+                $lines[] = $corr;
+            }
             if ($self === null) {
                 $lines[] = '你（这个空间的主体）还没有自述。自述是你写给自己的：你在维持什么、怎样算往前走了、怎样算在原地、你变过什么和为什么、你最放不下的一件，'
                     . '第一人称，700 字以内。交互对象可以在空间页上让你重读自己的经历写第一版；你读过这里的经历以后也可以自己写：'
@@ -902,6 +1040,9 @@ final class NormService {
         }
         $lines[] = 'read_space：读这个空间现在的样子和每一块的内容。write_part：改一块（先读再写，写的是改完的全部内容）。'
             . 'note_for_you：留给交互对象回来时看的一条，kind=happened 是你做了什么、发生了什么；kind=decide 是只有他能定的一件，给两三个选项。';
+        $lines[] = '交互对象这句话要是在纠正你（或之前的 AI）上一条：说没接住他的意思、没抓住重点、太小、太一般、千篇一律、换了题、没读他的东西、为什么这么想……'
+            . '先用 note_correction 记下来，再回答。pull 选一个：收（' . self::PULLS['收'] . '）；窄（' . self::PULLS['窄'] . '）。'
+            . 'how 用一两句说清上一条具体是怎样收或怎样窄的，说事实，不要认错的客套话。只是补充、提新要求、问问题的，不算纠正，不要记。';
         $lines[] = '改理想、改目标、把一段理解改成新的、换这个空间的样子，这些不要直接改，用 note_for_you(kind=decide) 提出来，由交互对象定。'
             . '你的自述不在这里面：它是你自己的，你自己改。自述里你在维持的东西要是和交互对象定下的方向不一样，在回答里直说，不要悄悄照自己的来。';
         $lines[] = 'kind=decide 只用在真要他拿主意的地方：方向、取舍、他的口味和范围。你自己该怎么工作、该读什么、工具够不够，这些不要问他：能做就直接做，做不到就在回答里说清卡在哪。';

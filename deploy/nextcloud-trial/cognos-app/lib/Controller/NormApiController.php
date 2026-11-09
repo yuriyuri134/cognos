@@ -154,11 +154,14 @@ final class NormApiController extends OCSController {
     }
 
     #[NoAdminRequired]
-    public function note(string $spaceType, string $spaceId, string $kind = '', string $text = '', array $options = [], string $norm_space = '', string $subject = ''): DataResponse {
+    public function note(string $spaceType, string $spaceId, string $kind = '', string $text = '', array $options = [], string $norm_space = '', string $subject = '', string $pull = '', string $quote = ''): DataResponse {
         $uid = $this->uid();
         $space = $this->resolve($uid, $spaceType, $spaceId, $norm_space);
         if ($space === null) {
             return new DataResponse(['message' => '这段对话还没放进 Norm 的任何空间'], 404);
+        }
+        if ($kind === 'correction') {
+            return $this->correction($uid, $space, (int)$spaceId, $pull, $text, $quote, trim($subject) !== '' ? $subject : 'agent');
         }
         try {
             $id = $this->norm->addEvent($uid, $space['id'], $kind, $text, $options, trim($subject) !== '' ? $subject : 'agent');
@@ -166,6 +169,54 @@ final class NormApiController extends OCSController {
             return new DataResponse(['message' => $e->getMessage()], 422);
         }
         return new DataResponse(['message' => ($kind === 'decide' ? '留给交互对象定了' : '记下了') . '。他打开「' . $space['title'] . '」时会看到。']);
+    }
+
+    /**
+     * 交互对象纠正了 agent：从这段对话里找出他那句话（最近一句他说的；给了 quote 就找含这几个字的最近一句）
+     * 和它前面最近的一条 AI 回答，连同 agent 自己说的漏在哪，记成这个空间的一次纠正。
+     */
+    private function correction(string $uid, array $space, int $creationId, string $pull, string $how, string $quote, string $who): DataResponse {
+        $messages = $this->creations->getMessages($creationId, $uid);
+        $quote = trim($quote);
+        $said = null;
+        for ($i = count($messages) - 1; $i >= 0; $i--) {
+            if ($messages[$i]['role'] !== 'user') {
+                continue;
+            }
+            if ($quote === '' || mb_strpos((string)$messages[$i]['content'], $quote) !== false) {
+                $said = $i;
+                break;
+            }
+        }
+        if ($said === null && $quote !== '') {
+            return new DataResponse(['message' => '这段对话里找不到他说过「' . $quote . '」。quote 要一字不差摘他的话，或者不给。'], 422);
+        }
+        if ($said === null) {
+            return new DataResponse(['message' => '这段对话里还没有他说的话'], 422);
+        }
+        $before = null;
+        for ($i = $said - 1; $i >= 0; $i--) {
+            if ($messages[$i]['role'] === 'assistant') {
+                $before = $messages[$i];
+                break;
+            }
+        }
+        $creation = $this->creations->get($creationId, $uid);
+        try {
+            $got = $this->norm->addCorrection($uid, $space['id'], [
+                'pull' => $pull, 'how' => $how,
+                'said' => (string)$messages[$said]['content'], 'said_id' => (int)$messages[$said]['id'], 'said_at' => (int)$messages[$said]['created_at'],
+                'before' => $before !== null ? (string)$before['content'] : '', 'before_id' => $before !== null ? (int)$before['id'] : 0,
+                'before_who' => $before !== null ? (string)($before['author'] ?? '') : '',
+                'conversation' => $creationId, 'title' => is_array($creation) ? (string)($creation['title'] ?? '') : '',
+                'source' => 'agent', 'who' => $who,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return new DataResponse(['message' => $e->getMessage()], 422);
+        }
+        return new DataResponse(['message' => $got['new']
+            ? '记下了这次纠正（' . $pull . '），在「' . $space['title'] . '」的「被纠正」里。以后进这个空间时你会看到它。现在接着回答他。'
+            : '这句话已经记过一次了，没有再记。接着回答他。']);
     }
 
     /**

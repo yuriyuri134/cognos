@@ -364,6 +364,17 @@ TOOLS += [
          "text": {"type": "string"},
          "options": {"type": "array", "items": {"type": "string"}}},
          "required": ["space_id", "kind", "text"]}},
+    {"name": "note_correction",
+     "description": ("交互对象这句话在纠正你（或之前的 AI）上一条时，回答之前先记下来：他的原话和你前面那条回答由系统从对话里找，"
+                     "你给 pull（收：想尽快有个做完了的东西，换成好做的题、步子太小、跳到结论、把问题推回去；"
+                     "窄：只在给到手里的东西里转，答字面、答旁边的题、猜了意图就动手、不看他已有的材料、不往外找）"
+                     "和 how（一两句：上一条具体是怎样收或怎样窄的）。只是补充、提新要求、问问题的不算纠正。"),
+     "inputSchema": {"type": "object", "properties": {
+         "space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE,
+         "pull": {"type": "string", "enum": ["收", "窄"]},
+         "how": {"type": "string", "description": "上一条具体是怎样收或怎样窄的，说事实"},
+         "quote": {"type": "string", "description": "可不给：他那句纠正里一字不差的几个字，用来找对是哪一句（默认是他最近说的一句）"}},
+         "required": ["space_id", "pull", "how"]}},
 ]
 
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
@@ -657,7 +668,7 @@ def run_tool(name: str, args: dict) -> str:
                 return NO_LOCATION.format(what="工作")
             raise
         return json.dumps(data, ensure_ascii=False, indent=1)
-    if name in ("read_space", "write_part", "note_for_you"):
+    if name in ("read_space", "write_part", "note_for_you", "note_correction"):
         path = space_path(args) + "/norm"
         extra = {"norm_space": args["norm_space"]} if args.get("norm_space") else {}
         if name == "read_space":
@@ -669,6 +680,9 @@ def run_tool(name: str, args: dict) -> str:
             return json.dumps(data, ensure_ascii=False, indent=1)
         if name == "write_part":
             data = call_api("POST", path + "/part", body={**extra, "part": args["part"], "content": args["content"], "subject": SUBJECT})
+        elif name == "note_correction":
+            data = call_api("POST", path + "/note", body={**extra, "kind": "correction", "pull": args["pull"], "text": args["how"],
+                                                          "quote": args.get("quote") or "", "subject": SUBJECT})
         else:
             data = call_api("POST", path + "/note", body={**extra, "kind": args["kind"], "text": args["text"],
                                                           "options": args.get("options") or [], "subject": SUBJECT})

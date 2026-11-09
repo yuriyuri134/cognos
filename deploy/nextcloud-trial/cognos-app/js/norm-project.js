@@ -83,7 +83,7 @@
   }
 
   function renderViews(p) {
-    const views = [['overview', '总观'], ['history', '历史'], ['conversation', '对话'], ['self', '自述'], ...p.parts.map(k => [k, data.parts[k] || k]), ['about', '做法与来源']];
+    const views = [['overview', '总观'], ['history', '历史'], ['conversation', '对话'], ['self', '自述'], ['corrections', '被纠正'], ...p.parts.map(k => [k, data.parts[k] || k]), ['about', '做法与来源']];
     const keys = JSON.stringify(views);
     if (keys !== viewKeys) {
       viewKeys = keys;
@@ -286,9 +286,10 @@
     contents.about = JSON.stringify([editingWay ? 'editing' : p.way, editingWay, p.board, data.messages < 2, data.links]);
     contents.self = JSON.stringify([p.self_history || [], data.drift, data.drift_done && data.drift_done.id, data.unread, p.history_meta]);
     contents.overview = JSON.stringify([p.overview, data.drift, data.unread, p.history_meta]);
+    contents.corrections = JSON.stringify(p.corrections || []);
     contents.history = JSON.stringify([hist && [hist.version, Object.keys(hist.entries || {}).length], p.history_meta, data.drift, data.unread]);
     for (const panel of [...aside.children]) if (!(panel.dataset.view in contents)) panel.remove();
-    for (const [key, make] of [['overview', overviewPanel], ['history', historyPanel]]) {
+    for (const [key, make] of [['overview', overviewPanel], ['history', historyPanel], ['corrections', correctionsPanel]]) {
       const previous = $('cg-view-' + key);
       if (previous && previous.dataset.version === contents[key]) continue;
       const sec = make(p); sec.dataset.version = contents[key];
@@ -432,6 +433,39 @@
     ev.target.disabled = true;
     try { const r = await api('/norm/projects/' + id + '/read', mode ? { mode } : {}); if (!r.started) alert(r.why || '没读'); } catch (e) { alert(e.message); }
     load(false);
+  }
+
+  // ---- 被纠正：你说它没走好的那几次。它回你时自己认出来记下的，进这个空间时先看到 ----
+  function correctionsPanel(p) {
+    const sec = node('section'); sec.id = 'cg-view-corrections'; sec.dataset.view = 'corrections';
+    sec.append(node('h2', '被纠正'));
+    const list = p.corrections || [];
+    sec.append(node('p', '你说 agent 没走好的那几次：它回你时自己认出这句是在纠正它，连同它前面那条回答一起记在这里，说清是「收」还是「窄」。'
+      + '以后它进这个空间，会先看到这几次原样的经过，不是一条规则。', 'cg-small'));
+    if (!list.length) { sec.append(node('p', '还没有记下的。', 'cg-hint')); return sec; }
+    // 同一股力还在出现吗：按时间先后列出每次的日子。哪一股不再出现了，才算真的变了
+    const day = ts => { const d = new Date(ts * 1000); return (d.getMonth() + 1) + '/' + d.getDate(); };
+    const sum = node('div', undefined, 'cg-corr-sum');
+    for (const pull of ['收', '窄']) {
+      const times = list.filter(c => c.pull === pull).map(c => c.said_at).sort((a, b) => a - b);
+      const row = node('div'); row.append(node('b', pull + ' ' + times.length + ' 次'));
+      if (times.length) row.append(node('span', '：' + times.map(day).join('、'), 'cg-small'));
+      sum.append(row);
+    }
+    sum.append(node('p', '收：想尽快有一个做完了的东西，换成好做的题、步子太小、跳到结论、把问题推回给你。窄：只在给到手里的东西里转，答字面、猜了意图就动手、不看你已有的、不往外找。', 'cg-small'));
+    sec.append(sum);
+    for (const c of list) {
+      const it = node('div', undefined, 'cg-corr');
+      const head = node('div', undefined, 'cg-corr-head');
+      head.append(node('span', c.pull, 'cg-corr-pull'), node('span', hm(c.said_at) + (c.title ? ' · ' + c.title : '') + (c.source === 'seed' ? ' · 从以前的对话里摘进来的' : ''), 'cg-small'));
+      it.append(head, node('div', '「' + c.said + '」', 'cg-quote'), node('p', '漏在哪：' + c.how));
+      if (c.before) {
+        const det = node('details'); det.append(node('summary', '当时' + (c.before_who || ' AI ') + '的回答'), node('div', c.before, 'cg-corr-before'));
+        it.append(det);
+      }
+      sec.append(it);
+    }
+    return sec;
   }
 
   // ---- 总观：它读完全部原话以后写的，你进来先看这个 ----
