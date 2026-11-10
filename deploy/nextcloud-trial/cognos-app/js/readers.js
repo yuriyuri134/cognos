@@ -26,7 +26,8 @@
   function init(creationId) {
     S.id = creationId;
     S.body = document.getElementById('space-panel-body');
-    S.collapsed = window.innerWidth <= 1100;
+    // 对话是主体；读者作为按需打开的侧栏，尊重已有选择。
+    S.collapsed = true;
     try { const v = localStorage.getItem('cognos-readers-collapsed'); if (v !== null) S.collapsed = v === '1'; } catch (e) { /* 没有本机存储也照样能用 */ }
     apply();
     document.getElementById('space-panel-toggle')?.addEventListener('click', toggle);
