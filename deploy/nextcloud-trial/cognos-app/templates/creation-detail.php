@@ -46,7 +46,7 @@
             <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </button>
-        <h1 class="chat-title" id="chat-title" contenteditable="true" spellcheck="false">加载中...</h1>
+        <h1 class="chat-title" id="chat-title">加载中...</h1>
       </div>
       <div class="header-actions">
         <button class="space-panel-toggle" id="space-panel-toggle" aria-label="显示或收起读者读完这段" title="几个读者只读原话，各自读完这段" aria-pressed="true">
