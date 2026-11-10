@@ -15,66 +15,38 @@
   }
 
   function cacheElements() {
-    elements.newCreationBtn = document.getElementById('cognos-new-creation-btn');
-    elements.newCreationForm = document.getElementById('cognos-new-creation-form');
-    elements.creationForm = document.getElementById('cognos-creation-form');
-    elements.cancelBtn = document.getElementById('cognos-cancel-creation');
-    elements.messageInput = document.getElementById('cognos-creation-message');
+    elements.startBtn = document.getElementById('cognos-start-conversation');
     elements.status = document.getElementById('cognos-creation-status');
+    elements.search = document.getElementById('cognos-creation-search');
     elements.loading = document.getElementById('cognos-creations-loading');
     elements.empty = document.getElementById('cognos-creations-empty');
     elements.grid = document.getElementById('cognos-creations-grid');
   }
 
   function attachEventListeners() {
-    elements.newCreationBtn?.addEventListener('click', showNewCreationForm);
-    elements.cancelBtn?.addEventListener('click', hideNewCreationForm);
-    elements.creationForm?.addEventListener('submit', handleCreateCreation);
+    elements.startBtn?.addEventListener('click', startConversation);
+    elements.search?.addEventListener('input', renderCreations);
   }
 
-  function showNewCreationForm() {
-    elements.newCreationForm.hidden = false;
-    elements.messageInput.focus();
-  }
-
-  function hideNewCreationForm() {
-    elements.newCreationForm.hidden = true;
-    elements.creationForm.reset();
-    elements.status.textContent = '';
-  }
-
-  async function handleCreateCreation(e) {
-    e.preventDefault();
-
-    // 不用起标题：拿写下的第一行当名字
-    const initialMessage = elements.messageInput.value.trim();
-    if (!initialMessage) return;
-    const firstLine = initialMessage.split('\n')[0].trim();
-    const title = [...firstLine].length > 40 ? [...firstLine].slice(0, 40).join('') + '…' : firstLine;
-
+  // 先创建空会话，再在真正的对话框里输入第一句；不再写两次。
+  async function startConversation() {
+    if (elements.startBtn.disabled) return;
+    elements.startBtn.disabled = true;
+    elements.status.textContent = '正在打开新对话…';
     try {
-      elements.status.textContent = '写下了，正在进对话……';
       const response = await fetch('/index.php/apps/cognos/creations/data', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'requesttoken': OC.requestToken,
-        },
-        body: JSON.stringify({ title, initialMessage }),
+        headers: { 'Content-Type': 'application/json', requesttoken: OC.requestToken },
+        body: JSON.stringify({ title: '新对话', initialMessage: '' }),
       });
-
-      if (!response.ok) {
-        throw new Error('创建失败');
-      }
-
+      if (!response.ok) throw new Error('创建失败');
       const data = await response.json();
-      const creationId = data.creation.id;
-
-      // Redirect to detail page
-      window.location.href = `/index.php/apps/cognos/creations/${creationId}`;
+      if (!data.creation?.id) throw new Error('没有收到会话编号');
+      window.location.href = '/index.php/apps/cognos/creations/' + data.creation.id;
     } catch (error) {
-      console.error('Create creation error:', error);
-      elements.status.textContent = '没存上，再试一次';
+      console.error('Start conversation error:', error);
+      elements.status.textContent = '没打开：' + error.message + '，请重试';
+      elements.startBtn.disabled = false;
     }
   }
 
@@ -106,16 +78,19 @@
   }
 
   function renderCreations() {
-    if (state.creations.length === 0) {
+    const query = elements.search?.value.trim().toLocaleLowerCase() || '';
+    const visible = state.creations.filter(creation =>
+      String(creation.title || '').toLocaleLowerCase().includes(query));
+    if (visible.length === 0) {
       elements.empty.hidden = false;
+      elements.empty.querySelector('p').textContent = state.creations.length === 0
+        ? '还没有会话' : '没有找到匹配的会话';
       elements.grid.innerHTML = '';
       return;
     }
 
     elements.empty.hidden = true;
-    elements.grid.innerHTML = state.creations
-      .map(creation => createCreationCard(creation))
-      .join('');
+    elements.grid.innerHTML = visible.map(creation => createCreationCard(creation)).join('');
   }
 
   function createCreationCard(creation) {
@@ -127,7 +102,7 @@
         <h3>${escapeHtml(creation.title)}</h3>
         <div class="cognos-creation-meta">
           <span>创建于 ${createdDate}</span>
-          <span>最近更新 ${updatedDate}</span>
+          <span>最近更新 ${updatedDate} · ${creation.message_count || 0} 条消息</span>
         </div>
       </a>
     `;
