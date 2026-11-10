@@ -66,6 +66,14 @@
       </div>
     </header>
 
+    <section id="chat-revisions" aria-label="会话版本" hidden>
+      <div id="chat-revision-current"></div>
+      <details>
+        <summary>会话版本</summary>
+        <ul id="chat-revision-list"></ul>
+      </details>
+      <p id="chat-revision-error" role="status"></p>
+    </section>
     <div class="chat-messages-container" id="messages-container">
       <div class="messages-inner" id="messages-inner">
         <!-- 消息将在这里渲染 -->

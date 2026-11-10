@@ -199,7 +199,7 @@ final class CreationSpaceController extends Controller {
             $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'assistant', $agentResponse, $replyTo);
 
             return new DataResponse([
-                'messages' => array_merge($saved, [$agentMessage])
+                'messages' => $agentMessage['archived'] ? $saved : array_merge($saved, [$agentMessage])
             ]);
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
@@ -208,7 +208,7 @@ final class CreationSpaceController extends Controller {
         }
     }
 
-    /** 改你说过的一句（它后面的对话一起去掉），页面接着用这句再叫一次 agent。 */
+    /** 保存原对话并用修订后的消息继续。 */
     #[NoAdminRequired]
     public function editMessage(int $id, int $messageId): DataResponse {
         return $this->changeMessage($id, function (string $uid) use ($id, $messageId) {
@@ -218,10 +218,15 @@ final class CreationSpaceController extends Controller {
         });
     }
 
-    /** 删掉一句（你说的话连同回它的回答）。 */
+    /** 从当前对话收起一句及其回答，保留原对话。 */
     #[NoAdminRequired]
     public function deleteMessage(int $id, int $messageId): DataResponse {
         return $this->changeMessage($id, fn(string $uid) => $this->creations->deleteMessage($id, $uid, $messageId));
+    }
+
+    #[NoAdminRequired]
+    public function restoreRevision(int $id, int $revisionId): DataResponse {
+        return $this->changeMessage($id, fn(string $uid) => $this->creations->restoreRevision($id, $uid, $revisionId));
     }
 
     private function changeMessage(int $id, callable $change): DataResponse {
@@ -245,7 +250,7 @@ final class CreationSpaceController extends Controller {
     }
 
     #[NoAdminRequired]
-    public function getMessages(int $id): DataResponse {
+    public function getMessages(int $id, int $revision = 0, int $source = 0, bool $history = false): DataResponse {
         $user = $this->users->getUser();
         if (!$user) {
             return new DataResponse(['message' => 'Authentication required'], 401);
@@ -254,12 +259,19 @@ final class CreationSpaceController extends Controller {
             if ($this->creations->get($id, $user->getUID()) === null) {
                 return new DataResponse(['message' => 'Creation not found'], 404);
             }
-            $messages = $this->creations->getMessages($id, $user->getUID());
+            $data = $history || $source > 0 || $revision > 0
+                ? $this->creations->history($id, $user->getUID(), $revision, $source)
+                : ['messages' => $this->creations->getMessages($id, $user->getUID())];
+            if (($data['revision'] ?? 0) !== 0) {
+                return new DataResponse($data + ['pending' => false, 'runs' => []]);
+            }
             $runs = $this->runs->forSpace('creation', (string)$id);
             $active = $this->runs->activeForSpace('creation', (string)$id);
-            return new DataResponse(['messages' => $messages, 'pending' => $active !== [],
+            return new DataResponse($data + ['pending' => $active !== [],
                 'pending_who' => $active[0]['subject'] ?? null, 'runs' => $runs,
                 'usage' => $this->bridge->usage('creation', (string)$id)]);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 404);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch messages'], 500);
         }

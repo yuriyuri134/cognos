@@ -70,6 +70,7 @@ final class InitiumService {
             $first = $qb->select('id', 'content')->from('cognos_creation_messages')
                 ->where($qb->expr()->eq('creation_id', $qb->createNamedParameter($c['id'], IQueryBuilder::PARAM_INT)))
                 ->andWhere($qb->expr()->eq('role', $qb->createNamedParameter('user')))
+                ->andWhere($qb->expr()->eq('is_archived', $qb->createNamedParameter(0, IQueryBuilder::PARAM_INT)))
                 ->orderBy('id', 'ASC')->setMaxResults(1)->executeQuery()->fetch();
             $c['first'] = $first === false ? '' : mb_substr((string)$first['content'], 0, 200);
             $c['first_id'] = $first === false ? null : (int)$first['id'];

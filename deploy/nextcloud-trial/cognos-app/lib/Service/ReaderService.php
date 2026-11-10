@@ -179,7 +179,7 @@ TXT;
         $readers = [];
         foreach ($now as $i => $c) {
             $readers[] = ['label' => '第 ' . ($i + 1) . ' 块（' . $c['span'] . '）', 'role' => 'past', 'space_id' => $space['id'], 'space_title' => $space['title'],
-                'chunk' => $i + 1, 'covers' => $c['covers'], 'from' => $c['from'], 'to' => $c['to'], 'items' => $c['items'],
+                'chunk' => $i + 1, 'covers' => $c['covers'], 'source_ids' => $c['source_ids'], 'from' => $c['from'], 'to' => $c['to'], 'items' => $c['items'],
                 'system' => self::pastSystem($space, $i + 1, count($now), $c, $history, $tz), 'prompt' => $c['text']];
         }
         $info = ['chunks' => count($now), 'from' => $now[0]['from'], 'to' => max(array_column($now, 'to')),
@@ -474,7 +474,7 @@ TXT;
     /**
      * 切成一块一块，每块大约 $size 字；一段放不下就接着放到下一块（下一块开头写明是接着的）。
      * 每块记下它读到了哪些原话：covers 是对话 id => [最小编号, 最大编号]（同一段对话里编号随时间变大）。
-     * @return list<array{text: string, covers: array<int, array{0: int, 1: int}>, from: int, to: int, chars: int, items: int, span: string, sections: int}>
+     * @return list<array{text: string, covers: array<int, array{0: int, 1: int}>, source_ids: array<int, list<int>>, from: int, to: int, chars: int, items: int, span: string, sections: int}>
      */
     public static function chunks(array $segments, int $size, \DateTimeZone $tz): array {
         $chunks = [];
@@ -488,7 +488,7 @@ TXT;
             $chunks[] = [
                 'text' => '下面是你经历里的一块：' . $span . '，' . $cur['sections'] . ' 段，' . $cur['items'] . " 句。各段按时间排。\n\n" . $body
                     . "\n\n（这一块到这里为止。）\n\n读完了。不要接着往下写对话，按一开始说的，只输出那一个 JSON 对象。",
-                'covers' => $cur['covers'], 'from' => $cur['from'], 'to' => $cur['to'], 'chars' => $cur['chars'], 'items' => $cur['items'],
+                'covers' => $cur['covers'], 'source_ids' => $cur['source_ids'], 'from' => $cur['from'], 'to' => $cur['to'], 'chars' => $cur['chars'], 'items' => $cur['items'],
                 'span' => $span, 'sections' => $cur['sections'],
             ];
             $cur = null;
@@ -504,7 +504,7 @@ TXT;
                     $opened = false;
                 }
                 if ($cur === null) {
-                    $cur = ['parts' => [], 'covers' => [], 'from' => $item['at'], 'to' => $item['at'], 'chars' => 0, 'items' => 0, 'sections' => 0];
+                    $cur = ['parts' => [], 'covers' => [], 'source_ids' => [], 'from' => $item['at'], 'to' => $item['at'], 'chars' => 0, 'items' => 0, 'sections' => 0];
                 }
                 if (!$opened) {
                     $h = "\n" . $head . ($cur['items'] === 0 && $seg['items'][0]['id'] !== $item['id'] ? '（接着上一块）' : '');
@@ -519,6 +519,7 @@ TXT;
                 $cur['from'] = min($cur['from'], $item['at']);
                 $cur['to'] = max($cur['to'], $item['at']);
                 $src = (int)$seg['src'];
+                $cur['source_ids'][$src][] = $item['id'];
                 $cur['covers'][$src] = isset($cur['covers'][$src])
                     ? [min($cur['covers'][$src][0], $item['id']), max($cur['covers'][$src][1], $item['id'])] : [$item['id'], $item['id']];
             }
@@ -899,7 +900,7 @@ TXT;
         return array_map(static fn(array $r): array => array_filter([
             'label' => $r['label'], 'role' => $r['role'], 'space_id' => $r['space_id'] ?? null, 'space_title' => $r['space_title'] ?? null,
             'self_version' => $r['self_version'] ?? null, 'chars' => mb_strlen((string)($r['prompt'] ?? '')),
-            'chunk' => $r['chunk'] ?? null, 'covers' => $r['covers'] ?? null, 'from' => $r['from'] ?? null, 'to' => $r['to'] ?? null, 'items' => $r['items'] ?? null,
+            'chunk' => $r['chunk'] ?? null, 'covers' => $r['covers'] ?? null, 'source_ids' => $r['source_ids'] ?? null, 'from' => $r['from'] ?? null, 'to' => $r['to'] ?? null, 'items' => $r['items'] ?? null,
         ], static fn($v): bool => $v !== null), $readers);
     }
 
@@ -1269,8 +1270,8 @@ TXT;
                         'text' => $e['text'] . ($e['answer'] !== null ? ' → 定了：' . $e['answer'] : '')], $this->norm->events($uid, $space['id'], null, 5000));
                 } else {
                     try {
-                        $cache[$src] = array_map(static fn(array $m): array => ['id' => (int)$m['id'], 'at' => (int)$m['created_at'], 'text' => (string)$m['content']],
-                            $this->creations->getMessages($src, $uid));
+                        $cache[$src] = array_map(static fn(array $m): array => ['id' => (int)$m['id'], 'at' => (int)$m['created_at'], 'text' => (string)$m['content'], 'archived' => $m['archived']],
+                            $this->creations->getMessages($src, $uid, true));
                     } catch (\InvalidArgumentException) {
                         $cache[$src] = [];
                     }
@@ -1285,8 +1286,11 @@ TXT;
             }
             $map = [];
             foreach ((array)($p['covers'] ?? []) as $src => $range) {
+                $ids = isset($p['source_ids'][$src]) ? array_fill_keys($p['source_ids'][$src], true) : null;
                 foreach ($load((int)$src) as $it) {
-                    if ($it['id'] >= (int)$range[0] && $it['id'] <= (int)$range[1]) {
+                    $known = $ids !== null ? isset($ids[$it['id']])
+                        : empty($it['archived']) && $it['id'] >= (int)$range[0] && $it['id'] <= (int)$range[1];
+                    if ($known) {
                         $map[((int)$src === 0 ? 'e' : 'm') . $it['id']] = ['src' => (int)$src] + $it;
                     }
                 }
