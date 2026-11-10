@@ -12,7 +12,7 @@ live.run('smoke', async checks => {
   const b = await live.browser();
   try {
     await b.login();
-    const pages = [['home', '/', '.cg-door'], ['initium', '/creations', '#cognos-creation-message'], ['norm', '/norm', '.cg-chat-form']];
+    const pages = [['home', '/', '.cg-door'], ['initium', '/creations', '#cognos-start-conversation'], ['norm', '/norm', '.cg-chat-form']];
     if (norm.projects.length) pages.push(['project', '/norm/projects/' + norm.projects[0].id, '#cg-space-chat .cg-chat-form']);
     for (const [name, route, ready] of pages) {
       for (const [size, set] of [['desktop', b.desktop], ['phone', b.phone]]) {
