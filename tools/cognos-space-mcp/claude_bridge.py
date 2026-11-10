@@ -153,6 +153,44 @@ def git(*args: str, cwd: Path | None = None) -> str:
     return done.stdout.strip()
 
 
+def running_base() -> str:
+    """跑着的那份，给副本当起点：检查要拿它和副本比，在副本里 HEAD 指的是副本自己，所以写成分支名或提交号。
+
+    8780 跑的是工作目录本身，常常带着还没提交的改动（几块还没合的 PR 叠在一起）。只从 HEAD 切，
+    Cognos 读到的就不是在跑的自己。有没提交的改动时，用一份临时暂存区把工作目录原样拍成一个提交，
+    副本从它切：不动工作目录、不动真的暂存区、不建分支、不推。.gitignore 里的（.secrets、evidence）不进去，.codex 也不进去。
+    """
+    name = git("rev-parse", "--abbrev-ref", "HEAD")
+    head = name if name != "HEAD" else git("rev-parse", "HEAD")
+    if not git("--no-optional-locks", "status", "--porcelain"):
+        return head
+    fd, index = tempfile.mkstemp(prefix="cognos-body-index-")
+    os.close(fd)
+    os.unlink(index)
+    env = {**os.environ, "GIT_INDEX_FILE": index}
+
+    def run(*args: str) -> str:
+        done = subprocess.run(["git", *args], cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8")
+        if done.returncode != 0:
+            raise RuntimeError(f"git {args[0]}：" + (done.stderr or done.stdout).strip()[-300:])
+        return done.stdout.strip()
+
+    try:
+        run("read-tree", "HEAD")
+        run("add", "-A", "--", ".", ":(exclude).codex")
+        tree = run("write-tree")
+        return run("-c", "user.name=Cognos", "-c", "user.email=cognos@localhost", "commit-tree", tree, "-p", "HEAD",
+                   "-m", f"跑着的那份：{head} 加上工作目录里还没提交的改动")
+    except RuntimeError:
+        return head
+    finally:
+        for leftover in (index, index + ".lock"):
+            try:
+                os.unlink(leftover)
+            except OSError:
+                pass
+
+
 def open_worktree(space_type: str, space_id: str, hit_id, base_branch: str | None = None, open_id=None) -> dict:
     """Cognos 自己的空间：从 SELF_BASE（接着走时从上一次的分支 base_branch）切一条新分支，放一份仓库副本给它做。"""
     base = "HEAD"
@@ -164,9 +202,7 @@ def open_worktree(space_type: str, space_id: str, hit_id, base_branch: str | Non
         except RuntimeError:
             continue
     if base == "HEAD":
-        # 写成跑着的那条分支（或提交号）：检查要拿它和副本比，在副本里 HEAD 指的是副本自己
-        name = git("rev-parse", "--abbrev-ref", "HEAD")
-        base = name if name != "HEAD" else git("rev-parse", "HEAD")
+        base = running_base()
     label = f"open-{int(open_id)}" if open_id else (f"hit-{int(hit_id)}" if hit_id else "call")
     branch = "cognos-self/" + label + time.strftime("-%Y%m%d-%H%M%S")
     stem, n = branch, 1

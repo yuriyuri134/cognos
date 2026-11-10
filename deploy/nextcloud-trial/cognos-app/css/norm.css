@@ -41,6 +41,7 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
 .cg-door:hover, .cg-door:focus-visible { border-color: var(--cg-accent); }
 .cg-door h2 { font-family: var(--cg-serif); font-size: 30px; margin: 0 0 12px; }
 .cg-door p { margin: 0; color: var(--cg-muted); }
+.cg-door-self { grid-column: 1 / -1; padding: 32px; }
 
 /* ---- Norm 的骨架：左边导航，中间，右边几块 ---- */
 .cg-v2 { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: calc(100vh - var(--header-height, 50px)); background: var(--cg-bg); font-size: 14px; box-sizing: border-box; }
