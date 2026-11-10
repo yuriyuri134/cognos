@@ -10,6 +10,7 @@ const cases = {
 
 const routeFor = id => `/creations/${id}`;
 const traceRoute = id => `/spaces/creation/${id}/traces?q=MERIDIAN-LIMIT`;
+const requestText = (protocol, input) => `${protocol}\n\nInquiry input:\n${input}`;
 
 async function createSpace(client, name) {
   const { creation } = await client.req('/creations/data', 'POST', {
@@ -18,9 +19,9 @@ async function createSpace(client, name) {
   return creation.id;
 }
 
-async function setup(caseId, live) {
+async function setup(caseId, live, label = caseId) {
   const primary = live.client();
-  const chat = await createSpace(primary, caseId);
+  const chat = await createSpace(primary, label);
   await primary.req(routeFor(chat) + '/agent', 'POST', { agent: 'gpt', reasoning_effort: 'low' });
   if (caseId !== 'A') return { chat };
 
@@ -44,7 +45,7 @@ function modelFor(live, chat) {
       if (agent !== 'gpt') throw Error('The experiment requires the read-only GPT bridge in its test space');
       const { pending } = await client.req(route);
       if (pending) throw Error('The test space still has a pending model run; inspect it before resuming');
-      const sent = await client.req(route, 'POST', { message: `${protocol}\n\nInquiry input:\n${input}` });
+      const sent = await client.req(route, 'POST', { message: requestText(protocol, input) });
       const userMessage = sent.messages.find(m => m.role === 'user');
       if (!userMessage || sent.who !== 'GPT' || !sent.pending || sent.queued) throw Error('Cognos did not accept a fresh GPT run');
       const deadline = Date.now() + 150_000;
@@ -111,4 +112,4 @@ function toolsFor(caseId, config, live) {
   return tools;
 }
 
-module.exports = { cases, setup, modelFor, toolsFor };
+module.exports = { cases, setup, modelFor, toolsFor, requestText };

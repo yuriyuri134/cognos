@@ -31,6 +31,10 @@ function parsePlan(raw, view, tools) {
   if (value.tool != null) {
     if (!Object.hasOwn(tools, value.tool) || !['continue', 'branch'].includes(plan.decision)) throw Error('Tool not allowed for this decision');
     plan.tool = value.tool;
+    if (tools[plan.tool].parseInput) plan.toolInput = tools[plan.tool].parseInput(value.toolInput, view);
+    else if (value.toolInput != null) throw Error('Tool takes no input');
+  } else if (value.toolInput != null) {
+    throw Error('Tool input requires a tool');
   }
   if (value.prediction != null) plan.prediction = phrase(value.prediction, 'prediction');
   if (value.revision != null) {
@@ -66,7 +70,7 @@ async function settle(ledger, attempt, tools) {
   if (plan.tool && !events.some(e => e.type === 'observation' && e.body.attempt === id)) {
     let observation;
     try {
-      observation = await tools[plan.tool].read();
+      observation = await tools[plan.tool].read(plan.toolInput, events);
       if (!statuses.includes(observation.status)) throw Error('Invalid tool status');
     } catch (error) {
       observation = { status: 'failed', result: { error: error.name, code: error.code ?? null } };
@@ -76,7 +80,7 @@ async function settle(ledger, attempt, tools) {
   events = ledger.read();
   const { attempts, observations, remaining } = state(events);
   const normalize = value => (value ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-  const signature = a => JSON.stringify([normalize(a.body.method), a.body.tool ?? null,
+  const signature = a => JSON.stringify([normalize(a.body.method), a.body.tool ?? null, a.body.toolInput ?? null,
     normalize(a.body.revision?.claim), observations.filter(o => o.body.attempt === a.id)
       .map(o => [o.body.status, o.body.result])]);
   // A repeat is only a mechanical signal. Changes in evidence or judgment can justify the same method.
@@ -91,7 +95,8 @@ async function settle(ledger, attempt, tools) {
   return decision;
 }
 
-async function run(ledger, model, tools, { trigger } = {}) {
+async function run(ledger, model, tools, { trigger, toolInputProtocol, beforeDispatch } = {}) {
+  const instructions = toolInputProtocol ? protocol + '\n' + toolInputProtocol : protocol;
   let events = ledger.read();
   let view = state(events);
   if (view.pending) await settle(ledger, view.pending, tools);
@@ -114,10 +119,16 @@ async function run(ledger, model, tools, { trigger } = {}) {
       return 'pause';
     }
     const input = promptFor(events, { ...view, remaining: view.remaining - 1 }, tools);
-    const request = ledger.add('model_requested', { backend: model.name, protocol, input });
+    try {
+      await beforeDispatch?.(view);
+    } catch (error) {
+      ledger.add('continuation', { decision: 'pause', reason: 'dispatch_precondition_failed' });
+      throw error;
+    }
+    const request = ledger.add('model_requested', { backend: model.name, protocol: instructions, input });
     let plan;
     try {
-      const { raw, receipt } = await model.reply(protocol, input);
+      const { raw, receipt } = await model.reply(instructions, input);
       ledger.add('model_response', { request, raw, receipt });
       plan = parsePlan(raw, view, tools);
     } catch (error) {
