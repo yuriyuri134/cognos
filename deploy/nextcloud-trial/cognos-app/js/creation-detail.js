@@ -295,8 +295,14 @@
     window.CognosUsage?.show(el, usage);
   }
 
+  let hasRenderedMessages = false;
   function renderMessages() {
     if (!elements.messagesContainer) return;
+    const viewport = document.getElementById('messages-container');
+    const previousTop = viewport?.scrollTop || 0;
+    const distanceFromBottom = viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight : 0;
+    const followBottom = !hasRenderedMessages || distanceFromBottom < 100;
+    hasRenderedMessages = true;
 
     // 空对话里也可能有人被叫进来（比如提出了反对写下的想法），那就显状态，不显「开始对话」
     if (state.messages.length === 0 && !state.pending && !state.notice) {
@@ -314,12 +320,12 @@
       .map((message, index) => createMessageBubble(message, isUnanswered(index)))
       .join('') + createStatusBubble();
 
-    // Scroll to bottom
+    // 首次进入时看到最新消息；回看历史时，新增消息和状态刷新不得把阅读位置拖回底部。
     requestAnimationFrame(() => {
-      const container = document.getElementById('messages-container');
-      if (container) {
-        container.scrollTop = container.scrollHeight;
-      }
+      const viewport = document.getElementById('messages-container');
+      if (!viewport) return;
+      if (followBottom) viewport.scrollTop = viewport.scrollHeight;
+      else viewport.scrollTop = previousTop;
     });
   }
 
@@ -479,7 +485,13 @@
     const message = elements.chatInput.value.trim();
     if (!message || state.sending) return;
 
+    const firstUntitled = state.creation?.title === '新对话' && state.messages.length === 0;
     const ok = await callAgent({ message });
+    if (ok && firstUntitled) {
+      const firstLine = message.split('\n')[0].trim();
+      state.creation.title = [...firstLine].slice(0, 40).join('') + ([...firstLine].length > 40 ? '…' : '');
+      renderCreation();
+    }
     if (ok) {
       elements.chatInput.value = '';
       handleInputChange();
