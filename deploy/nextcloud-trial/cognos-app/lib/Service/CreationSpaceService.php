@@ -150,7 +150,8 @@ class CreationSpaceService {
         $qb->select('*')
             ->from('cognos_creation_messages')
             ->where($qb->expr()->eq('creation_id', $qb->createNamedParameter($creationId, IQueryBuilder::PARAM_INT)))
-            ->orderBy('created_at', 'ASC');
+            ->orderBy('created_at', 'ASC')
+            ->addOrderBy('id', 'ASC');
 
         $result = $qb->executeQuery();
         $messages = [];
