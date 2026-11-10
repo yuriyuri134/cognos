@@ -295,8 +295,12 @@
     window.CognosUsage?.show(el, usage);
   }
 
-  function renderMessages() {
+  function renderMessages({ followLatest = false } = {}) {
     if (!elements.messagesContainer) return;
+    // 用户在看旧消息时，后台回执或状态刷新不能把阅读位置拉回最新。
+    const scroller = document.getElementById('messages-container');
+    const oldTop = scroller?.scrollTop ?? 0;
+    const nearLatest = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 96;
 
     // 空对话里也可能有人被叫进来（比如提出了反对写下的想法），那就显状态，不显「开始对话」
     if (state.messages.length === 0 && !state.pending && !state.notice) {
@@ -314,12 +318,9 @@
       .map((message, index) => createMessageBubble(message, isUnanswered(index)))
       .join('') + createStatusBubble();
 
-    // Scroll to bottom
     requestAnimationFrame(() => {
-      const container = document.getElementById('messages-container');
-      if (container) {
-        container.scrollTop = container.scrollHeight;
-      }
+      if (!scroller?.isConnected) return;
+      scroller.scrollTop = followLatest || nearLatest ? scroller.scrollHeight : oldTop;
     });
   }
 
@@ -523,7 +524,7 @@
       }
       ok = response.ok || (data.messages || []).length > 0;
 
-      renderMessages();
+      renderMessages({ followLatest: true });
       // 被叫进来的 agent 可能在这片空间里留下了尝试或读法
       window.CognosSpacePanel?.reload();
     } catch (error) {
