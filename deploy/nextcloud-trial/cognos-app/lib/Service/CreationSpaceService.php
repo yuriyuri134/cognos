@@ -42,6 +42,25 @@ class CreationSpaceService {
         ];
     }
 
+    /**
+     * A newly opened conversation gets its title only after the first user message.
+     * Existing user-named conversations and imported conversations are untouched.
+     */
+    public function titleFromFirstMessage(int $id, string $userId, string $message): void {
+        $creation = $this->get($id, $userId);
+        if ($creation === null || $creation['title'] !== '新对话') return;
+        $firstLine = trim(preg_split('/\\R/u', trim($message), 2)[0] ?? '');
+        if ($firstLine === '') return;
+        $title = mb_substr($firstLine, 0, 40) . (mb_strlen($firstLine) > 40 ? '…' : '');
+        $qb = $this->db->getQueryBuilder();
+        $qb->update('cognos_creations')
+            ->set('title', $qb->createNamedParameter($title))
+            ->where($qb->expr()->eq('id', $qb->createNamedParameter($id, IQueryBuilder::PARAM_INT)))
+            ->andWhere($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
+            ->andWhere($qb->expr()->eq('title', $qb->createNamedParameter('新对话')))
+            ->executeStatement();
+    }
+
     public function list(string $userId): array {
         $qb = $this->db->getQueryBuilder();
         $qb->select('c.*')
