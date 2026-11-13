@@ -756,40 +756,46 @@ def run_tool(name: str, args: dict) -> str:
     raise RuntimeError(f"没有这个工具：{name}")
 
 
-def reply(message_id, result=None, error=None) -> None:
+def response(message_id, result=None, error=None) -> dict:
     message = {"jsonrpc": "2.0", "id": message_id}
     if error is not None:
         message["error"] = error
     else:
         message["result"] = result
-    sys.stdout.buffer.write((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
-    sys.stdout.buffer.flush()
+    return message
 
 
-def handle(message: dict) -> None:
+def respond(message: dict) -> dict | None:
+    """回一条 JSON-RPC 消息；通知不用回，返回 None。stdio 和 http_server.py 共用。"""
     method = message.get("method")
     message_id = message.get("id")
     if message_id is None:
-        return  # 通知，不用回
+        return None
     if method == "initialize":
-        reply(message_id, {
+        return response(message_id, {
             "protocolVersion": message.get("params", {}).get("protocolVersion", "2024-11-05"),
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "cognos-space", "version": "0.1.0"},
         })
-    elif method == "ping":
-        reply(message_id, {})
-    elif method == "tools/list":
-        reply(message_id, {"tools": TOOLS})
-    elif method == "tools/call":
+    if method == "ping":
+        return response(message_id, {})
+    if method == "tools/list":
+        return response(message_id, {"tools": TOOLS})
+    if method == "tools/call":
         params = message.get("params", {})
         try:
             text = run_tool(params.get("name", ""), params.get("arguments") or {})
-            reply(message_id, {"content": [{"type": "text", "text": text}]})
+            return response(message_id, {"content": [{"type": "text", "text": text}]})
         except Exception as error:  # 工具出错要回给 agent 看，不让 server 退出
-            reply(message_id, {"content": [{"type": "text", "text": str(error)}], "isError": True})
-    else:
-        reply(message_id, error={"code": -32601, "message": f"Method not found: {method}"})
+            return response(message_id, {"content": [{"type": "text", "text": str(error)}], "isError": True})
+    return response(message_id, error={"code": -32601, "message": f"Method not found: {method}"})
+
+
+def handle(message: dict) -> None:
+    answer = respond(message)
+    if answer is not None:
+        sys.stdout.buffer.write((json.dumps(answer, ensure_ascii=False) + "\n").encode("utf-8"))
+        sys.stdout.buffer.flush()
 
 
 def main() -> None:
