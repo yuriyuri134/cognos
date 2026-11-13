@@ -17,6 +17,13 @@
   const PENDING_POLL_MS = 5000;
 
   const elements = {};
+  let picker = null;
+
+  const SIDEBAR_KEY = 'cognos-initium-sidebar-collapsed';
+
+  function isVerifyTitle(title) {
+    return /^(?:验证：|检查\s*\d{4}-\d{2}-\d{2}|试一下：agent)/.test(String(title || '').trim());
+  }
 
   function init() {
     const container = document.querySelector('.cognos-chat-app');
@@ -29,14 +36,28 @@
     }
 
     cacheElements();
+    try {
+      if (localStorage.getItem(SIDEBAR_KEY) === '1' && window.innerWidth > 768) {
+        container.classList.add('sidebar-collapsed');
+      }
+    } catch (e) { /* 无本地存储也照常运行 */ }
     attachEventListeners();
     loadCreationsList();
     loadCreationAndMessages();
     window.CognosSpacePanel?.init(state.creationId);
-    window.CognosAgentPick?.mount(document.getElementById('chat-input-form'), state.creationId);
+    window.CognosAgentPick?.mount(document.getElementById('chat-input-form'), state.creationId, {
+      onImport: (res) => window.CognosCreationDetail?.reload(res),
+    });
+    picker = window.CognosFilePicker?.mount({
+      creationId: state.creationId,
+      form: elements.chatForm,
+      input: elements.chatInput,
+      triggerBtn: elements.attachBtn,
+    }) || null;
   }
 
   function cacheElements() {
+    elements.app = document.querySelector('.cognos-chat-app');
     elements.chatTitle = document.getElementById('chat-title');
     elements.messagesContainer = document.getElementById('messages-inner');
     elements.chatInput = document.getElementById('chat-input');
@@ -44,11 +65,17 @@
     elements.sendBtn = document.getElementById('send-btn');
     elements.stopBtn = document.getElementById('stop-btn');
     elements.charCount = document.getElementById('char-count');
+    elements.inputHint = document.getElementById('input-hint');
     elements.creationsList = document.getElementById('creations-list');
+    elements.sidebarSearch = document.getElementById('sidebar-search');
+    elements.sidebarHideVerify = document.getElementById('sidebar-hide-verify');
     elements.newCreationBtn = document.getElementById('new-creation-btn');
     elements.sidebar = document.getElementById('chat-sidebar');
     elements.mobileMenuBtn = document.getElementById('mobile-menu-btn');
     elements.sidebarToggle = document.getElementById('sidebar-toggle');
+    elements.sidebarExpandBtn = document.getElementById('sidebar-expand-btn');
+    elements.shareBtn = document.getElementById('share-btn');
+    elements.attachBtn = document.getElementById('attach-btn');
   }
 
   function attachEventListeners() {
@@ -60,6 +87,20 @@
     });
     elements.mobileMenuBtn?.addEventListener('click', toggleSidebar);
     elements.sidebarToggle?.addEventListener('click', toggleSidebar);
+    elements.sidebarExpandBtn?.addEventListener('click', toggleSidebar);
+    elements.sidebarSearch?.addEventListener('input', renderCreationsList);
+    elements.sidebarHideVerify?.addEventListener('change', renderCreationsList);
+    elements.shareBtn?.addEventListener('click', handleShare);
+    elements.chatTitle?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        elements.chatTitle.blur();
+      } else if (e.key === 'Escape') {
+        elements.chatTitle.textContent = state.creation?.title || '';
+        elements.chatTitle.blur();
+      }
+    });
+    elements.chatTitle?.addEventListener('blur', handleTitleBlur);
     elements.messagesContainer?.addEventListener('click', (e) => {
       const act = e.target.closest('.msg-act');
       if (act) {
@@ -165,7 +206,73 @@
   }
 
   function toggleSidebar() {
-    elements.sidebar?.classList.toggle('mobile-open');
+    if (window.innerWidth <= 768) {
+      elements.sidebar?.classList.toggle('mobile-open');
+      return;
+    }
+    const collapsed = elements.app?.classList.toggle('sidebar-collapsed');
+    try { localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0'); } catch (e) { /* 忽略本地存储失败 */ }
+  }
+
+  async function handleTitleBlur() {
+    if (!elements.chatTitle || !state.creation) return;
+    const next = elements.chatTitle.textContent.trim();
+    if (!next) {
+      elements.chatTitle.textContent = state.creation.title;
+      return;
+    }
+    if (next === state.creation.title) return;
+    try {
+      const response = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/data`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', requesttoken: OC.requestToken },
+        body: JSON.stringify({ title: next }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        window.alert('标题没保存：' + (data.message || `HTTP ${response.status}`));
+        elements.chatTitle.textContent = state.creation.title;
+        return;
+      }
+      state.creation = data.creation || { ...state.creation, title: next };
+      renderCreation();
+      const idx = state.creations.findIndex(c => c.id === state.creationId);
+      if (idx >= 0) {
+        state.creations[idx] = { ...state.creations[idx], title: state.creation.title };
+        renderCreationsList();
+      }
+    } catch (e) {
+      elements.chatTitle.textContent = state.creation.title;
+      window.alert('标题没保存：' + e.message);
+    }
+  }
+
+  async function handleShare() {
+    const url = window.location.href;
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      }
+    } catch (e) { /* 降级用 textarea 复制 */ }
+    if (!copied) {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.append(ta);
+      ta.select();
+      try { copied = document.execCommand('copy'); } catch (e) { copied = false; }
+      ta.remove();
+    }
+    if (!elements.shareBtn) return;
+    const prev = elements.shareBtn.title;
+    elements.shareBtn.classList.add('copied');
+    elements.shareBtn.title = copied ? '已复制对话链接' : '复制失败，请从地址栏复制';
+    setTimeout(() => {
+      elements.shareBtn?.classList.remove('copied');
+      if (elements.shareBtn) elements.shareBtn.title = prev;
+    }, 2000);
   }
 
   function handleInputChange() {
@@ -209,12 +316,27 @@
       return;
     }
 
-    elements.creationsList.innerHTML = state.creations.map(creation => {
+    const q = (elements.sidebarSearch?.value || '').trim().toLowerCase();
+    const hideVerify = !!elements.sidebarHideVerify?.checked;
+    const filtered = state.creations.filter((c) => {
+      if (hideVerify && c.id !== state.creationId && isVerifyTitle(c.title)) return false;
+      if (q && !String(c.title || '').toLowerCase().includes(q)) return false;
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      elements.creationsList.innerHTML = '<div class="loading-state"><span>没有匹配的对话</span></div>';
+      return;
+    }
+
+    elements.creationsList.innerHTML = filtered.map(creation => {
       const isActive = creation.id === state.creationId;
       const activeClass = isActive ? 'active' : '';
+      const countText = creation.message_count ? `${creation.message_count} 条` : '新对话';
       return `
         <a href="/index.php/apps/cognos/creations/${creation.id}" class="creation-list-item ${activeClass}">
           <div class="creation-list-title">${escapeHtml(creation.title)}</div>
+          <div class="creation-list-meta">${countText}</div>
         </a>
       `;
     }).join('');
@@ -280,6 +402,7 @@
   function renderCreation() {
     if (!state.creation) return;
     elements.chatTitle.textContent = state.creation.title;
+    document.title = state.creation.title + ' - Initium - Cognos';
   }
 
   function showUsage(usage) {
@@ -287,7 +410,7 @@
     if (!el) {
       const form = document.getElementById('chat-input-form');
       if (!form) return;
-      el = document.createElement('p');
+      el = document.createElement('div');
       el.id = 'cognos-usage-line';
       el.className = 'cognos-usage-line';
       form.after(el);
@@ -314,14 +437,23 @@
       .map((message, index) => createMessageBubble(message, isUnanswered(index)))
       .join('') + createStatusBubble();
 
-    // Scroll to bottom
+    // 从空间的「历史」点「到对话里看」进来（#m123）：第一次停到那一句，闪一下；别的时候照旧到最新
     requestAnimationFrame(() => {
       const container = document.getElementById('messages-container');
-      if (container) {
-        container.scrollTop = container.scrollHeight;
+      if (!container) return;
+      const want = !revealed && /^#m(\d+)$/.exec(location.hash);
+      const target = want && document.getElementById('m' + want[1]);
+      if (target) {
+        revealed = true;
+        container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 24;
+        target.classList.add('cognos-message-found');
+        setTimeout(() => target.classList.remove('cognos-message-found'), 2600);
+        return;
       }
+      container.scrollTop = container.scrollHeight;
     });
   }
+  let revealed = false;
 
   function isUnanswered(index) {
     // 你说的话没人回，而且现在没人在做。回答记着它回的是哪一句（reply_to）；
@@ -344,7 +476,7 @@
     });
 
     return `
-      <div class="cognos-message cognos-message-${role}">
+      <div class="cognos-message cognos-message-${role}" id="m${Number(message.id)}">
         <div class="cognos-message-header">
           <span class="cognos-message-sender">${role === 'user' ? '你' : escapeHtml(whoName(message.author))}</span>
           <span class="cognos-message-time">${timestamp}</span>
@@ -432,56 +564,40 @@
   }
 
   function renderMarkdown(content) {
-    // Basic Markdown rendering
-    let html = escapeHtml(content);
-
-    // Headers
-    html = html.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
-
-    // Bold
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-
-    // Italic
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-
-    // Code blocks
-    html = html.replace(/```(.*?)```/gs, '<pre><code>$1</code></pre>');
-
-    // Inline code
-    html = html.replace(/`(.*?)`/g, '<code>$1</code>');
-
-    // Lists
-    html = html.replace(/^- (.*?)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-
-    // Line breaks
-    html = html.replace(/\n/g, '<br>');
-
-    return html;
+    if (window.CognosMd) {
+      const host = document.createElement('div');
+      host.className = 'cg-md';
+      host.append(window.CognosMd.render(content));
+      return host.outerHTML;
+    }
+    return formatMessageContent(content);
   }
 
   function formatMessageContent(content) {
+    if (window.CognosFilePicker?.renderUserMessage) {
+      const host = document.createElement('div');
+      host.append(window.CognosFilePicker.renderUserMessage(content));
+      return host.innerHTML;
+    }
     const div = document.createElement('div');
     div.textContent = content;
-    let html = div.innerHTML;
-
-    // Convert line breaks
-    html = html.replace(/\n/g, '<br>');
-
-    return html;
+    return div.innerHTML.replace(/\n/g, '<br>');
   }
 
   async function handleSendMessage(e) {
     e.preventDefault();
 
-    const message = elements.chatInput.value.trim();
-    if (!message || state.sending) return;
+    const raw = elements.chatInput.value.trim();
+    const hasAtt = !!picker?.hasAttachments();
+    if ((!raw && !hasAtt) || state.sending) return;
+
+    const message = picker ? picker.buildMessage(raw) : raw;
+    if (!message) return;
 
     const ok = await callAgent({ message });
     if (ok) {
       elements.chatInput.value = '';
+      picker?.clear();
       handleInputChange();
     }
   }
@@ -546,12 +662,28 @@
     return div.innerHTML;
   }
 
-  // 侧栏里提出了反对、写下想法的那位被叫回来时，对话这边也开始等它的回答
+  // 侧栏里提出了反对、写下想法的那位被叫回来时，对话这边也开始等它的回答；聊天端导入后直接刷新消息和标题
   window.CognosCreationDetail = {
     waitForAgent(who) {
       if (state.pending) return;
       startPending(Math.floor(Date.now() / 1000) - 5, who || null);
       renderMessages();
+    },
+    async reload(importedRes) {
+      if (importedRes && Array.isArray(importedRes.messages)) {
+        state.messages = importedRes.messages;
+        if (importedRes.creation) {
+          state.creation = importedRes.creation;
+          renderCreation();
+        }
+        renderMessages();
+        loadCreationsList();
+        window.CognosSpacePanel?.reload();
+        return;
+      }
+      await loadCreationAndMessages();
+      loadCreationsList();
+      window.CognosSpacePanel?.reload();
     },
   };
 

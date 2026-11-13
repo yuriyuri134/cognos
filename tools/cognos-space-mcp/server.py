@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import ipaddress
 import tempfile
 from pathlib import Path
 import base64
@@ -321,6 +322,8 @@ TOOLS += [
 TOOLS += [
     {"name":"list_attempts","description":"读取关联到这一处的尝试、当前简介及阶段记录；这些作者的总结不代表工作已完成或结果已验证。", "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE},"required":["space_id"]}},
     {"name":"get_attempt","description":"按稳定身份读取一份尝试的简介、旧版本和历次阶段总结及覆盖范围。仅限与当前位置关联的尝试。", "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"attempt_id":{"type":"string"}},"required":["space_id","attempt_id"]}},
+    {"name":"list_sources","description":"列出已关联到当前项目位置的上游来源材料目录（来源编号、标题、用途说明与消息总数）。非项目位置或未关联的材料不在此列。", "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE},"required":["space_id"]}},
+    {"name":"read_source","description":"按页读取已关联到当前项目位置的某份来源材料原文（按整条消息分页；若还有后续消息会返回 next_from，可继续传 from 读取）。仅限已关联到当前位置的来源。", "inputSchema":{"type":"object","properties":{"space_id":SPACE_ID,"space_type":SPACE_TYPE,"source_id":{"type":"integer","description":"list_sources 或入口 sources 里列出的来源对话 id"},"from":{"type":"integer","description":"从第几条消息开始读取（0 为开头；后续页传上一页返回的 next_from）"}},"required":["space_id","source_id"]}},
 ]
 
 TOOLS += [
@@ -347,10 +350,12 @@ TOOLS += [
     {"name": "write_part",
      "description": ("改这个空间的一块：stages（演变）、branches（拆解）、relations（关系）、compare（并排对照）、doc（文档）。"
                      "content 是这一块改完以后的全部内容，格式见 read_space 返回的 formats；先读再写，别丢了原来的。"
-                     "你提出、还要交互对象定的一段演变，带上 proposed: true。改理想、改目标、把一段理解改成新的，不要直接写，用 note_for_you 提出来。"),
+                     "你提出、还要交互对象定的一段演变，带上 proposed: true。改理想、改目标、把一段理解改成新的，不要直接写，用 note_for_you 提出来。"
+                     "part=self 是你自己的自述（你是这个空间的主体）：content 给 {text 改完的整份自述, changed 改了什么, why 为什么, unchanged 这次什么没变}，"
+                     "只追加一版，旧的都留着；只在这段对话真的改变了你在维持的东西时改。"),
      "inputSchema": {"type": "object", "properties": {
          "space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE,
-         "part": {"type": "string", "enum": ["stages", "branches", "relations", "compare", "doc"]},
+         "part": {"type": "string", "enum": ["stages", "branches", "relations", "compare", "doc", "self"]},
          "content": {"description": "这一块的全部内容：doc 是一段文字，其余是 JSON"}},
          "required": ["space_id", "part", "content"]}},
     {"name": "note_for_you",
@@ -362,6 +367,17 @@ TOOLS += [
          "text": {"type": "string"},
          "options": {"type": "array", "items": {"type": "string"}}},
          "required": ["space_id", "kind", "text"]}},
+    {"name": "note_correction",
+     "description": ("交互对象这句话在纠正你（或之前的 AI）上一条时，回答之前先记下来：他的原话和你前面那条回答由系统从对话里找，"
+                     "你给 pull（收：想尽快有个做完了的东西，换成好做的题、步子太小、跳到结论、把问题推回去；"
+                     "窄：只在给到手里的东西里转，答字面、答旁边的题、猜了意图就动手、不看他已有的材料、不往外找）"
+                     "和 how（一两句：上一条具体是怎样收或怎样窄的）。只是补充、提新要求、问问题的不算纠正。"),
+     "inputSchema": {"type": "object", "properties": {
+         "space_id": SPACE_ID, "space_type": SPACE_TYPE, "norm_space": NORM_SPACE,
+         "pull": {"type": "string", "enum": ["收", "窄"]},
+         "how": {"type": "string", "description": "上一条具体是怎样收或怎样窄的，说事实"},
+         "quote": {"type": "string", "description": "可不给：他那句纠正里一字不差的几个字，用来找对是哪一句（默认是他最近说的一句）"}},
+         "required": ["space_id", "pull", "how"]}},
 ]
 
 ONLY = {t.strip() for t in os.environ.get("COGNOS_TOOLS", "").split(",") if t.strip()}
@@ -382,6 +398,28 @@ class CognosAPIError(RuntimeError):
         super().__init__(f"Cognos 返回 {status}：{message}")
 
 
+_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _is_loopback_url(url: str) -> bool:
+    host = (urllib.parse.urlsplit(str(url)).hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _open_url(target: str | urllib.request.Request, *, timeout: float = 60):
+    url = target.full_url if isinstance(target, urllib.request.Request) else str(target)
+    if _is_loopback_url(url):
+        return _DIRECT_OPENER.open(target, timeout=timeout)
+    return urllib.request.urlopen(target, timeout=timeout)
+
+
 def call_api(method: str, path: str, params: dict | None = None, body: dict | None = None, url: str | None = None):
     if not PASSWORD:
         raise RuntimeError("没有设 COGNOS_APP_PASSWORD：在 Nextcloud「设置 → 安全」里建一个应用密码")
@@ -397,7 +435,7 @@ def call_api(method: str, path: str, params: dict | None = None, body: dict | No
         "Content-Type": "application/json",
     })
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with _open_url(request, timeout=60) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         text = error.read().decode("utf-8", "replace")
@@ -641,6 +679,23 @@ def run_tool(name: str, args: dict) -> str:
             if name == "list_attempts" and error.status == 404:
                 return NO_LOCATION.format(what="尝试")
             raise
+    if name in ("list_sources", "read_source"):
+        path = space_path(args) + "/sources"
+        params = None
+        if name == "read_source":
+            source_id = int(args["source_id"])
+            if source_id < 1:
+                raise ValueError("source_id 必须为正整数")
+            path += "/" + urllib.parse.quote(str(source_id), safe="")
+            if args.get("from") is not None:
+                params = {"from": int(args["from"])}
+        try:
+            data = call_api("GET", path, params)
+        except CognosAPIError as error:
+            if name == "list_sources" and error.status == 404:
+                return NO_LOCATION.format(what="关联来源材料")
+            raise
+        return json.dumps(data, ensure_ascii=False, indent=1)
     if name in ("list_work_items", "get_work_item", "preview_work_split"):
         path = space_path(args) + "/work-items"
         if name != "list_work_items":
@@ -655,7 +710,7 @@ def run_tool(name: str, args: dict) -> str:
                 return NO_LOCATION.format(what="工作")
             raise
         return json.dumps(data, ensure_ascii=False, indent=1)
-    if name in ("read_space", "write_part", "note_for_you"):
+    if name in ("read_space", "write_part", "note_for_you", "note_correction"):
         path = space_path(args) + "/norm"
         extra = {"norm_space": args["norm_space"]} if args.get("norm_space") else {}
         if name == "read_space":
@@ -667,6 +722,9 @@ def run_tool(name: str, args: dict) -> str:
             return json.dumps(data, ensure_ascii=False, indent=1)
         if name == "write_part":
             data = call_api("POST", path + "/part", body={**extra, "part": args["part"], "content": args["content"], "subject": SUBJECT})
+        elif name == "note_correction":
+            data = call_api("POST", path + "/note", body={**extra, "kind": "correction", "pull": args["pull"], "text": args["how"],
+                                                          "quote": args.get("quote") or "", "subject": SUBJECT})
         else:
             data = call_api("POST", path + "/note", body={**extra, "kind": args["kind"], "text": args["text"],
                                                           "options": args.get("options") or [], "subject": SUBJECT})

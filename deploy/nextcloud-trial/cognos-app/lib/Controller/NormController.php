@@ -39,9 +39,11 @@ final class NormController extends Controller {
     #[NoCSRFRequired]
     public function page(): TemplateResponse {
         Util::addScript('cognos', 'agent-pick');
+        Util::addScript('cognos', 'file-picker');
         Util::addScript('cognos', 'chat-box');
         Util::addScript('cognos', 'norm-nav');
         Util::addScript('cognos', 'norm');
+        Util::addStyle('cognos', 'file-picker');
         Util::addStyle('cognos', 'norm');
         return new TemplateResponse('cognos', 'norm');
     }
@@ -50,9 +52,11 @@ final class NormController extends Controller {
     #[NoCSRFRequired]
     public function projectPage(string $projectId): TemplateResponse {
         Util::addScript('cognos', 'agent-pick');
+        Util::addScript('cognos', 'file-picker');
         Util::addScript('cognos', 'chat-box');
         Util::addScript('cognos', 'norm-nav');
         Util::addScript('cognos', 'norm-project');
+        Util::addStyle('cognos', 'file-picker');
         Util::addStyle('cognos', 'norm');
         return new TemplateResponse('cognos', 'norm-project', ['projectId' => $projectId]);
     }
@@ -68,8 +72,9 @@ final class NormController extends Controller {
         ]);
     }
 
+    /** $history=1 时连历史（各段和全部条目）一起给：页面打开「历史」那一栏时才要。 */
     #[NoAdminRequired]
-    public function project(string $projectId, int $arrive = 0): DataResponse {
+    public function project(string $projectId, int $arrive = 0, int $history = 0): DataResponse {
         $uid = $this->uid();
         $space = $this->norm->project($uid, $projectId);
         if ($space === null) {
@@ -87,6 +92,9 @@ final class NormController extends Controller {
             'messages' => $conversation ? count($this->creations->getMessages((int)$conversation, $uid)) : 0,
             'drift' => $drift,
             'drift_done' => $drift !== null && $drift['state'] === 'done' ? $drift : $this->readers->lastDone($uid, 'drift', null, $projectId),
+            // 还有多少原话没读：正在读的时候不算（按钮那时是灰的，省得每 8 秒把全部原话翻一遍）
+            'unread' => $drift !== null && $drift['state'] === 'reading' ? null : $this->readers->unread($uid, $space),
+            'history' => $history === 1 ? $this->norm->history($uid, $projectId) : null,
             'spaces' => $this->norm->projects($uid),
             'versions' => $this->norm->versions($uid, $projectId),
             'parts' => NormService::PARTS,
@@ -153,11 +161,11 @@ final class NormController extends Controller {
         return new DataResponse(['answered' => $done]);
     }
 
-    /** 让读者现在回头读这个空间。 */
+    /** 让这个空间读自己还没读过的原话，接着写历史（读到头时再写总观和自述）；mode=merge 时只把还没归段的条目合起来。 */
     #[NoAdminRequired]
-    public function read(string $projectId): DataResponse {
+    public function read(string $projectId, string $mode = ''): DataResponse {
         try {
-            $r = $this->readers->readSpace($this->uid(), $projectId, true);
+            $r = $this->readers->readSpace($this->uid(), $projectId, true, $mode === 'merge' ? 'merge' : '');
         } catch (\Throwable $e) {
             return new DataResponse(['message' => $e->getMessage()], 422);
         }
@@ -185,7 +193,11 @@ final class NormController extends Controller {
         $agent = $this->config->getUserValue($uid, 'cognos', 'agent_c' . $id, 'claude');
         $data = ['agent' => $agent, 'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', ($agent === 'chatgpt' ? 'chatgpt_effort_c' : 'agent_effort_c') . $id, 'default')];
         if ($agent === 'chatgpt' && !in_array($data['reasoning_effort'], ['default','low','medium','high'], true)) $data['reasoning_effort'] = 'default';
-        if ($chatgpt_status) $data['chatgpt'] = $this->bridge->chatgptBrowser($uid);
+        if ($chatgpt_status) {
+            $cg = $this->bridge->chatgptBrowserAction($uid, 'status', ['space_id' => (string)$id]);
+            unset($cg['_ok'], $cg['_status']);
+            $data['chatgpt'] = $cg;
+        }
         return new DataResponse($data);
     }
 
@@ -211,7 +223,11 @@ final class NormController extends Controller {
             'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', ($agent === 'chatgpt' ? 'chatgpt_effort_c' : 'agent_effort_c') . $id, 'default'),
         ];
         if ($agent === 'chatgpt' && !in_array($data['reasoning_effort'], ['default','low','medium','high'], true)) $data['reasoning_effort'] = 'default';
-        if ($connect_chatgpt && $agent === 'chatgpt') $data['chatgpt'] = $this->bridge->chatgptBrowser($uid, true);
+        if ($connect_chatgpt && $agent === 'chatgpt') {
+            $cg = $this->bridge->chatgptBrowserAction($uid, 'open', ['space_id' => (string)$id]);
+            unset($cg['_ok'], $cg['_status']);
+            $data['chatgpt'] = $cg;
+        }
         return new DataResponse($data);
     }
 
@@ -223,10 +239,11 @@ final class NormController extends Controller {
         }
         $latest = $this->readers->latest($uid, 'initium', $id, null);
         $linked = $this->norm->linkedSpace($uid, $id);
+        $spaceRef = $linked !== null ? $linked['space'] : $this->norm->spaceByConversation($uid, $id);
         return new DataResponse([
             'latest' => $latest,
             'done' => $latest !== null && $latest['state'] === 'done' ? $latest : $this->readers->lastDone($uid, 'initium', $id, null),
-            'linked' => $linked === null ? null : ['id' => $linked['space']['id'], 'title' => $linked['space']['title'], 'board' => $linked['space']['board']],
+            'linked' => $spaceRef === null ? null : ['id' => $spaceRef['id'], 'title' => $spaceRef['title'], 'board' => $spaceRef['board'], 'is_self' => $spaceRef['is_self'] ?? false],
             'in_norm' => in_array($id, $this->norm->hiddenConversationIds($uid), true),
         ]);
     }

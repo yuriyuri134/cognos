@@ -26,7 +26,8 @@ final class ProjectController extends Controller {
         private \OCA\Cognos\Service\FollowupService $followups,
         private \OCA\Cognos\Service\DispatchQueueService $dispatchQueue,
         private \OCA\Cognos\Service\RunService $runs,
-        private IConfig $config, private LoggerInterface $logger) {
+        private IConfig $config, private LoggerInterface $logger,
+        private \OCP\IURLGenerator $urlGenerator) {
         parent::__construct('cognos', $request);
     }
 
@@ -109,7 +110,7 @@ final class ProjectController extends Controller {
     #[NoCSRFRequired]
     public function page(string $projectId = '', string $locationId = ''): \OCP\AppFramework\Http\RedirectResponse {
         // 旧的项目页已经撤掉：项目现在在 Norm 里
-        return new \OCP\AppFramework\Http\RedirectResponse(\OC::$server->getURLGenerator()->linkToRoute('cognos.norm.page'));
+        return new \OCP\AppFramework\Http\RedirectResponse($this->urlGenerator->linkToRoute('cognos.norm.page'));
     }
 
     /** 重组：先预览后果（带 basis），确认时带回 basis，状态变了就整批不做。 */
@@ -194,7 +195,7 @@ final class ProjectController extends Controller {
     #[NoCSRFRequired]
     public function initiumPage(): \OCP\AppFramework\Http\RedirectResponse {
         // Initium 现在就是创立空间
-        return new \OCP\AppFramework\Http\RedirectResponse(\OC::$server->getURLGenerator()->linkToRoute('cognos.creationSpace.index'));
+        return new \OCP\AppFramework\Http\RedirectResponse($this->urlGenerator->linkToRoute('cognos.creationSpace.index'));
     }
 
     #[NoAdminRequired]

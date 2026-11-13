@@ -553,7 +553,11 @@ final class HermesAgentService {
         if ($delegatedExecutor === null && $this->config->getUserValue($user->getUID(), 'cognos', 'agent_c' . $creationId, 'claude') === 'chatgpt') {
             $chatEffort = $this->config->getUserValue($user->getUID(), 'cognos', 'chatgpt_effort_c' . $creationId, 'default');
             if (!in_array($chatEffort, ['low','medium','high'], true)) $chatEffort = 'default';
-            $entry = $this->entries->entry($space, 'ChatGPT', ['caller'=>$caller, 'message'=>$message], $this->norm->agentLines($user->getUID(), $creationId));
+            // 聊天端在 ChatGPT 网页里回话，手里没有 Cognos 的工具：入口里要照实说，免得它以为自己读过原话、记下了什么
+            $entry = $this->entries->entry($space, 'ChatGPT', ['caller'=>$caller, 'message'=>$message], array_merge([
+                '你在 ChatGPT 网页里回话，手里没有 Cognos 的工具：read_space、enter_space、留下尝试、改 Norm 里的一块，这些下面若提到，你都用不了。',
+                '你看得到的只有这里给你的文字。没读到的原话不要当成读过；要读原话或要改 Cognos 里的东西，写在回答里，请交互对象换 Claude 来做。',
+            ], $this->norm->agentLines($user->getUID(), $creationId)));
             $this->bridge->send('creation', (string)$creationId, 'ChatGPT', $this->entries->renderText($entry), $history, $message, $caller,
                 array_merge($extra, ['executor'=>'chatgpt', 'mode'=>'chat', 'reply_to'=>$replyTo, 'caller_uid'=>$user->getUID(),
                     'reasoning_effort'=>$chatEffort]));
@@ -563,7 +567,7 @@ final class HermesAgentService {
         if ($delegatedExecutor === null && $this->config->getUserValue($user->getUID(), 'cognos', 'agent_c' . $creationId, 'claude') === 'gpt') {
             $entry = $this->entries->entry($space, 'GPT', ['caller' => $caller, 'message' => $message],
                 array_merge([
-                    'enter_space / read_space：读这一处现在的样子；放进 Norm 的对话，read_space 里有它连着的空间和原话。',
+                    'enter_space / read_space / list_sources / read_source：读这一处现在的样子和已关联到这一处的来源材料；放进 Norm 的对话，read_space 里有它连着的空间和原话。',
                     '你只能读，不能改 Cognos 里的东西；想做的事写在回答里。',
                 ], $this->norm->agentLines($user->getUID(), $creationId)));
             $this->bridge->send('creation', (string)$creationId, 'GPT', $this->entries->renderText($entry), $history, $message, $caller,
@@ -577,16 +581,16 @@ final class HermesAgentService {
             // 在 Cognos 自己的空间里，被叫来的是替 Cognos 说话的那位
             $subject = $delegatedExecutor === 'codex' ? 'Codex' : $this->bridge->subjectFor('creation', (string)$creationId);
             $abilities = $delegatedExecutor === 'codex' ? [
-                '可以读取这一处的入口、尝试和工作，使用 note_basis 记录这次真正依赖的依据。',
+                '可以读取这一处的入口、已关联来源材料（list_sources / read_source）、尝试和工作，使用 note_basis 记录这次真正依赖的依据。',
                 '用 check_changes 查看运行期间变化。最终回答由桥交回这次运行。',
             ] : $this->bridge->canDo('creation', (string)$creationId);
             $entry = $this->entries->entry(
                 $space,
                 $subject,
                 ['caller' => $caller, 'message' => $message],
-                // 不在项目里的空间没有决定和当前内容可依据，不给 note_basis
+                // 不在项目里的空间没有决定、当前内容和项目关联来源，不给 note_basis / adopt / list_sources
                 array_merge(array_values(array_filter($abilities,
-                    static fn(string $line): bool => !empty($space['project_context']) || (!str_starts_with($line, 'note_basis') && !str_starts_with($line, 'adopt')))), $canDo,
+                    static fn(string $line): bool => !empty($space['project_context']) || (!str_starts_with($line, 'note_basis') && !str_starts_with($line, 'adopt') && !str_starts_with($line, 'list_sources')))), $canDo,
                     // 这段对话是 Norm 里一个空间的（或已经放进 Norm）：这里是什么、怎么工作、能改哪几块
                     $delegatedExecutor === 'codex' ? [] : $this->norm->agentLines($user->getUID(), $creationId)),
             );

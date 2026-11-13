@@ -5,7 +5,7 @@
   <!-- 左侧边栏 -->
   <aside class="chat-sidebar" id="chat-sidebar">
     <div class="sidebar-header">
-      <button class="sidebar-toggle" id="sidebar-toggle" aria-label="折叠侧边栏">
+      <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-label="收起侧边栏" title="收起侧边栏">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
           <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
@@ -13,12 +13,20 @@
       <h2 class="sidebar-title"><a href="/index.php/apps/cognos/creations">Initium</a></h2>
     </div>
 
-    <button class="new-creation-btn" id="new-creation-btn">
+    <button class="new-creation-btn" id="new-creation-btn" type="button">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
         <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
       <span>新创立</span>
     </button>
+
+    <div class="sidebar-filter">
+      <input type="search" id="sidebar-search" class="sidebar-search" placeholder="搜索对话…" aria-label="搜索对话">
+      <label class="sidebar-filter-toggle">
+        <input type="checkbox" id="sidebar-hide-verify" checked>
+        <span>隐藏「验证：」测试对话</span>
+      </label>
+    </div>
 
     <div class="creations-list" id="creations-list">
       <div class="loading-state">
@@ -41,26 +49,26 @@
   <main class="chat-main">
     <header class="chat-header">
       <div class="header-left">
-        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="打开菜单">
+        <button class="sidebar-expand-btn" id="sidebar-expand-btn" type="button" aria-label="展开侧边栏" title="展开侧边栏">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </button>
-        <h1 class="chat-title" id="chat-title" contenteditable="true" spellcheck="false">加载中...</h1>
+        <button class="mobile-menu-btn" id="mobile-menu-btn" type="button" aria-label="打开菜单">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <h1 class="chat-title" id="chat-title" contenteditable="true" spellcheck="false" title="点击可修改标题，按回车或失焦保存">加载中...</h1>
       </div>
       <div class="header-actions">
-        <button class="space-panel-toggle" id="space-panel-toggle" aria-label="显示或收起读者读完这段" title="几个读者只读原话，各自读完这段" aria-pressed="true">
+        <button class="space-panel-toggle" id="space-panel-toggle" type="button" aria-label="显示或收起读者读完这段" title="几个读者只读原话，各自读完这段" aria-pressed="true">
           读者
         </button>
-        <button class="icon-btn" id="share-btn" aria-label="分享" title="分享">
+        <button class="icon-btn" id="share-btn" type="button" aria-label="复制对话链接" title="复制对话链接">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M15 6a2 2 0 100-4 2 2 0 000 4zM15 18a2 2 0 100-4 2 2 0 000 4zM5 12a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="2"/>
             <path d="M7 11l6-3M7 11l6 3" stroke="currentColor" stroke-width="2"/>
-          </svg>
-        </button>
-        <button class="icon-btn" id="settings-btn" aria-label="设置" title="设置">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10 6a4 4 0 100 8 4 4 0 000-8zm7.7 3.4l-1.8-.5a6 6 0 00-.8-2l1.1-1.5-1.4-1.4-1.5 1.1a6 6 0 00-2-.8l-.5-1.8h-2l-.5 1.8a6 6 0 00-2 .8L4.8 3.6 3.4 5l1.1 1.5a6 6 0 00-.8 2l-1.8.5v2l1.8.5a6 6 0 00.8 2l-1.1 1.5 1.4 1.4 1.5-1.1a6 6 0 002 .8l.5 1.8h2l.5-1.8a6 6 0 002-.8l1.5 1.1 1.4-1.4-1.1-1.5a6 6 0 00.8-2l1.8-.5v-2z"/>
           </svg>
         </button>
       </div>
@@ -88,7 +96,7 @@
             maxlength="8000"
           ></textarea>
           <div class="input-actions">
-            <button type="button" class="icon-btn-small" id="attach-btn" aria-label="附件" title="附件">
+            <button type="button" class="icon-btn-small" id="attach-btn" aria-label="上传或从 Nextcloud Files 选择附件" title="上传或从 Nextcloud Files 选择附件">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <path d="M14 7l-7 7a2 2 0 01-3-3l7-7a3.5 3.5 0 015 5l-7 7a5 5 0 01-7-7l7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
               </svg>
@@ -107,7 +115,7 @@
         </div>
         <div class="input-footer">
           <span class="char-count" id="char-count">0 / 8000</span>
-          <span class="input-hint">Shift+Enter 换行</span>
+          <span class="input-hint" id="input-hint">Shift+Enter 换行</span>
         </div>
       </form>
     </footer>
@@ -117,7 +125,7 @@
   <aside class="space-panel" id="space-panel" aria-label="读完这段">
     <div class="space-panel-header">
       <h2 class="space-panel-title">读完这段</h2>
-      <button class="icon-btn" id="space-panel-close" aria-label="收起">
+      <button class="icon-btn" id="space-panel-close" type="button" aria-label="收起">
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
           <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>

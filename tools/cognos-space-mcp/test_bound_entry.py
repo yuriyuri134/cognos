@@ -11,9 +11,9 @@ server=importlib.util.module_from_spec(spec);spec.loader.exec_module(server)
 class BoundEntryTests(unittest.TestCase):
     def test_other_space_cannot_be_read_or_started(self):
         with patch.object(server,'ONLY',set()),patch.object(server,'BOUND_ID','7'),patch.object(server,'BOUND_TYPE','creation'),patch.object(server,'call_api') as api:
-            for tool in ('enter_space','start_work','list_work_items','get_work_item','preview_work_split','list_attempts','get_attempt'):
+            for tool in ('enter_space','start_work','list_work_items','get_work_item','preview_work_split','list_attempts','get_attempt','list_sources','read_source'):
                 with self.subTest(tool=tool),self.assertRaises(RuntimeError):
-                    server.run_tool(tool,{'space_id':'8','work_id':'a'*32,'parts':[]})
+                    server.run_tool(tool,{'space_id':'8','work_id':'a'*32,'attempt_id':'a'*32,'source_id':9,'parts':[]})
             api.assert_not_called()
 
     def test_other_run_is_not_used_for_drift_or_handoff(self):
@@ -68,5 +68,24 @@ class BoundEntryTests(unittest.TestCase):
             self.assertEqual(api.call_args.args,('GET','/creation/7/attempts'))
             server.run_tool('get_attempt',{'space_id':'7','attempt_id':'a'*32})
             self.assertEqual(api.call_args.args,('GET','/creation/7/attempts/'+'a'*32))
+
+    def test_source_tools_read_bound_location_and_codex_exposure(self):
+        names={t['name'] for t in server.TOOLS}
+        self.assertTrue({'list_sources','read_source'}<=names)
+        entry_spec=importlib.util.spec_from_file_location('codex_entry_src',Path(__file__).with_name('codex_entry.py'))
+        entry=importlib.util.module_from_spec(entry_spec);entry_spec.loader.exec_module(entry)
+        self.assertTrue({'list_sources','read_source'}<=set(entry.ENTRY_TOOLS))
+        self.assertTrue({'list_sources','read_source'}<=set(entry.DELEGATION_READ_TOOLS))
+        with patch.object(server,'ONLY',set()),patch.object(server,'BOUND_ID','7'),patch.object(server,'BOUND_TYPE','creation'):
+            with patch.object(server,'call_api',return_value={'sources':[]}) as api:
+                server.run_tool('list_sources',{'space_id':'7'})
+                self.assertEqual(api.call_args.args,('GET','/creation/7/sources',None))
+            with patch.object(server,'call_api',return_value={'messages':[],'next_from':None}) as api:
+                server.run_tool('read_source',{'space_id':'7','source_id':42,'from':8})
+                self.assertEqual(api.call_args.args,('GET','/creation/7/sources/42',{'from':8}))
+            with patch.object(server,'call_api',side_effect=server.CognosAPIError(404,{},'Project location not found')):
+                self.assertIn('不在项目的任何位置上',server.run_tool('list_sources',{'space_id':'7'}))
+                with self.assertRaises(server.CognosAPIError):
+                    server.run_tool('read_source',{'space_id':'7','source_id':42})
 
 if __name__=='__main__':unittest.main()

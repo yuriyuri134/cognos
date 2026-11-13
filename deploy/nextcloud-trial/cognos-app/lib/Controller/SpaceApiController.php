@@ -118,6 +118,96 @@ final class SpaceApiController extends OCSController {
         try{$item=$this->attempts->detail((string)$this->uid(),$attemptId);if(!in_array($loc['id'],$item['location_ids'],true))return new DataResponse(['message'=>'Attempt not in this location'],404);return new DataResponse(['item'=>$item]);}
         catch(\RuntimeException $e){if($e->getCode()===404)return new DataResponse(['message'=>'Attempt not found'],404);throw $e;}
     }
+
+    #[NoAdminRequired]
+    public function sourceList(string $spaceType, string $spaceId): DataResponse {
+        $loc = $this->workLocation($spaceType, $spaceId);
+        if ($loc === null) {
+            return new DataResponse(['message' => 'Project location not found'], 404);
+        }
+        $uid = (string)$this->uid();
+        $sources = [];
+        foreach ($this->projects->usages($uid, $loc['id']) as $u) {
+            $sid = (int)$u['source_creation_id'];
+            if ($this->creations->get($sid, $uid) === null) {
+                continue;
+            }
+            $messages = $this->creations->getMessages($sid, $uid);
+            $sources[] = [
+                'source_id' => $sid,
+                'title' => (string)$u['title'],
+                'purpose' => (string)$u['purpose'],
+                'total_messages' => count($messages),
+                'created_at' => (int)$u['created_at'],
+            ];
+        }
+        return new DataResponse(['location_id' => $loc['id'], 'sources' => $sources]);
+    }
+
+    #[NoAdminRequired]
+    public function sourceDetail(string $spaceType, string $spaceId, int $sourceId, int $from = 0): DataResponse {
+        $loc = $this->workLocation($spaceType, $spaceId);
+        if ($loc === null) {
+            return new DataResponse(['message' => 'Project location not found'], 404);
+        }
+        $uid = (string)$this->uid();
+        $linked = null;
+        foreach ($this->projects->usages($uid, $loc['id']) as $u) {
+            if ((int)$u['source_creation_id'] === $sourceId) {
+                $linked = $u;
+                break;
+            }
+        }
+        if ($linked === null) {
+            return new DataResponse(['message' => 'Source conversation not linked to this location'], 404);
+        }
+        $creation = $this->creations->get($sourceId, $uid);
+        if ($creation === null) {
+            return new DataResponse(['message' => 'Source conversation not found'], 404);
+        }
+        $messages = $this->creations->getMessages($sourceId, $uid);
+        $total = count($messages);
+        $from = max(0, min($from, $total));
+        $pageBudget = 16000;
+        $size = 0;
+        $items = [];
+        $i = $from;
+        for (; $i < $total; $i++) {
+            $m = $messages[$i];
+            $content = (string)$m['content'];
+            $len = mb_strlen($content);
+            if ($items !== [] && $size + $len > $pageBudget) {
+                break;
+            }
+            $truncated = false;
+            if ($m['role'] !== 'user' && $len > $pageBudget * 2) {
+                $content = mb_substr($content, 0, $pageBudget * 2) . '…（本条后续 ' . ($len - $pageBudget * 2) . ' 字未全显）';
+                $len = $pageBudget * 2;
+                $truncated = true;
+            }
+            $items[] = [
+                'id' => (int)$m['id'],
+                'index' => $i,
+                'role' => (string)$m['role'],
+                'author' => $m['author'],
+                'created_at' => (int)$m['created_at'],
+                'content' => $content,
+                'truncated' => $truncated,
+            ];
+            $size += $len;
+        }
+        return new DataResponse([
+            'location_id' => $loc['id'],
+            'source_id' => $sourceId,
+            'title' => (string)$creation['title'],
+            'purpose' => (string)$linked['purpose'],
+            'total_messages' => $total,
+            'from' => $from,
+            'to' => $i,
+            'next_from' => $i < $total ? $i : null,
+            'messages' => $items,
+        ]);
+    }
     #[NoAdminRequired]
     public function workList(string $spaceType,string $spaceId): DataResponse {
         $loc=$this->workLocation($spaceType,$spaceId);

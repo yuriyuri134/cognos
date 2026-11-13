@@ -15,10 +15,11 @@ import sys
 import tempfile
 
 ENTRY_TOOLS = ("enter_space", "start_work", "note_basis", "check_changes", "hand_back",
-              "list_work_items", "get_work_item", "preview_work_split", "list_attempts", "get_attempt")
+              "list_work_items", "get_work_item", "preview_work_split", "list_attempts", "get_attempt",
+              "list_sources", "read_source")
 
 DELEGATION_READ_TOOLS = ("enter_space", "note_basis", "check_changes", "list_work_items",
-                         "get_work_item", "list_attempts", "get_attempt")
+                         "get_work_item", "list_attempts", "get_attempt", "list_sources", "read_source")
 
 def delegation_tools(*, may_edit: bool, may_adopt: bool, may_manage_work: bool) -> tuple[str, ...]:
     tools = DELEGATION_READ_TOOLS

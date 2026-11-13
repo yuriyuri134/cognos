@@ -1,6 +1,6 @@
 // ChatGPT Chat must use the user's existing Chrome session.
 // A private profile cannot establish that connection and must never be opened implicitly.
-const {status,open,reply}=require('./chatgpt_browser_service.cjs');
+const {status,open,tabs,thread,reply}=require('./chatgpt_browser_service.cjs');
 function finalSse(text){let state=null,answer=null;
  function apply(op,prefix=''){
   if(op.message){state=op;return;}
@@ -17,12 +17,14 @@ function finalSse(text){let state=null,answer=null;
  for(const line of text.split('\n')){if(!line.startsWith('data: '))continue;let op;try{op=JSON.parse(line.slice(6));}catch{continue;}apply(op);const m=state?.message;if(m?.author?.role==='assistant'&&(!m.channel||m.channel==='final')&&m.content?.content_type==='text'&&m.end_turn===true)answer=m.content.parts.filter(p=>typeof p==='string').join('\n');}
  return answer;
 }
-module.exports={status,open,reply,finalSse};
+module.exports={status,open,tabs,thread,reply,finalSse};
 if(require.main===module)(async()=>{
  const action=process.argv[2]||'status';
  let result;
  if(action==='open')result=await open();
  else if(action==='status')result=await status();
+ else if(action==='tabs')result=await tabs();
+ else if(action==='thread') {let raw='';for await(const chunk of process.stdin)raw+=chunk;result=await thread(JSON.parse(raw||'{}'));}
  else if(action==='reply') {let raw='';for await(const chunk of process.stdin)raw+=chunk;result=await reply(JSON.parse(raw||'{}'));}
  else throw Error('Unknown action');
  process.stdout.write(JSON.stringify(result)+'\n');
