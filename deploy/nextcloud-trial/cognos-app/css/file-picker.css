@@ -1,0 +1,493 @@
+/* Nextcloud Files 附件选择与对话消息附件卡片样式（兼容 Initium Nextcloud 主题与 Norm 暖色/暗色主题） */
+.cg-att-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.cg-att-tray[hidden] {
+  display: none !important;
+}
+
+.cg-att-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--cg-line-strong, var(--color-border, #ccc));
+  background: var(--cg-card, var(--color-background-hover, #f5f5f5));
+  color: var(--cg-ink, var(--color-main-text, inherit));
+  font-size: 12.5px;
+  box-sizing: border-box;
+}
+
+.cg-att-chip-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--cg-line, var(--color-border, rgba(128,128,128,.25)));
+}
+
+.cg-att-chip-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.cg-att-chip-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 210px;
+}
+
+.cg-att-chip-sub {
+  font-size: 11px;
+  color: var(--cg-muted, var(--color-text-maxcontrast, #666));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+}
+
+.cg-att-chip-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--cg-ink-2, var(--color-main-text, inherit));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cg-att-chip-rm {
+  border: none;
+  background: transparent;
+  color: var(--cg-muted, var(--color-text-maxcontrast, #666));
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cg-att-chip-rm:hover {
+  background: var(--cg-chip, var(--color-background-dark, rgba(128,128,128,.16)));
+  color: var(--cg-ink, var(--color-main-text, inherit));
+}
+
+.cg-chat-form .cg-att-trigger {
+  height: 48px;
+  min-width: 44px;
+  padding: 0 13px;
+  border-radius: 12px;
+  border: 1px solid var(--cg-line-strong, var(--color-border, #ccc));
+  background: var(--cg-card, var(--color-main-background, transparent));
+  color: var(--cg-ink, var(--color-main-text, inherit));
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.cg-chat-form .cg-att-trigger:hover {
+  border-color: var(--cg-accent, var(--color-primary-element, #0F5E57));
+}
+
+.cg-att-drop-active {
+  outline: 2px dashed var(--cg-accent, var(--color-primary-element, #0F5E57)) !important;
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+/* 消息气泡内的附件卡片 */
+.cg-att-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--cg-line, var(--color-border, rgba(128,128,128,.3)));
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.cognos-message-agent .cg-att-card,
+.cg-msg-agent .cg-att-card {
+  background: var(--cg-panel, var(--color-main-background, rgba(128,128,128,.08)));
+}
+
+.cg-att-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cg-att-card-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cg-att-card-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.cg-att-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cg-att-card-name {
+  font-weight: 600;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-att-card-path {
+  font-size: 11.5px;
+  opacity: 0.78;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-att-card-acts {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cg-att-card-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 11.5px;
+  text-decoration: none !important;
+  color: inherit !important;
+  opacity: 0.9;
+  white-space: nowrap;
+}
+
+.cg-att-card-link:hover {
+  opacity: 1;
+}
+
+.cg-att-card-preview {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 220px;
+  border-radius: 8px;
+  object-fit: contain;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Nextcloud Files 选择器弹窗 */
+dialog.cg-file-dialog {
+  width: min(680px, calc(100vw - 24px));
+  max-width: 100%;
+  max-height: 82dvh;
+  padding: 0;
+  border: 1px solid var(--cg-line-strong, var(--color-border, #ccc));
+  border-radius: 16px;
+  background: var(--cg-card, var(--color-main-background, #fff));
+  color: var(--cg-ink, var(--color-main-text, #1c1b19));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  margin: auto;
+}
+
+dialog.cg-file-dialog::backdrop {
+  background: rgba(20, 20, 18, 0.48);
+}
+
+.cg-file-dlg-box {
+  display: flex;
+  flex-direction: column;
+  max-height: 82dvh;
+  min-width: 0;
+}
+
+.cg-file-dlg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--cg-line, var(--color-border, #e5e5e5));
+}
+
+.cg-file-dlg-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.cg-file-dlg-close {
+  border: none;
+  background: transparent;
+  color: var(--cg-muted, var(--color-text-maxcontrast, #666));
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.cg-file-dlg-close:hover {
+  background: var(--cg-chip, var(--color-background-hover, #eee));
+}
+
+.cg-file-dlg-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--cg-line, var(--color-border, #e5e5e5));
+  background: var(--cg-panel, var(--color-background-hover, rgba(128,128,128,.04)));
+}
+
+.cg-file-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.cg-file-tab {
+  border: 1px solid var(--cg-line-strong, var(--color-border, #ccc));
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.cg-file-tab.cg-on {
+  background: var(--cg-dark, var(--color-primary-element, #0F5E57));
+  color: var(--cg-dark-ink, var(--color-primary-element-text, #fff));
+  border-color: transparent;
+}
+
+.cg-file-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cg-file-search {
+  flex: 1;
+  min-width: 170px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--cg-line-strong, var(--color-border, #ccc));
+  background: var(--cg-card, var(--color-main-background, transparent));
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.cg-file-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 10px;
+  border: 0;
+  background: var(--cg-accent, var(--color-primary-element, #0F5E57));
+  color: var(--cg-accent-ink, var(--color-primary-element-text, #fff));
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cg-file-upload-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.cg-file-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 18px 0;
+  font-size: 12.5px;
+  color: var(--cg-muted, var(--color-text-maxcontrast, #666));
+}
+
+.cg-file-crumb {
+  border: none;
+  background: transparent;
+  color: var(--cg-accent, var(--color-primary-element, #0F5E57));
+  padding: 2px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.cg-file-crumb:hover {
+  text-decoration: underline;
+}
+
+.cg-file-status {
+  padding: 6px 18px 0;
+  font-size: 12.5px;
+  color: var(--cg-muted, var(--color-text-maxcontrast, #666));
+  min-height: 18px;
+}
+
+.cg-file-list {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  padding: 10px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cg-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--cg-line, var(--color-border, #e5e5e5));
+  background: var(--cg-card, var(--color-main-background, transparent));
+}
+
+.cg-file-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cg-file-row-btn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  cursor: pointer;
+  font: inherit;
+}
+
+.cg-file-row-btn:hover .cg-file-row-name {
+  text-decoration: underline;
+}
+
+.cg-file-row-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cg-file-row-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-file-row-sub {
+  font-size: 11.5px;
+  color: var(--cg-muted, var(--color-text-maxcontrast, #666));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-file-row-pick {
+  border: 1px solid var(--cg-line-strong, var(--color-border, #ccc));
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  padding: 4px 11px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.cg-file-row-pick.cg-picked {
+  background: var(--cg-accent, var(--color-primary-element, #0F5E57));
+  color: var(--cg-accent-ink, var(--color-primary-element-text, #fff));
+  border-color: transparent;
+}
+
+.cg-file-dlg-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--cg-line, var(--color-border, #e5e5e5));
+  background: var(--cg-panel, var(--color-background-hover, rgba(128,128,128,.04)));
+  font-size: 12.5px;
+}
+
+.cg-file-done-btn {
+  padding: 6px 16px;
+  border-radius: 9px;
+  border: 0;
+  background: var(--cg-dark, var(--color-primary-element, #0F5E57));
+  color: var(--cg-dark-ink, var(--color-primary-element-text, #fff));
+  font-weight: 500;
+  cursor: pointer;
+}
+
+@media (max-width: 560px) {
+  dialog.cg-file-dialog {
+    width: calc(100vw - 12px);
+    max-height: 88dvh;
+  }
+  .cg-file-dlg-head,
+  .cg-file-dlg-tools,
+  .cg-file-list,
+  .cg-file-dlg-foot {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .cg-att-chip-name {
+    max-width: 140px;
+  }
+}

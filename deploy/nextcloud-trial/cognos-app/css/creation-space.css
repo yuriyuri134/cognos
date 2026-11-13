@@ -25,11 +25,43 @@
   /* 撑满 #content（它是横向 flex），不然整页挤在左边 */
   width: 100%;
   box-sizing: border-box;
-  min-height: 100vh;
+  height: calc(100vh - var(--header-height, 50px) - var(--body-container-margin, 0px));
+  height: calc(100dvh - var(--header-height, 50px) - var(--body-container-margin, 0px));
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   background: var(--surface-0);
   color: var(--text-primary);
   padding: var(--spacing-xl);
 }
+
+.cognos-creation-launcher {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+#cognos-creation-status { color: var(--text-secondary); }
+.cognos-creations-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+.cognos-creations-heading h2 { margin: 0; font-size: 1.3rem; }
+#cognos-creation-search {
+  width: min(100%, 320px);
+  box-sizing: border-box;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--surface-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+.cognos-creations-note { color: var(--text-secondary); font-size: .9rem; margin-bottom: var(--spacing-md); }
 
 /* Nextcloud 的全局样式会盖掉 hidden 属性 */
 .cognos-creation-space [hidden] {
@@ -169,7 +201,7 @@
 
 .cognos-creations-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: var(--spacing-md);
 }
 
@@ -324,3 +356,57 @@
 .cognos-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 #cognos-creation-message { width: 100%; box-sizing: border-box; }
 a.cognos-secondary { text-decoration: none; }
+
+.cognos-form-actions { justify-content: space-between; flex-wrap: wrap; margin-top: var(--spacing-sm); }
+.cognos-agent-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cognos-agent-choice-label { font-size: 0.85rem; color: var(--text-secondary); }
+.cognos-pill {
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-full);
+  padding: 5px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.cognos-pill.is-active {
+  background: var(--accent);
+  color: var(--surface-0);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.cognos-list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+.cognos-filter-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.cognos-tab {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-full);
+  padding: 6px 14px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.cognos-tab.is-active {
+  background: var(--text-primary);
+  color: var(--surface-0);
+  border-color: var(--text-primary);
+  font-weight: 600;
+}
+.cognos-search-input {
+  min-width: min(260px, 100%);
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+.cognos-search-input:focus { outline: none; border-color: var(--accent); }

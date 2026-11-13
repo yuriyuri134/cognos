@@ -18,6 +18,9 @@
   grid-template-columns: var(--sidebar-width) 1fr;
   /* 页面在 Nextcloud 顶栏下面，100vh 会让底部（输入框）被挤出去 */
   height: calc(100vh - var(--header-height, 50px) - var(--body-container-margin, 0px));
+  height: calc(100dvh - var(--header-height, 50px) - var(--body-container-margin, 0px));
+  min-height: 0;
+  min-width: 0;
   background: var(--color-main-background);
   color: var(--color-main-text);
   font-family: var(--font-face, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
@@ -94,6 +97,7 @@
 
 .creations-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0 var(--space-sm);
 }
@@ -158,6 +162,7 @@
 
 /* ===== Main Chat Area ===== */
 .chat-main {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -223,7 +228,10 @@
 /* ===== Messages Container ===== */
 .chat-messages-container {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   overflow-x: hidden;
   background: var(--color-main-background);
 }
@@ -706,6 +714,149 @@
   display: none;
 }
 
+.cognos-chat-app.sidebar-collapsed {
+  --sidebar-width: 0px;
+  grid-template-columns: 0px 1fr var(--space-panel-width);
+}
+
+.cognos-chat-app.sidebar-collapsed .chat-sidebar {
+  border-right: 0;
+}
+
+.cognos-chat-app.sidebar-collapsed.space-panel-collapsed {
+  grid-template-columns: 0px 1fr;
+}
+
+.sidebar-expand-btn {
+  display: none;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-maxcontrast);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.sidebar-expand-btn:hover {
+  background: var(--color-background-hover);
+  color: var(--color-main-text);
+}
+
+.cognos-chat-app.sidebar-collapsed .sidebar-expand-btn {
+  display: flex;
+}
+
+.sidebar-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 var(--space-md) var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-xs);
+}
+
+.sidebar-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-background-dark, var(--color-background-hover));
+  color: var(--color-main-text);
+  font-size: 13px;
+}
+
+.sidebar-search:focus {
+  outline: none;
+  border-color: var(--color-primary-element);
+}
+
+.sidebar-filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-maxcontrast);
+  cursor: pointer;
+  user-select: none;
+}
+
+.creation-list-meta {
+  font-size: 11px;
+  color: var(--color-text-maxcontrast);
+  opacity: 0.85;
+}
+
+#share-btn.copied {
+  color: var(--color-success, #46ba61);
+  background: var(--color-background-hover);
+}
+
+.cognos-message-agent .cognos-message-content .cg-md {
+  white-space: normal;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.cognos-message-agent .cognos-message-content .cg-md pre {
+  background: var(--color-main-background);
+  border: 1px solid var(--color-border);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0 0 0.6em;
+}
+
+.cognos-message-agent .cognos-message-content .cg-md code {
+  background: var(--color-main-background);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.cognos-message-agent .cognos-message-content .cg-md pre code {
+  background: none;
+  padding: 0;
+}
+
+.cognos-message-agent .cognos-message-content .cg-md a {
+  color: var(--color-primary-element);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.cognos-message-agent .cognos-message-content .cg-md-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 0.4em 0 0.7em;
+}
+
+.cognos-message-agent .cognos-message-content .cg-md table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+}
+
+.cognos-message-agent .cognos-message-content .cg-md th,
+.cognos-message-agent .cognos-message-content .cg-md td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.cognos-message-agent .cognos-message-content .cg-md th {
+  background: var(--color-main-background);
+  font-weight: 600;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
@@ -1085,9 +1236,15 @@
     grid-template-columns: var(--sidebar-width) 1fr;
   }
 
+  .cognos-chat-app.sidebar-collapsed,
+  .cognos-chat-app.sidebar-collapsed.space-panel-collapsed {
+    grid-template-columns: 0px 1fr;
+  }
+
   .space-panel {
     position: fixed;
-    top: 0;
+    /* 从 Nextcloud 顶栏下面开始：顶到 0 的话，标题和收起按钮被顶栏盖住，手机上关不掉 */
+    top: var(--header-height, 50px);
     right: 0;
     bottom: 0;
     width: min(var(--space-panel-width), 92vw);
@@ -1098,8 +1255,14 @@
 
 @media (max-width: 768px) {
   .cognos-chat-app,
-  .cognos-chat-app.space-panel-collapsed {
+  .cognos-chat-app.space-panel-collapsed,
+  .cognos-chat-app.sidebar-collapsed,
+  .cognos-chat-app.sidebar-collapsed.space-panel-collapsed {
     grid-template-columns: 1fr;
+  }
+
+  .cognos-chat-app.sidebar-collapsed .sidebar-expand-btn {
+    display: none;
   }
 }
 
@@ -1116,3 +1279,5 @@
 @media (hover: none) { .msg-actions { opacity: 1; } }
 
 .cognos-usage-line { white-space: pre-line; font-size: 12px; color: var(--color-text-maxcontrast); margin: 6px 0 0; line-height: 1.5; }
+/* 从空间的「历史」点「到那段对话里看前后」进来：停到那一句，闪一下 */
+.cognos-message-found { box-shadow: 0 0 0 2px #0F5E57; border-radius: 12px; transition: box-shadow .3s; }

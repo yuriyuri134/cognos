@@ -141,3 +141,19 @@ py -3 tools/cognos-space-mcp/codex_entry.py --space-id <位置的creation编号>
 Codex 委托走桥的 `/codex`。服务先登记委托、运行、账号与入口输入，再发送。独立入口仍用 `codex_entry.py`。页面委托复用临时 CLI、只读文件策略及同一个桥的结果队列，MCP 同时限定位置和原运行，工具参数自动使用这两个绑定。读取入口、工作和尝试属于常用工具，写稿、采用及工作维护工具按单项授权开放。最终回答由桥按原运行交回。同一请求编号可以取回原委托，换参与者需要新的请求。
 
 桥的 Codex 凭据属于一个 Nextcloud 账号，接单时对照委托账号。入口不可用时页面保留拒绝原因，响应是否丢失无法判断时保留未知状态。各空间的后续自动接续沿原有设置。
+
+## 让 ChatGPT 聊天时走进来（`http_server.py`，2026-11-07）
+
+ChatGPT 网页版的开发者模式能加自定义 MCP 连接器，但它是从 OpenAI 的服务器连过来的，要公网 HTTPS，连不到本机。`http_server.py` 把上面的通用工具（`list_spaces`、`enter_space`、`search_traces`、`leave_trace`、`add_reading`、`hold_premise`、`hit_premise`、`answer_hit`、`hang_open`、`stop_here`）开成 HTTP 形式的 MCP，写下的东西记在 `ChatGPT` 名下；委托运行用的那几个不开。
+
+1. （可选）给它单独一个应用密码，放 `deploy/nextcloud-trial/.secrets/chatgpt-app-password`；没有就用 `claude-code-app-password`。
+2. 起入口和临时隧道（本机有 `cloudflared` 就用它，没有就用 docker 里的 cloudflared）：
+
+```powershell
+cd C:\Users\lnp\Documents\Playground\cognos
+powershell -ExecutionPolicy Bypass -File tools\cognos-space-mcp\start-chatgpt-mcp.ps1
+```
+
+3. 它打印一条 `https://....trycloudflare.com/mcp/<口令>`。在 ChatGPT：设置 → 应用与连接器 → 高级设置 → 打开开发者模式；再「创建」连接器，地址填这一整条，认证选不需要。聊天时在输入框的「+ → 开发者模式」里选上它。
+
+口令第一次起时自动生成在 `.secrets/chatgpt-mcp-token`，它就是钥匙：知道整条地址的人都能读写你的空间。要换就删掉这个文件再起。窗口关掉入口和隧道就都停；临时隧道每次地址都不同，重开后要在 ChatGPT 里改连接器地址。只开这个入口，8780 本身不上公网。

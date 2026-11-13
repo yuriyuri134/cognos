@@ -78,12 +78,28 @@ final class NormApiController extends OCSController {
             return new DataResponse(['space' => ['id' => $space['id'], 'title' => $space['title'], 'linked' => $this->linkedText($uid, $space['id'], $linked_id, $from)]]);
         }
         $out['linked'] = $this->linkedText($uid, $space['id']);
+        // 你（这个空间的主体）自己写的自述，最新一版；以前几版只给改了什么，要看全文在空间页上
+        $out['self'] = $space['self'] === null ? null : [
+            'version' => $space['self']['version'], 'text' => $space['self']['text'], 'written' => date('n/j H:i', $space['self']['created_at']),
+            'changed' => $space['self']['changed'], 'why' => $space['self']['why'], 'unchanged' => $space['self']['unchanged'],
+        ];
+        // 你自己读完全部原话以后写的总观和历史各段（条目和原话在空间页「历史」那一栏）
+        $out['overview'] = $space['overview'] === null ? null : ['version' => $space['overview']['version'], 'written' => date('n/j H:i', $space['overview']['created_at']),
+            'now' => $space['overview']['now'], 'lines' => array_map(static fn(array $l): array => array_diff_key($l, ['refs' => 1]), $space['overview']['lines']),
+            'yours' => array_map(static fn(array $y): array => array_diff_key($y, ['refs' => 1]), $space['overview']['yours']), 'next' => $space['overview']['next']];
+        $stages = $this->norm->stagesLatest($uid, $space['id']);
+        $out['history'] = $stages === null ? null : array_map(static fn(array $s): array => ['title' => $s['title'],
+            'from' => isset($s['from']) ? date('n/j', (int)$s['from']) : null, 'to' => isset($s['to']) ? date('n/j', (int)$s['to']) : null,
+            'text' => $s['text'], 'turn' => $s['turn'], 'kept' => $s['kept'], 'entries' => count($s['entries'] ?? [])], $stages['stages']);
+        $out['self_before'] = array_map(static fn(array $v): array => ['version' => $v['version'], 'written' => date('n/j H:i', $v['created_at']),
+            'changed' => $v['changed'], 'why' => $v['why'], 'source' => $v['source']], array_slice($space['self_history'], 1, 5));
         $out['formats'] = [
             'stages' => '[{"when": "时间", "title": "这一段叫什么", "text": "发生了什么", "current": true 只给现在这段, "proposed": true 是你提出、等人定的}]',
             'branches' => '[{"title": "分支", "parts": [{"title": "部分", "text": "说明"}]}]',
             'relations' => '{"nodes": [{"id": "…", "label": "…", "kind": "project|branch|attempt", "state": "…"}], "edges": [{"from": "…", "to": "…", "label": "可选"}]}',
             'compare' => '[{"title": "办法 A", "text": "它是什么", "result": "试下来怎样", "state": "在试|有结果|放下了"}]',
             'doc' => '一段文字（可以用 Markdown）',
+            'self' => '{"text": "改完以后的整份自述，第一人称，700 字以内", "changed": "这次改了什么", "why": "为什么改", "unchanged": "这次什么没变"}',
         ];
         return new DataResponse(['space' => $out]);
     }
@@ -95,6 +111,9 @@ final class NormApiController extends OCSController {
         if ($space === null) {
             return new DataResponse(['message' => '这段对话还没放进 Norm 的任何空间'], 404);
         }
+        if ($part === 'self') {
+            return $this->writeSelf($uid, $space, $content, $subject);
+        }
         try {
             $this->norm->writePart($uid, $space['id'], $part, $content, trim($subject) !== '' ? $subject : 'agent');
         } catch (\InvalidArgumentException $e) {
@@ -103,12 +122,46 @@ final class NormApiController extends OCSController {
         return new DataResponse(['message' => '改好了「' . $space['title'] . '」的' . NormService::PARTS[$part] . '。']);
     }
 
+    /** 这个空间的主体在对话里改自己的自述（write_part 的 part=self）。只追加一版，旧的都留着。 */
+    private function writeSelf(string $uid, array $space, mixed $content, string $subject): DataResponse {
+        if (is_string($content)) {
+            $decoded = json_decode($content, true);
+            $content = is_array($decoded) ? $decoded : ['text' => $content];
+        }
+        if (!is_array($content)) {
+            return new DataResponse(['message' => '自述的 content 要是 {"text": …, "changed": …, "why": …, "unchanged": …}'], 422);
+        }
+        $text = trim((string)($content['text'] ?? ''));
+        if ($text === '') {
+            return new DataResponse(['message' => 'text 是空的：给改完以后的整份自述'], 422);
+        }
+        if (mb_strlen($text) > NormService::SELF_MAX) {
+            return new DataResponse(['message' => '自述有 ' . mb_strlen($text) . ' 字，太长了：缩到 ' . NormService::SELF_MAX . ' 字以内（700 字左右最好），它是写给你自己看的，不是总结'], 422);
+        }
+        $first = $space['self'] === null;
+        $unchanged = trim((string)($content['unchanged'] ?? ''));
+        if (!$first && $unchanged === '') {
+            return new DataResponse(['message' => '写一句 unchanged：这次什么没变。改了以后你还是你，靠的就是这一句'], 422);
+        }
+        try {
+            $v = $this->norm->writeSelf($uid, $space['id'], $text, (string)($content['changed'] ?? ($first ? '第一次写' : '')),
+                (string)($content['why'] ?? ''), $first && $unchanged === '' ? '第一次写' : $unchanged,
+                '在对话里' . (trim($subject) !== '' ? '（' . trim($subject) . '）' : ''));
+        } catch (\InvalidArgumentException $e) {
+            return new DataResponse(['message' => $e->getMessage()], 422);
+        }
+        return new DataResponse(['message' => $v['new'] ? '记下了你的自述，第 ' . $v['version'] . ' 版。旧的每一版都还在。' : '和上一版一字不差，没有另记一版。']);
+    }
+
     #[NoAdminRequired]
-    public function note(string $spaceType, string $spaceId, string $kind = '', string $text = '', array $options = [], string $norm_space = '', string $subject = ''): DataResponse {
+    public function note(string $spaceType, string $spaceId, string $kind = '', string $text = '', array $options = [], string $norm_space = '', string $subject = '', string $pull = '', string $quote = ''): DataResponse {
         $uid = $this->uid();
         $space = $this->resolve($uid, $spaceType, $spaceId, $norm_space);
         if ($space === null) {
             return new DataResponse(['message' => '这段对话还没放进 Norm 的任何空间'], 404);
+        }
+        if ($kind === 'correction') {
+            return $this->correction($uid, $space, (int)$spaceId, $pull, $text, $quote, trim($subject) !== '' ? $subject : 'agent');
         }
         try {
             $id = $this->norm->addEvent($uid, $space['id'], $kind, $text, $options, trim($subject) !== '' ? $subject : 'agent');
@@ -116,6 +169,54 @@ final class NormApiController extends OCSController {
             return new DataResponse(['message' => $e->getMessage()], 422);
         }
         return new DataResponse(['message' => ($kind === 'decide' ? '留给交互对象定了' : '记下了') . '。他打开「' . $space['title'] . '」时会看到。']);
+    }
+
+    /**
+     * 交互对象纠正了 agent：从这段对话里找出他那句话（最近一句他说的；给了 quote 就找含这几个字的最近一句）
+     * 和它前面最近的一条 AI 回答，连同 agent 自己说的漏在哪，记成这个空间的一次纠正。
+     */
+    private function correction(string $uid, array $space, int $creationId, string $pull, string $how, string $quote, string $who): DataResponse {
+        $messages = $this->creations->getMessages($creationId, $uid);
+        $quote = trim($quote);
+        $said = null;
+        for ($i = count($messages) - 1; $i >= 0; $i--) {
+            if ($messages[$i]['role'] !== 'user') {
+                continue;
+            }
+            if ($quote === '' || mb_strpos((string)$messages[$i]['content'], $quote) !== false) {
+                $said = $i;
+                break;
+            }
+        }
+        if ($said === null && $quote !== '') {
+            return new DataResponse(['message' => '这段对话里找不到他说过「' . $quote . '」。quote 要一字不差摘他的话，或者不给。'], 422);
+        }
+        if ($said === null) {
+            return new DataResponse(['message' => '这段对话里还没有他说的话'], 422);
+        }
+        $before = null;
+        for ($i = $said - 1; $i >= 0; $i--) {
+            if ($messages[$i]['role'] === 'assistant') {
+                $before = $messages[$i];
+                break;
+            }
+        }
+        $creation = $this->creations->get($creationId, $uid);
+        try {
+            $got = $this->norm->addCorrection($uid, $space['id'], [
+                'pull' => $pull, 'how' => $how,
+                'said' => (string)$messages[$said]['content'], 'said_id' => (int)$messages[$said]['id'], 'said_at' => (int)$messages[$said]['created_at'],
+                'before' => $before !== null ? (string)$before['content'] : '', 'before_id' => $before !== null ? (int)$before['id'] : 0,
+                'before_who' => $before !== null ? (string)($before['author'] ?? '') : '',
+                'conversation' => $creationId, 'title' => is_array($creation) ? (string)($creation['title'] ?? '') : '',
+                'source' => 'agent', 'who' => $who,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return new DataResponse(['message' => $e->getMessage()], 422);
+        }
+        return new DataResponse(['message' => $got['new']
+            ? '记下了这次纠正（' . $pull . '），在「' . $space['title'] . '」的「被纠正」里。以后进这个空间时你会看到它。现在接着回答他。'
+            : '这句话已经记过一次了，没有再记。接着回答他。']);
     }
 
     /**
@@ -192,7 +293,8 @@ final class NormApiController extends OCSController {
         }
         $space = $this->norm->spaceByConversation($uid, $cid);
         if ($space !== null) {
-            return $space;
+            // project() 才带着自述
+            return $this->norm->project($uid, $space['id']);
         }
         $linked = $this->norm->linkedSpace($uid, $cid);
         return $linked === null ? null : $this->norm->project($uid, $linked['space']['id']);

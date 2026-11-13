@@ -7,27 +7,26 @@
     <div>
       <a href="/index.php/apps/cognos/" class="cognos-back-link">← Cognos</a>
       <h1>Initium</h1>
-      <p>写下什么都行。写下就进对话，agent 会自己读，接着展开。</p>
+      <p>在这里找回以前的会话，或开始新的讨论。完整对话在会话页内阅读和继续。</p>
     </div>
     <a href="/index.php/apps/cognos/norm" class="cognos-secondary">Norm →</a>
   </header>
 
-  <section id="cognos-new-creation-form" class="cognos-new-creation-form">
-    <form id="cognos-creation-form">
-      <label for="cognos-creation-message" class="cognos-sr">写下的</label>
-      <textarea id="cognos-creation-message" maxlength="8000" rows="4" required placeholder="想到的、读到的、想试试的……"></textarea>
-      <div class="cognos-form-actions">
-        <button class="cognos-primary" type="submit">写下</button>
-      </div>
-      <span id="cognos-creation-status" role="status"></span>
-    </form>
+  <section class="cognos-creation-launcher" aria-label="开始新会话">
+    <button class="cognos-primary" id="cognos-start-conversation" type="button">新建对话</button>
+    <span id="cognos-creation-status" role="status" aria-live="polite"></span>
   </section>
 
   <section class="cognos-creations-list" aria-label="创立列表">
+    <div class="cognos-creations-heading">
+      <h2>历史会话</h2><div class="cognos-filter-tabs" role="group" aria-label="对话筛选"><button type="button" class="cognos-tab is-active" data-filter="regular">日常对话</button><button type="button" class="cognos-tab" data-filter="all">全部</button><button type="button" class="cognos-tab" data-filter="verify">验证与脚本</button></div>
+      <input id="cognos-creation-search" type="search" placeholder="按标题查找会话" aria-label="查找会话">
+    </div>
+    <p class="cognos-creations-note">这里显示 Initium 的会话。Norm 空间自己的对话请在 Norm 查看。</p>
     <div id="cognos-creations-loading" class="cognos-loading">加载中...</div>
     <div id="cognos-creations-empty" class="cognos-empty" hidden>
       <p>还没有创立</p>
-      <p>在上面写下第一句</p>
+      <p>点击「新建对话」开始</p>
     </div>
     <div id="cognos-creations-grid" class="cognos-creations-grid"></div>
   </section>

@@ -5,9 +5,10 @@
   const app = '/index.php/apps/cognos';
   function node(tag, text, cls) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; }
   function card(s) {
-    const a = node('a', undefined, 'cg-card' + (s.is_main ? ' cg-card-main' : ''));
+    const a = node('a', undefined, 'cg-card' + (s.is_main || s.is_self ? ' cg-card-main' : '') + (s.is_self ? ' cg-card-self' : ''));
     a.href = app + '/norm/projects/' + s.id;
-    a.append(node('span', (s.is_main ? '主项目 · ' : '') + (s.board || '带着自己的做法')), node('strong', s.title));
+    const badge = s.is_self ? 'Cognos 自己 · 内观' : ((s.is_main ? '主项目 · ' : '') + (s.board || '带着自己的做法'));
+    a.append(node('span', badge), node('strong', s.title));
     if (s.summary) a.append(node('span', s.summary));
     const marks = [];
     if (s.waiting) marks.push(s.waiting + ' 件等你定');
@@ -19,7 +20,11 @@
     .then(r => r.json()).then(data => {
       const spaces = data.projects || [];
       window.CognosNormNav.render($('cg-nav'), spaces, { current: 'norm' });
-      $('cg-norm-meta').textContent = spaces.length ? spaces.length + ' 个空间' : '';
+      const regularCount = spaces.filter(s => !s.is_self).length;
+      const selfCount = spaces.length - regularCount;
+      $('cg-norm-meta').textContent = spaces.length
+        ? (regularCount + ' 个空间' + (selfCount ? ' · 含 Cognos 内观' : ''))
+        : '';
       $('cg-norm-cards').replaceChildren(...(spaces.length ? spaces.map(card) : [node('p', '还没有空间。Initium 里的对话读者读过以后会放进来。', 'cg-hint')]));
       window.CognosChatBox.mount($('cg-norm-chat'), data.conversation_id);
     }).catch(() => { $('cg-norm-cards').textContent = '读不到 Norm，刷新试试。'; });

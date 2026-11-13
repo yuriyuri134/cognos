@@ -1,0 +1,4 @@
+/* 精简 Nextcloud 顶部应用导航：只保留 Cognos、Files、Collectives，其余隐藏 */
+.app-menu__popover a[href*="/apps/"]:not([href*="/apps/cognos"]):not([href*="/apps/files"]):not([href*="/apps/collectives"]) {
+  display: none !important;
+}

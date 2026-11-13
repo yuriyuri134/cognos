@@ -7,6 +7,7 @@ namespace OCA\Cognos\Controller;
 use OCA\Cognos\Service\ClaudeBridgeService;
 use OCA\Cognos\Service\ContinuationService;
 use OCA\Cognos\Service\CreationSpaceService;
+use OCA\Cognos\Service\FilesService;
 use OCA\Cognos\Service\HermesAgentService;
 use OCA\Cognos\Service\NormService;
 use OCA\Cognos\Service\PushBackService;
@@ -17,6 +18,7 @@ use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\Http\StreamResponse;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IConfig;
 use OCP\IRequest;
@@ -37,6 +39,7 @@ final class CreationSpaceController extends Controller {
         private IConfig $config,
         private RunService $runs,
         private NormService $norm,
+        private FilesService $files,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -52,12 +55,14 @@ final class CreationSpaceController extends Controller {
     #[NoAdminRequired]
     #[NoCSRFRequired]
     public function detail(int $id): TemplateResponse {
-        // space-panel 要先于 creation-detail 载入，后者 init 时会调 window.CognosSpacePanel
-        // 右边是读者（readers.js）；它要在 creation-detail.js 之前，那边一开始就叫它
+        // chat-box（提供 CognosMd / CognosUsage）、agent-pick、file-picker、readers 先于 creation-detail 载入
+        Util::addScript('cognos', 'chat-box');
         Util::addScript('cognos', 'agent-pick');
+        Util::addScript('cognos', 'file-picker');
         Util::addScript('cognos', 'readers');
         Util::addScript('cognos', 'creation-detail');
         Util::addStyle('cognos', 'creation-detail');
+        Util::addStyle('cognos', 'file-picker');
         Util::addStyle('cognos', 'norm');
         return new TemplateResponse('cognos', 'creation-detail', ['creationId' => $id]);
     }
@@ -91,12 +96,16 @@ final class CreationSpaceController extends Controller {
             $body = $this->request->getParams();
             $title = (string)($body['title'] ?? '');
             $initialMessage = (string)($body['initialMessage'] ?? '');
+            $agent = (string)($body['agent'] ?? '');
 
             if (empty($title)) {
                 return new DataResponse(['message' => 'Title is required'], 422);
             }
 
             $creation = $this->creations->create($user->getUID(), $title, $initialMessage);
+            if (in_array($agent, ['claude', 'gpt', 'chatgpt'], true)) {
+                $this->config->setUserValue($user->getUID(), 'cognos', 'agent_c' . $creation['id'], $agent);
+            }
             return new DataResponse(['creation' => $creation], 201);
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
@@ -120,6 +129,176 @@ final class CreationSpaceController extends Controller {
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch creation'], 500);
         }
+    }
+
+    #[NoAdminRequired]
+    public function rename(int $id): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        try {
+            $title = (string)($this->request->getParams()['title'] ?? '');
+            $creation = $this->creations->rename($id, $user->getUID(), $title);
+            return new DataResponse(['creation' => $creation]);
+        } catch (\InvalidArgumentException $error) {
+            $code = str_contains($error->getMessage(), 'Creation') ? 404 : 422;
+            return new DataResponse(['message' => $error->getMessage()], $code);
+        } catch (\Throwable $error) {
+            return new DataResponse(['message' => 'Failed to rename creation'], 500);
+        }
+    }
+
+    #[NoAdminRequired]
+    public function chatgptTabs(int $id): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $uid = $user->getUID();
+        if ($this->creations->get($id, $uid) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        $res = $this->bridge->chatgptBrowserAction($uid, 'tabs', ['space_id' => (string)$id]);
+        unset($res['_ok'], $res['_status']);
+        return new DataResponse($res);
+    }
+
+    #[NoAdminRequired]
+    public function bindChatgpt(int $id): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $uid = $user->getUID();
+        if ($this->creations->get($id, $uid) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        $body = $this->request->getParams();
+        $rawUrl = trim((string)($body['url'] ?? ''));
+        $cleanUrl = $this->normalizeChatgptUrl($rawUrl);
+        if ($rawUrl !== '' && $cleanUrl === '') {
+            return new DataResponse(['message' => '只支持 https://chatgpt.com/c/... 格式的 ChatGPT 对话地址'], 422);
+        }
+        $messages = $this->creations->getMessages($id, $uid);
+        $history = array_map(static fn(array $m): array => [
+            'role' => $m['role'],
+            'content' => $m['content'],
+            'author' => $m['author'],
+        ], $messages);
+        $res = $this->bridge->chatgptBrowserAction($uid, 'bind', [
+            'space_id' => (string)$id,
+            'url' => $cleanUrl,
+            'history' => $history,
+        ]);
+        if (!($res['_ok'] ?? false)) {
+            return new DataResponse(['message' => $res['error'] ?? $res['message'] ?? '绑定失败'], $res['_status'] ?? 503);
+        }
+        unset($res['_ok'], $res['_status']);
+        return new DataResponse($res);
+    }
+
+    #[NoAdminRequired]
+    public function chatgptThread(int $id): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $uid = $user->getUID();
+        $creation = $this->creations->get($id, $uid);
+        if ($creation === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        $body = $this->request->getParams();
+        $mode = (string)($body['mode'] ?? 'import_bind');
+        if (!in_array($mode, ['import_bind', 'bind_only', 'pull'], true)) {
+            return new DataResponse(['message' => '无效的导入模式'], 422);
+        }
+        $rawUrl = trim((string)($body['url'] ?? ''));
+        $cleanUrl = $this->normalizeChatgptUrl($rawUrl);
+        if ($rawUrl !== '' && $cleanUrl === '') {
+            return new DataResponse(['message' => '只支持 https://chatgpt.com/c/... 格式的 ChatGPT 对话地址'], 422);
+        }
+        $pageId = $body['pageId'] ?? null;
+        if ($mode === 'bind_only') {
+            $messages = $this->creations->getMessages($id, $uid);
+            $history = array_map(static fn(array $m): array => [
+                'role' => $m['role'],
+                'content' => $m['content'],
+                'author' => $m['author'],
+            ], $messages);
+            $res = $this->bridge->chatgptBrowserAction($uid, 'bind', [
+                'space_id' => (string)$id,
+                'url' => $cleanUrl,
+                'history' => $history,
+            ]);
+            if (!($res['_ok'] ?? false)) {
+                return new DataResponse(['message' => $res['error'] ?? $res['message'] ?? '绑定失败'], $res['_status'] ?? 503);
+            }
+            unset($res['_ok'], $res['_status']);
+            return new DataResponse($res);
+        }
+        if ($mode === 'pull' && $cleanUrl === '' && ($pageId === null || $pageId === '')) {
+            $status = $this->bridge->chatgptBrowserAction($uid, 'status', ['space_id' => (string)$id]);
+            $boundUrl = (string)($status['bound']['url'] ?? '');
+            $cleanUrl = $this->normalizeChatgptUrl($boundUrl);
+            if ($cleanUrl === '') {
+                return new DataResponse(['message' => '还没有绑定过 ChatGPT 对话'], 422);
+            }
+        }
+        $thread = $this->bridge->chatgptBrowserAction($uid, 'thread', [
+            'pageId' => $pageId,
+            'url' => $cleanUrl !== '' ? $cleanUrl : null,
+        ]);
+        if (!($thread['_ok'] ?? false) || empty($thread['url'])) {
+            return new DataResponse(
+                ['message' => $thread['error'] ?? $thread['message'] ?? '没能读取这条 ChatGPT 对话'],
+                ($thread['_status'] ?? 503) >= 400 ? (int)$thread['_status'] : 503
+            );
+        }
+        $turns = is_array($thread['turns'] ?? null) ? $thread['turns'] : [];
+        if ($turns === []) {
+            return new DataResponse(['message' => '这条 ChatGPT 页面里还没有读到对话消息'], 422);
+        }
+        $imported = $this->creations->importMessages($id, $uid, $turns);
+        if ($creation['title'] === '新对话' && !empty($thread['title'])) {
+            $creation = $this->creations->rename($id, $uid, (string)$thread['title']);
+        }
+        $history = array_map(static fn(array $m): array => [
+            'role' => $m['role'],
+            'content' => $m['content'],
+            'author' => $m['author'],
+        ], $imported['all_messages']);
+        $bindRes = $this->bridge->chatgptBrowserAction($uid, 'bind', [
+            'space_id' => (string)$id,
+            'url' => (string)$thread['url'],
+            'history' => $history,
+        ]);
+        return new DataResponse([
+            'ok' => true,
+            'creation' => $creation,
+            'bound' => $bindRes['bound'] ?? ['url' => (string)$thread['url']],
+            'imported' => $imported['imported'],
+            'skipped' => $imported['skipped'],
+            'messages' => $imported['all_messages'],
+            'title' => (string)($thread['title'] ?? ''),
+        ]);
+    }
+
+    private function normalizeChatgptUrl(string $raw): string {
+        $s = trim($raw);
+        if ($s === '') {
+            return '';
+        }
+        $parts = parse_url($s);
+        if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') !== 'chatgpt.com') {
+            return '';
+        }
+        $path = rtrim((string)($parts['path'] ?? ''), '/');
+        if (!preg_match('#^/(?:g/[A-Za-z0-9-]+/)?c/[A-Za-z0-9-]+$#', $path)) {
+            return '';
+        }
+        return 'https://chatgpt.com' . $path;
     }
 
     #[NoAdminRequired]
@@ -160,7 +339,9 @@ final class CreationSpaceController extends Controller {
                 $context['messages'] = $upTo;
                 $userMessage = null;
             } else {
+                $isFirstMessage = $context['messages'] === [];
                 $userMessage = $this->creations->addMessage($id, $user->getUID(), 'user', $message);
+                if ($isFirstMessage) $this->creations->titleFromFirstMessage($id, $user->getUID(), $message);
                 $context = $this->creations->getContext($id, $user->getUID());
             }
             $saved = $userMessage === null ? [] : [$userMessage];
@@ -181,7 +362,7 @@ final class CreationSpaceController extends Controller {
                     'messages' => $saved,
                     'pending' => true,
                     'queued' => true,
-                    'who' => $this->bridge->subjectFor('creation', (string)$id),
+                    'who' => ($this->runs->activeForSpace('creation', (string)$id)[0]['subject'] ?? $this->bridge->subjectFor('creation', (string)$id)),
                 ]);
             } catch (\Throwable $error) {
                 // 原话已经留下了，只是没叫来人：把它和原因一起回给页面，别让人以为没发出去再发一遍
@@ -192,14 +373,14 @@ final class CreationSpaceController extends Controller {
             }
 
             if ($agentResponse === null) {
-                // Claude Code 在本机接着做，做完自己把回答发回来
-                return new DataResponse(['messages' => $saved, 'pending' => true, 'who' => $this->bridge->subjectFor('creation', (string)$id)]);
+                // 实际运行者接着做，完成后把回答发回原对话
+                return new DataResponse(['messages' => $saved, 'pending' => true, 'who' => ($this->runs->activeForSpace('creation', (string)$id)[0]['subject'] ?? $this->bridge->subjectFor('creation', (string)$id))]);
             }
 
             $agentMessage = $this->creations->addMessage($id, $user->getUID(), 'assistant', $agentResponse, $replyTo);
 
             return new DataResponse([
-                'messages' => array_merge($saved, [$agentMessage])
+                'messages' => $agentMessage['archived'] ? $saved : array_merge($saved, [$agentMessage])
             ]);
         } catch (\InvalidArgumentException $error) {
             return new DataResponse(['message' => $error->getMessage()], 422);
@@ -208,7 +389,7 @@ final class CreationSpaceController extends Controller {
         }
     }
 
-    /** 改你说过的一句（它后面的对话一起去掉），页面接着用这句再叫一次 agent。 */
+    /** 保存原对话并用修订后的消息继续。 */
     #[NoAdminRequired]
     public function editMessage(int $id, int $messageId): DataResponse {
         return $this->changeMessage($id, function (string $uid) use ($id, $messageId) {
@@ -218,10 +399,15 @@ final class CreationSpaceController extends Controller {
         });
     }
 
-    /** 删掉一句（你说的话连同回它的回答）。 */
+    /** 从当前对话收起一句及其回答，保留原对话。 */
     #[NoAdminRequired]
     public function deleteMessage(int $id, int $messageId): DataResponse {
         return $this->changeMessage($id, fn(string $uid) => $this->creations->deleteMessage($id, $uid, $messageId));
+    }
+
+    #[NoAdminRequired]
+    public function restoreRevision(int $id, int $revisionId): DataResponse {
+        return $this->changeMessage($id, fn(string $uid) => $this->creations->restoreRevision($id, $uid, $revisionId));
     }
 
     private function changeMessage(int $id, callable $change): DataResponse {
@@ -245,7 +431,7 @@ final class CreationSpaceController extends Controller {
     }
 
     #[NoAdminRequired]
-    public function getMessages(int $id): DataResponse {
+    public function getMessages(int $id, int $revision = 0, int $source = 0, bool $history = false): DataResponse {
         $user = $this->users->getUser();
         if (!$user) {
             return new DataResponse(['message' => 'Authentication required'], 401);
@@ -254,12 +440,19 @@ final class CreationSpaceController extends Controller {
             if ($this->creations->get($id, $user->getUID()) === null) {
                 return new DataResponse(['message' => 'Creation not found'], 404);
             }
-            $messages = $this->creations->getMessages($id, $user->getUID());
+            $data = $history || $source > 0 || $revision > 0
+                ? $this->creations->history($id, $user->getUID(), $revision, $source)
+                : ['messages' => $this->creations->getMessages($id, $user->getUID())];
+            if (($data['revision'] ?? 0) !== 0) {
+                return new DataResponse($data + ['pending' => false, 'runs' => []]);
+            }
             $runs = $this->runs->forSpace('creation', (string)$id);
             $active = $this->runs->activeForSpace('creation', (string)$id);
-            return new DataResponse(['messages' => $messages, 'pending' => $active !== [],
+            return new DataResponse($data + ['pending' => $active !== [],
                 'pending_who' => $active[0]['subject'] ?? null, 'runs' => $runs,
                 'usage' => $this->bridge->usage('creation', (string)$id)]);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 404);
         } catch (\Throwable $error) {
             return new DataResponse(['message' => 'Failed to fetch messages'], 500);
         }
@@ -452,5 +645,104 @@ final class CreationSpaceController extends Controller {
             'content' => $reason !== '' ? $reason : '这件完了', 'ref_id' => $openId, 'said_at' => time(),
         ]);
         return new DataResponse(['trace' => $trace], 201);
+    }
+
+    #[NoAdminRequired]
+    public function listFiles(int $id): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $uid = $user->getUID();
+        if ($this->creations->get($id, $uid) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        try {
+            $dir = (string)$this->request->getParam('dir', '');
+            $q = (string)$this->request->getParam('q', '');
+            return new DataResponse($this->files->browse($uid, $id, $dir, $q));
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        } catch (\Throwable $error) {
+            return new DataResponse(['message' => '读取文件列表失败：' . $error->getMessage()], 500);
+        }
+    }
+
+    #[NoAdminRequired]
+    public function uploadFile(int $id): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $uid = $user->getUID();
+        if ($this->creations->get($id, $uid) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        $uploaded = $this->request->getUploadedFile('file');
+        if (!is_array($uploaded)) {
+            return new DataResponse(['message' => '没有收到上传文件'], 422);
+        }
+        try {
+            $meta = $this->files->upload($uid, $id, $uploaded);
+            return new DataResponse(['file' => $meta], 201);
+        } catch (\InvalidArgumentException $error) {
+            return new DataResponse(['message' => $error->getMessage()], 422);
+        } catch (\Throwable $error) {
+            return new DataResponse(['message' => '上传文件失败：' . $error->getMessage()], 500);
+        }
+    }
+
+    #[NoAdminRequired]
+    public function readFile(int $id, int $fileId): DataResponse {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $uid = $user->getUID();
+        if ($this->creations->get($id, $uid) === null) {
+            return new DataResponse(['message' => 'Creation not found'], 404);
+        }
+        try {
+            $file = $this->files->getFileForUser($uid, $fileId);
+            if ($file === null) {
+                return new DataResponse(['message' => '找不到该文件'], 404);
+            }
+            return new DataResponse([
+                'file' => $this->files->describeFile($uid, $file),
+                'excerpt' => $this->files->readTextExcerpt($file),
+            ]);
+        } catch (\Throwable $error) {
+            return new DataResponse(['message' => '读取文件失败：' . $error->getMessage()], 500);
+        }
+    }
+
+    #[NoAdminRequired]
+    #[NoCSRFRequired]
+    public function rawFile(int $fileId) {
+        $user = $this->users->getUser();
+        if (!$user) {
+            return new DataResponse(['message' => 'Authentication required'], 401);
+        }
+        $file = $this->files->getFileForUser($user->getUID(), $fileId);
+        if ($file === null) {
+            return new DataResponse(['message' => 'File not found'], 404);
+        }
+        $stream = $file->fopen('rb');
+        if (!is_resource($stream)) {
+            return new DataResponse(['message' => 'Unable to read file'], 500);
+        }
+        $mime = (string)$file->getMimeType();
+        if ($mime === '') {
+            $mime = 'application/octet-stream';
+        }
+        $inline = $this->files->isInlineSafeMime($mime);
+        $disposition = ($inline ? 'inline' : 'attachment') . "; filename*=UTF-8''" . rawurlencode($file->getName());
+        return new StreamResponse($stream, 200, [
+            'Content-Type' => $inline ? $mime : 'application/octet-stream',
+            'Content-Disposition' => $disposition,
+            'Content-Length' => (string)$file->getSize(),
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, max-age=300',
+        ]);
     }
 }

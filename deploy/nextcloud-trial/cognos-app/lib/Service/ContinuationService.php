@@ -30,6 +30,7 @@ final class ContinuationService {
         private SpaceService $spaces,
         private SpaceEntryService $entries,
         private ClaudeBridgeService $bridge,
+        private NormService $norm,
         private IConfig $config,
         private LoggerInterface $logger,
     ) {
@@ -78,9 +79,11 @@ final class ContinuationService {
 
         $subject = $this->bridge->subjectFor($spaceType, $spaceId);
         $message = $this->message($open, $force);
+        // 这段对话要是一个 Norm 空间自己的那段，自己接着走时也带上它的自述、历史、总观和纠正：交互对象不在时，量自己用的还是自己早先写下的那把尺子
         $entry = $this->entries->entry($space, $subject, ['caller' => 'Cognos（#' . $openId . ' 还没完）', 'message' => $message], array_merge(
             $this->bridge->canDo($spaceType, $spaceId),
             ['stop_here：记下这一次停在哪（open_id=' . $openId . '）。不记，Cognos 就不知道从哪接着。'],
+            $spaceType === 'creation' ? $this->norm->agentLines($uid, (int)$spaceId) : [],
         ));
         try {
             // history 是空的：从口子接着走，不从整段对话重新开始

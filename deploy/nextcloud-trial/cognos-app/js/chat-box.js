@@ -11,20 +11,60 @@
     const body = await r.json().catch(() => ({}));
     return { ok: r.ok, body };
   }
-  // agent 的回答多半是 Markdown：照格式显示（粗体、标题、列表、代码、引用、链接），不露出 ** 和 #。
+  // agent 的回答多半是 Markdown：照格式显示（粗体、标题、列表、表格、代码、引用、链接与裸网址），不露出 ** 和 #。
   // 只建 DOM 节点、只用 textContent，不拼 HTML，回答里有什么尖括号都只是字。
+  function appendBareUrl(parent, raw) {
+    let url = raw;
+    let suffix = '';
+    while (/[。，；：、？！.,;:!?]$/.test(url)) { suffix = url.slice(-1) + suffix; url = url.slice(0, -1); }
+    while (url.endsWith(')') && (url.match(/\(/g) || []).length < (url.match(/\)/g) || []).length) {
+      suffix = ')' + suffix; url = url.slice(0, -1);
+    }
+    while (url.endsWith(']') && (url.match(/\[/g) || []).length < (url.match(/\]/g) || []).length) {
+      suffix = ']' + suffix; url = url.slice(0, -1);
+    }
+    if (!url || !/^https?:\/\/\S+/.test(url)) {
+      parent.append(document.createTextNode(raw));
+      return;
+    }
+    const a = node('a', url);
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    parent.append(a);
+    if (suffix) parent.append(document.createTextNode(suffix));
+  }
   function inline(parent, text) {
-    const re = /\*\*(.+?)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
+    const re = /\*\*(.+?)\*\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<>"'`\u3002\uff0c\uff1b\uff1a\u3001\uff1f\uff01]+)/g;
     let at = 0; let m;
     while ((m = re.exec(text))) {
       if (m.index > at) parent.append(document.createTextNode(text.slice(at, m.index)));
       // 粗体里还可以有代码、链接：接着往里拆
       if (m[1] !== undefined) { const b = node('strong'); inline(b, m[1]); parent.append(b); }
       else if (m[2] !== undefined) parent.append(node('code', m[2]));
-      else { const a = node('a', m[3]); a.href = m[4]; a.target = '_blank'; a.rel = 'noopener noreferrer'; parent.append(a); }
+      else if (m[3] !== undefined) { const a = node('a', m[3]); a.href = m[4]; a.target = '_blank'; a.rel = 'noopener noreferrer'; parent.append(a); }
+      else appendBareUrl(parent, m[5]);
       at = re.lastIndex;
     }
     if (at < text.length) parent.append(document.createTextNode(text.slice(at)));
+  }
+  function splitTableRow(line) {
+    let s = line.trim();
+    if (s.startsWith('|')) s = s.slice(1);
+    if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
+    const cells = []; let cur = '';
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '\\' && s[i + 1] === '|') { cur += '|'; i++; continue; }
+      if (s[i] === '|') { cells.push(cur.trim()); cur = ''; continue; }
+      cur += s[i];
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+  function parseTableAlign(line, cols) {
+    if (!line || !line.includes('|')) return null;
+    const raw = splitTableRow(line);
+    if (raw.length < 1 || !raw.every(c => /^:?-{2,}:?$/.test(c))) return null;
+    if (cols && raw.length !== cols && !(raw.length >= 2 && cols >= 2)) return null;
+    return raw.map(c => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : ''));
   }
   function md(text) {
     const out = document.createDocumentFragment();
@@ -39,6 +79,43 @@
         const pre = node('pre'); pre.append(node('code', code.join('\n'))); out.append(pre); end(); continue;
       }
       if (!line.trim()) { end(); continue; }
+      const att = window.CognosFilePicker?.parseAttachmentLine?.(line);
+      if (att) {
+        end();
+        out.append(window.CognosFilePicker.createAttachmentCard(att));
+        continue;
+      }
+      if (line.includes('|') && i + 1 < lines.length) {
+        const header = splitTableRow(line);
+        const aligns = header.length >= 2 ? parseTableAlign(lines[i + 1], header.length) : null;
+        if (aligns) {
+          end();
+          const wrap = node('div', undefined, 'cg-md-table-wrap');
+          const table = node('table');
+          const thead = node('thead'); const htr = node('tr');
+          header.forEach((cell, c) => {
+            const th = node('th');
+            if (aligns[c]) th.style.textAlign = aligns[c];
+            inline(th, cell); htr.append(th);
+          });
+          thead.append(htr); table.append(thead);
+          const tbody = node('tbody');
+          for (i += 2; i < lines.length; i++) {
+            const rowLine = lines[i];
+            if (!rowLine.trim() || !rowLine.includes('|') || /^\s*```/.test(rowLine)) { i--; break; }
+            const cells = splitTableRow(rowLine);
+            const tr = node('tr');
+            const n = Math.max(header.length, cells.length);
+            for (let c = 0; c < n; c++) {
+              const td = node('td');
+              if (aligns[c]) td.style.textAlign = aligns[c];
+              inline(td, cells[c] || ''); tr.append(td);
+            }
+            tbody.append(tr);
+          }
+          table.append(tbody); wrap.append(table); out.append(wrap); continue;
+        }
+      }
       let m;
       if ((m = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line))) { const h = node('p', undefined, 'cg-md-h'); inline(h, m[1].replace(/\s*#+\s*$/, '')); out.append(h); end(); continue; }
       if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { out.append(node('hr')); end(); continue; }
@@ -56,6 +133,14 @@
     return out;
   }
   window.CognosMd = { render: md };
+  function hmShort(ts) {
+    const n = Number(ts);
+    if (!n) return '';
+    const d = new Date(n * 1000);
+    const now = new Date();
+    const t = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    return d.toDateString() === now.toDateString() ? t : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + t;
+  }
   function whoName(a) { return !a ? 'Agent' : a === 'GPT' || a === 'Codex' ? 'GPT' : /claude|cognos/i.test(a) ? 'Claude' : a; }
   function mount(root, creationId, opts) {
     opts = opts || {};
@@ -92,17 +177,21 @@
     const input = node('textarea'); input.rows = 3; input.placeholder = opts.placeholder || '和 agent 说点什么（Enter 发送，Shift+Enter 换行）'; input.setAttribute('aria-label', '和 agent 说的话');
     const send = node('button', '发送'); send.type = 'submit';
     form.append(input, send);
-    setTimeout(() => window.CognosAgentPick?.mount(form, creationId), 0);
-    const usageLine = node('p', '', 'cg-usage'); usageLine.hidden = true;
+    const filePicker = window.CognosFilePicker?.mount({ creationId, form, input }) || null;
+    setTimeout(() => window.CognosAgentPick?.mount(form, creationId, { onImport: () => { followLatest = true; load(); } }), 0);
+    const usageLine = node('div', '', 'cg-usage'); usageLine.hidden = true;
     // 「回到最新」放在对话里面、贴着底边浮着，不另占一行（消息都插在它前面）
     log.append(latest);
-    root.append(log, status, form, usageLine);
+    const versions = node('a', '查看会话版本', 'cg-small');
+    versions.href = base + creationId + '?versions=1';
+    versions.hidden = true;
+    root.append(log, status, form, usageLine, versions);
     let waiting = false; let timer = null; let editing = null;
-    // 像 ChatGPT 那样：改你说的一句，后面的都去掉，用改过的这句重新回；删一句，连回它的回答一起删
-    function actions(m) {
+    // 编辑和删除保存历史版本；保留未回答消息的重试入口。
+    function actions(m, trailingUnanswered) {
       const acts = node('div', undefined, 'cg-msg-acts');
       if (m.role === 'user') {
-        const edit = node('button', '改', 'cg-msg-act'); edit.type = 'button'; edit.title = '改这句，后面的对话会去掉，用改过的这句重新回';
+        const edit = node('button', '改', 'cg-msg-act'); edit.type = 'button'; edit.title = '改这句并继续，改动前的对话会保存';
         edit.addEventListener('click', () => startEdit(m));
         acts.append(edit);
       }
@@ -110,12 +199,26 @@
       del.title = m.role === 'user' ? '删掉这句和回它的回答' : '删掉这条回答';
       del.addEventListener('click', async () => {
         if (waiting || editing !== null) return;
-        if (!window.confirm(m.role === 'user' ? '删掉这句和回它的回答？' : '删掉这条回答？')) return;
+        if (!window.confirm(m.role === 'user' ? '从当前对话收起这句和回它的回答？旧版本会保留。' : '从当前对话收起这条回答？旧版本会保留。')) return;
         const r = await api(base + creationId + '/messages/' + m.id, undefined, 'DELETE');
         status.textContent = r.ok ? '' : (r.body.message || '没删成');
         await load();
       });
       acts.append(del);
+      if (trailingUnanswered) {
+        const recall = node('button', '再叫一次', 'cg-msg-act cg-msg-recall');
+        recall.type = 'button';
+        recall.title = '这句还没人回，用它再叫一次 agent';
+        recall.addEventListener('click', async () => {
+          if (waiting || editing !== null) return;
+          recall.disabled = true;
+          followLatest = true;
+          const again = await api(base + creationId + '/messages', { recall: m.id });
+          status.textContent = again.ok ? '' : '没叫来 agent：' + (again.body.message || '');
+          await load(); if (!waiting) setTimeout(load, 4000);
+        });
+        acts.append(recall);
+      }
       return acts;
     }
     function startEdit(m) {
@@ -138,7 +241,7 @@
         stop();
         if (!r.ok) { status.textContent = r.body.message || '没改成'; await load(); return; }
         followLatest = true;
-        const again = await api(base + creationId + '/messages', { recall: m.id });
+        const again = await api(base + creationId + '/messages', { recall: r.body.id });
         status.textContent = again.ok ? '' : '改好了，但没叫来 agent：' + (again.body.message || '');
         await load(); if (!waiting) setTimeout(load, 4000);
       });
@@ -151,22 +254,41 @@
       const present = new Set(); let changed = false;
       messages.forEach((m, i) => {
         const key = m.id ?? i; present.add(key);
-        const version = JSON.stringify([m.role, m.author, m.content]);
+        const trailingUnanswered = i === messages.length - 1 && m.role === 'user' && !waiting;
+        const version = JSON.stringify([m.role, m.author, m.content, m.created_at || 0, trailingUnanswered]);
         let row = rows.get(key);
         if (!row) {
           const b = node('div'); b.dataset.messageId = key;
-          b.append(node('span', '', 'cg-msg-who'), node('div', '', 'cg-msg-text'), node('div', undefined, 'cg-msg-acts'));
+          const head = node('div', undefined, 'cg-msg-head');
+          const who = node('span', '', 'cg-msg-who');
+          const tm = node('time', '', 'cg-msg-time');
+          head.append(who, tm);
+          b.append(head, node('div', '', 'cg-msg-text'), node('div', undefined, 'cg-msg-acts'));
           row = { element: b }; rows.set(key, row);
         }
         if (row.version !== version && editing !== key) {
           row.version = version; changed = true;
           row.element.className = 'cg-msg ' + (m.role === 'user' ? 'cg-msg-you' : 'cg-msg-agent');
           row.element.querySelector('.cg-msg-who').textContent = m.role === 'user' ? '你' : whoName(m.author);
-          // 你写的照原样显示；agent 的回答按 Markdown 显示
+          const timeEl = row.element.querySelector('.cg-msg-time');
+          const t = hmShort(m.created_at);
+          timeEl.textContent = t;
+          timeEl.hidden = !t;
+          if (t && m.created_at) timeEl.dateTime = new Date(Number(m.created_at) * 1000).toISOString();
+          // 你写的照原样显示（含 Nextcloud 附件卡片）；agent 的回答按 Markdown 显示
           const textBox = row.element.querySelector('.cg-msg-text');
-          if (m.role === 'user') { textBox.classList.remove('cg-md'); textBox.textContent = m.content; }
-          else { textBox.classList.add('cg-md'); textBox.replaceChildren(md(m.content)); }
-          row.element.querySelector('.cg-msg-acts').replaceWith(actions(m));
+          if (m.role === 'user') {
+            textBox.classList.remove('cg-md');
+            if (window.CognosFilePicker?.renderUserMessage) {
+              textBox.replaceChildren(window.CognosFilePicker.renderUserMessage(m.content));
+            } else {
+              textBox.textContent = m.content;
+            }
+          } else {
+            textBox.classList.add('cg-md');
+            textBox.replaceChildren(md(m.content));
+          }
+          row.element.querySelector('.cg-msg-acts').replaceWith(actions(m, trailingUnanswered));
         }
         if (log.children[i] !== row.element) log.insertBefore(row.element, log.children[i] || null);
       });
@@ -184,31 +306,54 @@
       }
     }
     async function load() {
-      const { ok, body } = await api(base + creationId + '/messages');
+      const { ok, body } = await api(base + creationId + '/messages?history=1');
       if (!ok) { status.textContent = body.message || '读不到这段对话'; return; }
+      waiting = !!body.pending;
+      versions.hidden = !body.revisions?.length;
       render(body.messages || []);
       window.CognosUsage?.show(usageLine, body.usage);
       const n = (body.messages || []).length;
       if (count >= 0 && n !== count && opts.onChange) opts.onChange();
       count = n;
-      waiting = !!body.pending;
       status.textContent = waiting ? (body.pending_who || 'Agent') + ' 在想，回答会出现在上面。' : '';
       clearTimeout(timer);
       if (waiting) timer = setTimeout(load, 4000);
     }
     form.addEventListener('submit', async e => {
       e.preventDefault();
-      const message = input.value.trim(); if (!message) return;
+      const raw = input.value.trim();
+      const hasAtt = !!filePicker?.hasAttachments();
+      if (!raw && !hasAtt) return;
+      const message = filePicker ? filePicker.buildMessage(raw) : raw;
+      if (!message) return;
       send.disabled = true;
       try {
         const { ok, body } = await api(base + creationId + '/messages', { message });
-        if (ok || (body.messages || []).length) { input.value = ''; followLatest = true; }
+        if (ok || (body.messages || []).length) {
+          input.value = '';
+          filePicker?.clear();
+          followLatest = true;
+        }
         status.textContent = ok ? '' : '没叫来 agent：' + (body.message || '') + '（你的话已经留下了）';
       } finally { send.disabled = false; await load(); if (!waiting) setTimeout(load, 4000); }
     });
     input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
-    load();
-    return { reload: load, show() {
+    // 历史里点「到对话里看」：停到那一句，闪一下
+    const first = load();
+    async function reveal(id) {
+      await first;
+      if (!rows.has(Number(id))) await load();
+      const row = rows.get(Number(id));
+      if (!row || !log.clientHeight) return false;
+      followLatest = false;
+      log.scrollTop += row.element.getBoundingClientRect().top - log.getBoundingClientRect().top - 24;
+      readingTop = log.scrollTop;
+      row.element.classList.add('cg-msg-found');
+      setTimeout(() => row.element.classList.remove('cg-msg-found'), 2600);
+      updateLatest();
+      return true;
+    }
+    return { reload: load, reveal, show() {
       if (followLatest) showLatest(); else log.scrollTop = readingTop;
     } };
   }

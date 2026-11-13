@@ -2,10 +2,13 @@
 import importlib.util
 import io
 import json
+import os
 import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -108,6 +111,121 @@ class OutboxTests(unittest.TestCase):
         self.assertEqual({"result_id": "b" * 32, "run_id": RUN_ID, "subject": "Claude Code", "content": "答"}, body)
 
 
+class _OkHandler(BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802
+        body = json.dumps({"ok": True}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):  # noqa: N802
+        length = int(self.headers.get("Content-Length", "0"))
+        _ = self.rfile.read(length)
+        self.server.received.append((self.path, self.headers.get("Authorization", "")))
+        body = json.dumps({"ocs": {"data": {"ok": True}}}).encode("utf-8")
+        self.send_response(201)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+class _RejectProxyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802
+        self._reject()
+
+    def do_POST(self):  # noqa: N802
+        self._reject()
+
+    def _reject(self):
+        self.server.hits += 1
+        self.send_response(502)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+class LoopbackProxyTests(unittest.TestCase):
+    def setUp(self):
+        self.backend = HTTPServer(("127.0.0.1", 0), _OkHandler)
+        self.backend.received = []
+        self.proxy = HTTPServer(("127.0.0.1", 0), _RejectProxyHandler)
+        self.proxy.hits = 0
+        for srv in (self.backend, self.proxy):
+            t = threading.Thread(target=srv.serve_forever, daemon=True)
+            t.start()
+            self.addCleanup(srv.server_close)
+            self.addCleanup(srv.shutdown)
+        self.backend_url = f"http://127.0.0.1:{self.backend.server_address[1]}"
+        self.proxy_url = f"http://127.0.0.1:{self.proxy.server_address[1]}"
+
+    def test_is_loopback_url_handles_ipv4_ipv6_localhost_and_remote_hosts(self):
+        for url in (
+            "http://127.0.0.1:8780/status.php",
+            "http://127.0.2.3:8780/test",
+            "http://localhost:8780",
+            "http://LOCALHOST.:8780/api",
+            "http://sub.localhost:8780/",
+            "http://[::1]:8780/status.php",
+        ):
+            self.assertTrue(bridge._is_loopback_url(url), url)
+        for url in (
+            "https://example.com/api",
+            "http://192.168.1.10:8780",
+            "http://10.0.0.2:8780",
+            "",
+        ):
+            self.assertFalse(bridge._is_loopback_url(url), url)
+
+    def test_cognos_post_bypasses_env_proxy_for_loopback(self):
+        env_patch = {"HTTP_PROXY": self.proxy_url, "HTTPS_PROXY": self.proxy_url, "ALL_PROXY": self.proxy_url}
+        with patch.dict(os.environ, env_patch, clear=False):
+            os.environ.pop("NO_PROXY", None)
+            os.environ.pop("no_proxy", None)
+            with patch.object(bridge, "COGNOS_URL", self.backend_url), patch.object(bridge, "APP_PASSWORD", "pw"):
+                bridge.cognos_post("spaces/creation/1/messages", {"hello": "world"})
+        self.assertEqual(0, self.proxy.hits)
+        self.assertEqual(1, len(self.backend.received))
+        self.assertEqual("/ocs/v2.php/apps/cognos/api/v1.0/spaces/creation/1/messages", self.backend.received[0][0])
+
+    def test_cognos_post_bypasses_cached_winreg_proxy_after_proxy_enable_turns_off(self):
+        try:
+            import winreg
+        except ImportError:
+            self.skipTest("Windows registry test only")
+        prev_opener = urllib.request._opener
+        urllib.request._opener = None
+        self.addCleanup(setattr, urllib.request, "_opener", prev_opener)
+        state = {"enable": 1}
+        real_qve = winreg.QueryValueEx
+
+        def fake_qve(key, name):
+            if name == "ProxyEnable":
+                return (state["enable"], 4)
+            if name == "ProxyServer":
+                return (f"127.0.0.1:{self.proxy.server_address[1]}", 1)
+            if name == "ProxyOverride":
+                return ("localhost;127.*;<local>", 1)
+            return real_qve(key, name)
+
+        with patch.dict(os.environ, {}, clear=False):
+            for k in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+                os.environ.pop(k, None)
+            with patch("winreg.QueryValueEx", side_effect=fake_qve), patch.object(bridge, "COGNOS_URL", self.backend_url), patch.object(bridge, "APP_PASSWORD", "pw"):
+                with bridge._open_url(self.backend_url + "/status.php", timeout=3) as resp:
+                    self.assertEqual(200, resp.status)
+                # Flip system proxy off after global opener would otherwise be pinned
+                state["enable"] = 0
+                bridge.cognos_post("spaces/creation/1/messages", {"hello": "world"})
+        self.assertEqual(0, self.proxy.hits)
+        self.assertEqual(1, len(self.backend.received))
 class ChangeReportTests(unittest.TestCase):
     """改了代码以后，回答末尾附一份报告（.md）：它的回答、改了哪些文件、检查、整份 diff。"""
 

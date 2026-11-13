@@ -12,7 +12,7 @@
                 <h1>材料起点</h1>
                 <p>材料属于当前 Nextcloud 账号；从这里开始的 Activity 会保留不可变来源快照。</p>
             </div>
-            <nav><a href="/index.php/apps/cognos/activities">Activity</a></nav>
+            <nav style="display:flex;gap:14px;flex-wrap:wrap"><a href="/index.php/apps/cognos/">首页</a><a href="/index.php/apps/cognos/creations">Initium</a><a href="/index.php/apps/cognos/norm">Norm</a></nav>
         </header>
         <section class="cognos-notes-toolbar">
             <button id="new-space" type="button">建立材料空间</button>

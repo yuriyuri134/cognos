@@ -1,5 +1,5 @@
 /* The two entries end to end, as cognos-admin in a real browser:
- * 1. Initium (/creations): write one line, press 写下, land in the conversation, and the agent answers by itself
+ * 1. Initium (/creations): start a blank conversation, write once inside it, and the agent answers by itself
  *    (nothing else clicked). 2. Norm: send one line in the chat box and get an answer.
  * Also screenshots home, Norm, and the cognos space page (chat in the middle, its parts on the right). Calls the real agent through the bridge, writes data.
  * Report in evidence/two-entries.json; screenshots evidence/two-entries-*.png.
@@ -17,13 +17,14 @@ live.run('two-entries', async checks => {
 
     // Initium
     await b.go(live.APP + '/creations');
-    await b.until('!!document.querySelector("#cognos-creation-message")');
-    await b.fill('#cognos-creation-message', line);
-    await b.click('#cognos-creation-form button[type=submit]');
+    await b.until('!!document.querySelector("#cognos-start-conversation")');
+    await b.click('#cognos-start-conversation');
     await b.until('/\\/creations\\/[0-9]+$/.test(location.pathname)');
+    await b.fill('#chat-input', line);
+    await b.click('#chat-input-form button[type=submit]');
     const cid = await b.evaluate('location.pathname.split("/").pop()');
     await b.until(`document.body.innerText.includes(${JSON.stringify(line)})`);
-    checks.push('Initium: line written, landed in conversation ' + cid + ' and the line is shown');
+    checks.push('Initium: new conversation opened and line sent once in ' + cid + ' and the line is shown');
     await b.until(agentReplied(cid, 1), 300 * 5); // up to ~5 min, nothing clicked
     await live.sleep(5000); // let the page's own poll render the reply
     await b.shoot('two-entries-initium-reply.png');
