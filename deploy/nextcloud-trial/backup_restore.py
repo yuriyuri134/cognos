@@ -173,7 +173,12 @@ def publish_ingress(state_file):
     raise RuntimeError('Isolated HTTP ingress did not become ready')
 
 def drill(args):
-    path=args.backup.resolve();m=verify_backup(path);token=uuid.uuid4().hex[:10];prefix='cognos-restore-'+token
+    path=args.backup.resolve();m=verify_backup(path)
+    candidate = None
+    if args.candidate_app:
+        from experimental_candidate import validate_candidate
+        candidate = validate_candidate(args.candidate_app, args.production_app or ROOT/'cognos-app', m['cognos_version'])
+    token=uuid.uuid4().hex[:10];prefix='cognos-restore-'+token
     stage=ROOT/'.restore-drills'/token;stage.parent.mkdir(exist_ok=True);private_dir(stage)
     # This extractor processes only the local credential archive; it never executes source code on the host.
     with tarfile.open(path/'host-secrets.tar.gz') as t:t.extractall(stage/'credentials',filter='data')
@@ -219,6 +224,10 @@ def drill(args):
     docker('start',state['app'])
     restored=fingerprint(state['app'],stage/'restored-database-state.json');original=json.loads((path/'database-state.json').read_text(encoding='utf-8'))
     if restored['tables']!=original['tables']:raise RuntimeError('Restored canonical rows/schema do not match the frozen source; quarantine preserved')
+    # First verify the exact backup. Only then replace code in the disposable, quarantined copy.
+    if candidate:
+        from experimental_candidate import install_candidate
+        state['candidate'] = install_candidate(candidate[0], candidate[1], state, m['images']['app'], docker, inspect, occ)
     # Unset the overlay maintenance flag only after exact pre-access state comparison; keep the dispatch guard.
     overlay.write_text(overlay.read_text(encoding='utf-8').replace("'maintenance'=>true","'maintenance'=>false"),encoding='utf-8');docker('cp',overlay,state['app']+':/var/www/html/config/zz-cognos-restore.config.php')
     state['files_match']=True;state['files_checked']=sum(files['counts'].values());state['database_match']=True;state['database_tables']=len(original['tables']);state['backup_sha256']=sha(path/'manifest.json');state['status']='ready_quarantined';save_json(stage/'state.json',state)
@@ -228,7 +237,8 @@ def drill(args):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
     b=sub.add_parser('backup');b.add_argument('--bridge-pid',type=int);b.add_argument('--bridge-no-commands',action='store_true');b.add_argument('--bridge-no-self-merge',action='store_true');b.add_argument('--extra-outbox',type=Path);b.add_argument('--skip-images',action='store_true')
-    d=sub.add_parser('drill');d.add_argument('backup',type=Path);d.add_argument('--port',type=int,default=8781)
+    d=sub.add_parser('drill');d.add_argument('backup',type=Path);d.add_argument('--port',type=int,default=8781);d.add_argument('--candidate-app',type=Path,help='Separate Cognos app checkout to install only in the quarantined restore')
+    d.add_argument('--production-app',type=Path,help='Original live Cognos app checkout; used only to reject it as the candidate source')
     v=sub.add_parser('verify');v.add_argument('backup',type=Path)
     p=sub.add_parser('publish-ingress');p.add_argument('state',type=Path)
     args=parser.parse_args()
