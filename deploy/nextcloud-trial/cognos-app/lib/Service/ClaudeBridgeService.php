@@ -96,10 +96,28 @@ final class ClaudeBridgeService {
      * @return string 这次运行的 id
      * @throws \RuntimeException 没接下；桥正忙时异常码是 self::BUSY
      */
+    public function chatgptBrowser(string $uid, bool $open = false): array {
+        $base = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
+        if (!str_ends_with($base, '/chat')) return ['ready'=>false, 'message'=>'本机聊天端桥入口未配置'];
+        try {
+            $r = $this->http->newClient()->post(substr($base, 0, -5) . '/chatgpt/browser', [
+                'headers'=>['Content-Type'=>'application/json', 'X-Cognos-Bridge-Token'=>$this->config->getAppValue('cognos', 'claude_bridge_token', '')],
+                'body'=>json_encode(['action'=>$open?'open':'status', 'caller_uid'=>$uid], JSON_THROW_ON_ERROR),
+                'timeout'=>20, 'http_errors'=>false, 'nextcloud'=>['allow_local_address'=>true],
+            ]);
+            return json_decode((string)$r->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) { return ['ready'=>false, 'message'=>'聊天端浏览器连接不可用']; }
+    }
+
     public function send(string $spaceType, string $spaceId, string $subject, string $system, array $history, string $message, string $caller, array $extra = []): string {
         $this->restoreGuard->assertExecutionAllowed();
         $url = $this->config->getAppValue('cognos', 'claude_bridge_url', 'http://host.docker.internal:8643/chat');
         $codex = ($extra['executor'] ?? null) === 'codex';
+        $chatgpt = ($extra['executor'] ?? null) === 'chatgpt';
+        if ($chatgpt) {
+            if ($subject !== 'ChatGPT' || $spaceType !== 'creation' || empty($extra['caller_uid']) || !str_ends_with($url, '/chat')) throw new \RuntimeException('无效的聊天端请求');
+            $url = substr($url, 0, -5) . '/chatgpt';
+        }
         if ($codex) {
             $default = str_ends_with($url, '/chat') ? substr($url, 0, -5) . '/codex' : '';
             $url = $this->config->getAppValue('cognos', 'codex_bridge_url', $default);
@@ -146,7 +164,7 @@ final class ClaudeBridgeService {
                     'message' => $message,
                     'caller' => $caller,
                     // Cognos 自己的空间：桥在仓库副本的新分支上做
-                    'repo' => !$codex && $this->isSelf($spaceType, $spaceId),
+                    'repo' => !$codex && !$chatgpt && $this->isSelf($spaceType, $spaceId),
                 ]), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
                 'timeout' => 30,
                 'http_errors' => false,
@@ -157,7 +175,7 @@ final class ClaudeBridgeService {
             if (self::neverConnected($error)) {
                 // 连都没连上（桥没起来、端口没人听）：请求没发出去，不会开工。记成没能开始，交出去的事可以再交一次。
                 $this->runs->failed($run['id'], '连不上桥，没有发出去：' . $error->getMessage());
-                throw new \RuntimeException(($codex ? 'Codex' : 'Claude Code') . ' 没接下这次：连不上桥，可能桥没起来。没有发出去，可以再交一次。');
+                throw new \RuntimeException(($codex ? 'Codex' : ($chatgpt ? 'ChatGPT' : 'Claude Code')) . ' 没接下这次：连不上桥，可能桥没起来。没有发出去，可以再交一次。');
             }
             $this->runs->dispatchUnknown($run['id'], '桥响应丢失，不能确认是否已经开工：' . $error->getMessage());
             throw new \RuntimeException('没有收到桥的确认，工作可能已经开始；已记为状态未知，请先核对，勿重复派发。');
@@ -175,9 +193,10 @@ final class ClaudeBridgeService {
         }
         $body = json_decode((string)$response->getBody(), true);
         $reason = is_array($body) ? (string)($body['error'] ?? '') : '';
-        if (in_array($status, [400, 401, 403, self::BUSY, 422], true) || ($codex && $status === 404)) {
+        // 聊天端没连上 Chrome（428）或连接服务不可用（503）：桥在开工前就拒了，没有发出去，连上后可以再叫一次
+        if (in_array($status, [400, 401, 403, self::BUSY, 422], true) || ($codex && $status === 404) || ($chatgpt && in_array($status, [428, 503], true))) {
             $this->runs->failed($run['id'], '桥明确拒绝（HTTP ' . $status . '）' . ($reason !== '' ? '：' . $reason : ''), $status === self::BUSY);
-            $text = ($codex ? 'Codex' : 'Claude Code') . ' 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）');
+            $text = ($codex ? 'Codex' : ($chatgpt ? 'ChatGPT' : 'Claude Code')) . ' 没接下这次' . ($reason !== '' ? '：' . $reason : '（HTTP ' . $status . '）');
             throw $status === self::BUSY ? new BridgeBusyException($text) : new \RuntimeException($text);
         }
         $this->runs->dispatchUnknown($run['id'], '桥返回 HTTP ' . $status . '，不能确认是否已经开工');

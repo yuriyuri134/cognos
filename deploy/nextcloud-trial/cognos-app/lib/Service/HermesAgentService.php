@@ -550,6 +550,19 @@ final class HermesAgentService {
 
         // 被叫进来的是谁：creation_agent 设成 claude-code 就换成本机的 Claude Code（经 tools/cognos-space-mcp/claude_bridge.py）
         $delegatedExecutor = !empty($extra['delegation_id']) ? ($extra['executor'] ?? null) : null;
+        if ($delegatedExecutor === null && $this->config->getUserValue($user->getUID(), 'cognos', 'agent_c' . $creationId, 'claude') === 'chatgpt') {
+            $chatEffort = $this->config->getUserValue($user->getUID(), 'cognos', 'chatgpt_effort_c' . $creationId, 'default');
+            if (!in_array($chatEffort, ['low','medium','high'], true)) $chatEffort = 'default';
+            // 聊天端在 ChatGPT 网页里回话，手里没有 Cognos 的工具：入口里要照实说，免得它以为自己读过原话、记下了什么
+            $entry = $this->entries->entry($space, 'ChatGPT', ['caller'=>$caller, 'message'=>$message], array_merge([
+                '你在 ChatGPT 网页里回话，手里没有 Cognos 的工具：read_space、enter_space、留下尝试、改 Norm 里的一块，这些下面若提到，你都用不了。',
+                '你看得到的只有这里给你的文字。没读到的原话不要当成读过；要读原话或要改 Cognos 里的东西，写在回答里，请交互对象换 Claude 来做。',
+            ], $this->norm->agentLines($user->getUID(), $creationId)));
+            $this->bridge->send('creation', (string)$creationId, 'ChatGPT', $this->entries->renderText($entry), $history, $message, $caller,
+                array_merge($extra, ['executor'=>'chatgpt', 'mode'=>'chat', 'reply_to'=>$replyTo, 'caller_uid'=>$user->getUID(),
+                    'reasoning_effort'=>$chatEffort]));
+            return null;
+        }
         // 这段对话选了 GPT：走本机 Codex（你的 ChatGPT 账号），每次带全文，和 Claude 看到的是同一段
         if ($delegatedExecutor === null && $this->config->getUserValue($user->getUID(), 'cognos', 'agent_c' . $creationId, 'claude') === 'gpt') {
             $entry = $this->entries->entry($space, 'GPT', ['caller' => $caller, 'message' => $message],

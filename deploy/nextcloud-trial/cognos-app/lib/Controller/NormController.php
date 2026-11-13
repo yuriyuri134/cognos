@@ -30,6 +30,7 @@ final class NormController extends Controller {
         private ReaderService $readers,
         private CreationSpaceService $creations,
         private IConfig $config,
+        private \OCA\Cognos\Service\ClaudeBridgeService $bridge,
     ) {
         parent::__construct('cognos', $request);
     }
@@ -180,37 +181,42 @@ final class NormController extends Controller {
 
     /** 这段对话里回你的是谁：claude（本机 Claude Code）或 gpt（本机 Codex，用你的 ChatGPT 账号）。两边看到的是同一段全文。 */
     #[NoAdminRequired]
-    public function agent(int $id): DataResponse {
+    public function agent(int $id, bool $chatgpt_status = false): DataResponse {
         $uid = $this->uid();
         if ($this->creations->get($id, $uid) === null) {
             return new DataResponse(['message' => '没有这段对话'], 404);
         }
-        return new DataResponse([
-            'agent' => $this->config->getUserValue($uid, 'cognos', 'agent_c' . $id, 'claude'),
-            'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', 'agent_effort_c' . $id, 'default'),
-        ]);
+        $agent = $this->config->getUserValue($uid, 'cognos', 'agent_c' . $id, 'claude');
+        $data = ['agent' => $agent, 'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', ($agent === 'chatgpt' ? 'chatgpt_effort_c' : 'agent_effort_c') . $id, 'default')];
+        if ($agent === 'chatgpt' && !in_array($data['reasoning_effort'], ['default','low','medium','high'], true)) $data['reasoning_effort'] = 'default';
+        if ($chatgpt_status) $data['chatgpt'] = $this->bridge->chatgptBrowser($uid);
+        return new DataResponse($data);
     }
 
     #[NoAdminRequired]
-    public function setAgent(int $id, string $agent = '', ?string $reasoning_effort = null): DataResponse {
+    public function setAgent(int $id, string $agent = '', ?string $reasoning_effort = null, bool $connect_chatgpt = false): DataResponse {
         $uid = $this->uid();
         if ($this->creations->get($id, $uid) === null) {
             return new DataResponse(['message' => '没有这段对话'], 404);
         }
-        if (!in_array($agent, ['claude', 'gpt'], true)) {
-            return new DataResponse(['message' => '只能选 claude 或 gpt'], 422);
+        if (!in_array($agent, ['claude', 'gpt', 'chatgpt'], true)) {
+            return new DataResponse(['message' => '只能选 Claude、GPT 聊天端或 Codex'], 422);
         }
-        if ($reasoning_effort !== null && !in_array($reasoning_effort, ['default', 'low', 'medium', 'high', 'xhigh', 'max'], true)) {
+        $allowed = $agent === 'chatgpt' ? ['default', 'low', 'medium', 'high'] : ['default', 'low', 'medium', 'high', 'xhigh', 'max'];
+        if ($reasoning_effort !== null && !in_array($reasoning_effort, $allowed, true)) {
             return new DataResponse(['message' => '无效的思考强度'], 422);
         }
         $this->config->setUserValue($uid, 'cognos', 'agent_c' . $id, $agent);
         if ($reasoning_effort !== null) {
-            $this->config->setUserValue($uid, 'cognos', 'agent_effort_c' . $id, $reasoning_effort);
+            $this->config->setUserValue($uid, 'cognos', ($agent === 'chatgpt' ? 'chatgpt_effort_c' : 'agent_effort_c') . $id, $reasoning_effort);
         }
-        return new DataResponse([
+        $data = [
             'agent' => $agent,
-            'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', 'agent_effort_c' . $id, 'default'),
-        ]);
+            'reasoning_effort' => $this->config->getUserValue($uid, 'cognos', ($agent === 'chatgpt' ? 'chatgpt_effort_c' : 'agent_effort_c') . $id, 'default'),
+        ];
+        if ($agent === 'chatgpt' && !in_array($data['reasoning_effort'], ['default','low','medium','high'], true)) $data['reasoning_effort'] = 'default';
+        if ($connect_chatgpt && $agent === 'chatgpt') $data['chatgpt'] = $this->bridge->chatgptBrowser($uid, true);
+        return new DataResponse($data);
     }
 
     #[NoAdminRequired]
