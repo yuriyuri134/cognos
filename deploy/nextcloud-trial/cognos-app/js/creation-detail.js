@@ -676,7 +676,13 @@
     const message = picker ? picker.buildMessage(raw) : raw;
     if (!message) return;
 
+    const firstUntitled = state.creation?.title === '新对话' && state.messages.length === 0;
     const ok = await callAgent({ message });
+    if (ok && firstUntitled) {
+      const firstLine = message.split('\n')[0].trim();
+      state.creation.title = [...firstLine].slice(0, 40).join('') + ([...firstLine].length > 40 ? '…' : '');
+      renderCreation();
+    }
     if (ok) {
       elements.chatInput.value = '';
       picker?.clear();

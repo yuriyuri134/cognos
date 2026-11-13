@@ -339,7 +339,9 @@ final class CreationSpaceController extends Controller {
                 $context['messages'] = $upTo;
                 $userMessage = null;
             } else {
+                $isFirstMessage = $context['messages'] === [];
                 $userMessage = $this->creations->addMessage($id, $user->getUID(), 'user', $message);
+                if ($isFirstMessage) $this->creations->titleFromFirstMessage($id, $user->getUID(), $message);
                 $context = $this->creations->getContext($id, $user->getUID());
             }
             $saved = $userMessage === null ? [] : [$userMessage];

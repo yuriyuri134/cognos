@@ -4,16 +4,9 @@
   const state = {
     creations: [],
     loading: false,
-    agent: 'claude',
-    filter: 'regular',
-    query: '',
   };
 
   const elements = {};
-
-  function isVerifyTitle(title) {
-    return /^(?:验证：|检查\s*\d{4}-\d{2}-\d{2}|试一下：agent)/.test(String(title || '').trim());
-  }
 
   function init() {
     cacheElements();
@@ -22,85 +15,42 @@
   }
 
   function cacheElements() {
-    elements.newCreationBtn = document.getElementById('cognos-new-creation-btn');
-    elements.newCreationForm = document.getElementById('cognos-new-creation-form');
-    elements.creationForm = document.getElementById('cognos-creation-form');
-    elements.cancelBtn = document.getElementById('cognos-cancel-creation');
-    elements.messageInput = document.getElementById('cognos-creation-message');
+    elements.startBtn = document.getElementById('cognos-start-conversation');
     elements.status = document.getElementById('cognos-creation-status');
+    elements.search = document.getElementById('cognos-creation-search');
     elements.loading = document.getElementById('cognos-creations-loading');
     elements.empty = document.getElementById('cognos-creations-empty');
     elements.grid = document.getElementById('cognos-creations-grid');
-    elements.searchInput = document.getElementById('cognos-creation-search');
-    elements.agentButtons = Array.from(document.querySelectorAll('.cognos-pill[data-agent]'));
-    elements.filterTabs = Array.from(document.querySelectorAll('.cognos-tab[data-filter]'));
   }
 
   function attachEventListeners() {
-    elements.newCreationBtn?.addEventListener('click', showNewCreationForm);
-    elements.cancelBtn?.addEventListener('click', hideNewCreationForm);
-    elements.creationForm?.addEventListener('submit', handleCreateCreation);
-    elements.agentButtons.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        state.agent = btn.dataset.agent || 'claude';
-        elements.agentButtons.forEach((b) => b.classList.toggle('is-active', b === btn));
-      });
-    });
-    elements.filterTabs.forEach((tab) => {
-      tab.addEventListener('click', () => {
-        state.filter = tab.dataset.filter || 'regular';
-        elements.filterTabs.forEach((t) => t.classList.toggle('is-active', t === tab));
-        renderCreations();
-      });
-    });
-    elements.searchInput?.addEventListener('input', () => {
-      state.query = elements.searchInput.value.trim().toLowerCase();
+    elements.startBtn?.addEventListener('click', startConversation);
+    elements.search?.addEventListener('input', renderCreations);
+    document.querySelectorAll('[data-filter]').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-filter]').forEach(item => item.classList.toggle('is-active', item === button));
       renderCreations();
-    });
+    }));
   }
 
-  function showNewCreationForm() {
-    elements.newCreationForm.hidden = false;
-    elements.messageInput.focus();
-  }
-
-  function hideNewCreationForm() {
-    elements.newCreationForm.hidden = true;
-    elements.creationForm.reset();
-    elements.status.textContent = '';
-  }
-
-  async function handleCreateCreation(e) {
-    e.preventDefault();
-
-    // 不用起标题：拿写下的第一行当名字
-    const initialMessage = elements.messageInput.value.trim();
-    if (!initialMessage) return;
-    const firstLine = initialMessage.split('\n')[0].trim();
-    const title = [...firstLine].length > 40 ? [...firstLine].slice(0, 40).join('') + '…' : firstLine;
-
+  // 先创建空会话，再在真正的对话框里输入第一句；不再写两次。
+  async function startConversation() {
+    if (elements.startBtn.disabled) return;
+    elements.startBtn.disabled = true;
+    elements.status.textContent = '正在打开新对话…';
     try {
-      elements.status.textContent = '写下了，正在进对话……';
       const response = await fetch('/index.php/apps/cognos/creations/data', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'requesttoken': OC.requestToken,
-        },
-        body: JSON.stringify({ title, initialMessage, agent: state.agent }),
+        headers: { 'Content-Type': 'application/json', requesttoken: OC.requestToken },
+        body: JSON.stringify({ title: '新对话', initialMessage: '' }),
       });
-
-      if (!response.ok) {
-        throw new Error('创建失败');
-      }
-
+      if (!response.ok) throw new Error('创建失败');
       const data = await response.json();
-      const creationId = data.creation.id;
-
-      window.location.href = `/index.php/apps/cognos/creations/${creationId}`;
+      if (!data.creation?.id) throw new Error('没有收到会话编号');
+      window.location.href = '/index.php/apps/cognos/creations/' + data.creation.id;
     } catch (error) {
-      console.error('Create creation error:', error);
-      elements.status.textContent = '没存上，再试一次';
+      console.error('Start conversation error:', error);
+      elements.status.textContent = '没打开：' + error.message + '，请重试';
+      elements.startBtn.disabled = false;
     }
   }
 
@@ -121,7 +71,6 @@
 
       const data = await response.json();
       state.creations = data.creations || [];
-      updateTabCounts();
       renderCreations();
     } catch (error) {
       console.error('Load creations error:', error);
@@ -132,53 +81,33 @@
     }
   }
 
-  function updateTabCounts() {
-    const total = state.creations.length;
-    const verifyCount = state.creations.filter(c => isVerifyTitle(c.title)).length;
-    const regularCount = total - verifyCount;
-    const labels = {
-      regular: `日常对话 (${regularCount})`,
-      all: `全部 (${total})`,
-      verify: `验证与脚本 (${verifyCount})`,
-    };
-    elements.filterTabs.forEach((tab) => {
-      const k = tab.dataset.filter;
-      if (labels[k]) tab.textContent = labels[k];
-    });
-  }
-
   function renderCreations() {
-    const list = state.creations.filter((c) => {
-      const verify = isVerifyTitle(c.title);
-      if (state.filter === 'regular' && verify) return false;
-      if (state.filter === 'verify' && !verify) return false;
-      if (state.query && !String(c.title || '').toLowerCase().includes(state.query)) return false;
-      return true;
-    });
-
-    if (list.length === 0) {
+    const query = elements.search?.value.trim().toLocaleLowerCase() || '';
+    const filter = document.querySelector('[data-filter].is-active')?.dataset.filter || 'regular';
+    const visible = state.creations.filter(creation =>
+      String(creation.title || '').toLocaleLowerCase().includes(query) && (filter === 'all' || (filter === 'verify') === /^(验证[：:]|脚本[：:]|test[：:])/i.test(String(creation.title || ''))));
+    if (visible.length === 0) {
       elements.empty.hidden = false;
+      elements.empty.querySelector('p').textContent = state.creations.length === 0
+        ? '还没有会话' : '没有找到匹配的会话';
       elements.grid.innerHTML = '';
       return;
     }
 
     elements.empty.hidden = true;
-    elements.grid.innerHTML = list
-      .map(creation => createCreationCard(creation))
-      .join('');
+    elements.grid.innerHTML = visible.map(creation => createCreationCard(creation)).join('');
   }
 
   function createCreationCard(creation) {
     const createdDate = new Date(creation.created_at * 1000).toLocaleDateString('zh-CN');
     const updatedDate = new Date(creation.updated_at * 1000).toLocaleDateString('zh-CN');
-    const count = Number(creation.message_count || 0);
 
     return `
       <a href="/index.php/apps/cognos/creations/${creation.id}" class="cognos-creation-card">
         <h3>${escapeHtml(creation.title)}</h3>
         <div class="cognos-creation-meta">
-          <span>${count} 条消息 · 最近更新 ${updatedDate}</span>
           <span>创建于 ${createdDate}</span>
+          <span>最近更新 ${updatedDate} · ${creation.message_count || 0} 条消息</span>
         </div>
       </a>
     `;
@@ -190,6 +119,7 @@
     return div.innerHTML;
   }
 
+  // Initialize when DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
