@@ -14,6 +14,7 @@ live.run('initium-readable', async checks => {
     await b.login();
     await b.go(live.APP + '/creations');
     await b.until('!!document.querySelector("#cognos-start-conversation") && !!document.querySelector("#cognos-creations-grid")');
+    await b.click('[data-filter=all]');
     await b.until(`document.querySelectorAll('.cognos-creation-card').length === ${creations.length}`);
     checks.push('all ' + creations.length + ' Initium conversations shown in list');
 

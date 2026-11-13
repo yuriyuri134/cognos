@@ -68,6 +68,7 @@ class CreationSpaceService {
             ->from('cognos_creation_messages', 'm')
             ->innerJoin('m', 'cognos_creations', 'c', $countQb->expr()->eq('c.id', 'm.creation_id'))
             ->where($countQb->expr()->eq('c.user_id', $countQb->createNamedParameter($userId, IQueryBuilder::PARAM_STR)))
+            ->andWhere($countQb->expr()->eq('m.is_archived', $countQb->createNamedParameter(0, IQueryBuilder::PARAM_INT)))
             ->groupBy('m.creation_id');
         $countRes = $countQb->executeQuery();
         $counts = [];
