@@ -3,8 +3,11 @@ import importlib.util
 import io
 import json
 import tempfile
+import threading
 import unittest
 import urllib.error
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -103,6 +106,86 @@ class OutboxTests(unittest.TestCase):
         path, body = post.call_args.args
         self.assertEqual("spaces/creation/7/messages", path)
         self.assertEqual({"result_id": "b" * 32, "run_id": RUN_ID, "subject": "Claude Code", "content": "答"}, body)
+
+
+class ChangeReportTests(unittest.TestCase):
+    """改了代码以后，回答末尾附一份报告（.md）：它的回答、改了哪些文件、检查、整份 diff。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        patcher = patch.object(bridge, "SPACES_DIR", Path(self.tmp.name) / "spaces")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.change = {
+            "branch": "cognos-self/open-93-20261104-101500", "base": "master", "commit": "abc1234",
+            "stat": " lib/Service/AdoptionService.php | 12 +++++\n 1 file changed",
+            "diff": "--- a/lib/Service/AdoptionService.php\n+++ b/lib/Service/AdoptionService.php\n-# 旧\n+# 新\n- 减号开头的行不能被当成列表\n",
+        }
+
+    def test_report_has_answer_files_checks_and_diff(self):
+        report = bridge.change_report("Claude Code", "## 改了什么\n\n把采用写进委托。", self.change, "✓ x.php")
+        self.assertIn("# Claude Code 改了什么", report)
+        self.assertIn("把采用写进委托。", report)
+        self.assertIn("lib/Service/AdoptionService.php", report)
+        self.assertIn("✓ x.php", report)
+        self.assertIn("```diff", report)
+        self.assertIn("- 减号开头的行不能被当成列表", report)
+
+    def test_local_copy_is_kept_even_when_nextcloud_is_down(self):
+        with patch.object(bridge, "save_report", side_effect=urllib.error.URLError("connection refused")):
+            tail = bridge.attach_change("creation", "7", "Claude Code", "答", self.change, "✓ x.php")
+        self.assertIn("报告没存进 Nextcloud", tail)
+        self.assertIn("```diff", tail)          # 存不进时退回把 diff 贴进对话
+        kept = list((bridge.SPACES_DIR / "creation-7" / "changes").glob("*.md"))
+        self.assertEqual(1, len(kept))
+        self.assertIn("## 它的回答", kept[0].read_text(encoding="utf-8"))
+
+    def test_answer_gets_a_link_not_a_pasted_diff(self):
+        with patch.object(bridge, "save_report", return_value="/index.php/f/421") as save:
+            tail = bridge.attach_change("creation", "7", "Claude Code", "答", self.change, "✓ x.php")
+        self.assertIn("报告：[cognos-self-open-93-20261104-101500.md](/index.php/f/421)", tail)
+        self.assertNotIn("```diff", tail)
+        self.assertIn("Claude Code 改了什么", save.call_args.args[3])
+
+    def test_no_change_adds_nothing(self):
+        self.assertEqual("", bridge.attach_change("creation", "7", "Claude Code", "答", None))
+
+    def test_report_goes_under_cognos_dav_folder(self):
+        requests_seen = []
+
+        class FakeDav(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_MKCOL(self):
+                requests_seen.append(("MKCOL", self.path))
+                made = sum(1 for method, _ in requests_seen if method == "MKCOL")
+                self.send_response(200 if made == 1 else 405)  # 第二次起：已经有了
+                self.end_headers()
+
+            def do_PUT(self):
+                requests_seen.append(("PUT", self.path))
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                self.send_response(201)
+                self.send_header("OC-FileId", "00000421oc1xyz")
+                self.end_headers()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FakeDav)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        with patch.object(bridge, "COGNOS_URL", url), patch.object(bridge, "APP_PASSWORD", "pw"):
+            link = bridge.save_report("creation", "7", "x.md", "# 报告")
+        self.assertEqual("/index.php/f/421", link)
+        self.assertEqual("MKCOL", requests_seen[0][0])
+        puts = [path for method, path in requests_seen if method == "PUT"]
+        self.assertEqual(1, len(puts))
+        self.assertIn("/remote.php/dav/files/", puts[0])
+        self.assertIn("Cognos/", urllib.parse.unquote(puts[0]))
+        self.assertIn("改动报告", urllib.parse.unquote(puts[0]))
 
 
 if __name__ == "__main__":
