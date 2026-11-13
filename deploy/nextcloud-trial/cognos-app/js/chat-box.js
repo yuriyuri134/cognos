@@ -182,13 +182,16 @@
     const usageLine = node('div', '', 'cg-usage'); usageLine.hidden = true;
     // 「回到最新」放在对话里面、贴着底边浮着，不另占一行（消息都插在它前面）
     log.append(latest);
-    root.append(log, status, form, usageLine);
+    const versions = node('a', '查看会话版本', 'cg-small');
+    versions.href = base + creationId + '?versions=1';
+    versions.hidden = true;
+    root.append(log, status, form, usageLine, versions);
     let waiting = false; let timer = null; let editing = null;
-    // 像 ChatGPT 那样：改你说的一句，后面的都去掉，用改过的这句重新回；删一句，连回它的回答一起删
+    // 编辑和删除保存历史版本；保留未回答消息的重试入口。
     function actions(m, trailingUnanswered) {
       const acts = node('div', undefined, 'cg-msg-acts');
       if (m.role === 'user') {
-        const edit = node('button', '改', 'cg-msg-act'); edit.type = 'button'; edit.title = '改这句，后面的对话会去掉，用改过的这句重新回';
+        const edit = node('button', '改', 'cg-msg-act'); edit.type = 'button'; edit.title = '改这句并继续，改动前的对话会保存';
         edit.addEventListener('click', () => startEdit(m));
         acts.append(edit);
       }
@@ -196,7 +199,7 @@
       del.title = m.role === 'user' ? '删掉这句和回它的回答' : '删掉这条回答';
       del.addEventListener('click', async () => {
         if (waiting || editing !== null) return;
-        if (!window.confirm(m.role === 'user' ? '删掉这句和回它的回答？' : '删掉这条回答？')) return;
+        if (!window.confirm(m.role === 'user' ? '从当前对话收起这句和回它的回答？旧版本会保留。' : '从当前对话收起这条回答？旧版本会保留。')) return;
         const r = await api(base + creationId + '/messages/' + m.id, undefined, 'DELETE');
         status.textContent = r.ok ? '' : (r.body.message || '没删成');
         await load();
@@ -238,7 +241,7 @@
         stop();
         if (!r.ok) { status.textContent = r.body.message || '没改成'; await load(); return; }
         followLatest = true;
-        const again = await api(base + creationId + '/messages', { recall: m.id });
+        const again = await api(base + creationId + '/messages', { recall: r.body.id });
         status.textContent = again.ok ? '' : '改好了，但没叫来 agent：' + (again.body.message || '');
         await load(); if (!waiting) setTimeout(load, 4000);
       });
@@ -303,9 +306,10 @@
       }
     }
     async function load() {
-      const { ok, body } = await api(base + creationId + '/messages');
+      const { ok, body } = await api(base + creationId + '/messages?history=1');
       if (!ok) { status.textContent = body.message || '读不到这段对话'; return; }
       waiting = !!body.pending;
+      versions.hidden = !body.revisions?.length;
       render(body.messages || []);
       window.CognosUsage?.show(usageLine, body.usage);
       const n = (body.messages || []).length;

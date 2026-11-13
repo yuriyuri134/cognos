@@ -41,7 +41,9 @@ final class AttemptController extends Controller {
             // 每样只在查询里取要显示的那几条（最近的），另用计数说明省略了多少；原来是整处全取出来再截
             foreach(array_unique($conversations) as $chat){
                 if($this->creations->get($chat,$uid)===null)continue;
-                $where=fn($q)=>$q->expr()->eq('creation_id',$q->createNamedParameter($chat,\OCP\DB\QueryBuilder\IQueryBuilder::PARAM_INT));
+                $where=fn($q)=>$q->expr()->andX(
+                    $q->expr()->eq('creation_id',$q->createNamedParameter($chat,\OCP\DB\QueryBuilder\IQueryBuilder::PARAM_INT)),
+                    $q->expr()->eq('is_archived', $q->createNamedParameter(0, \OCP\DB\QueryBuilder\IQueryBuilder::PARAM_INT)));
                 $omitted+=max(0,$this->count('cognos_creation_messages',$where)-30);
                 $q=$this->db->getQueryBuilder();$messages=array_reverse($q->select('id','role','content')->from('cognos_creation_messages')->where($where($q))->orderBy('id','DESC')->setMaxResults(30)->executeQuery()->fetchAll());
                 foreach($messages as $m)$sources[]=['type'=>'message','id'=>(string)$m['id'],'version'=>null,'label'=>'消息 #'.$m['id'].' · '.($m['role']??'').' · '.mb_substr((string)$m['content'],0,100)];

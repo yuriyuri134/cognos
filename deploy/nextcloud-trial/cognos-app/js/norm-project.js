@@ -9,8 +9,8 @@
   const WAY = [['away', '你不在的时候'], ['progress', '怎样算往前走了'], ['ask', '什么时候找你']];
   let data = null; let arrived = null; let chat = null; let editingWay = false; let readTimer = null;
   let currentView = 'conversation'; let viewKeys = ''; let topVersion = '';
-  // 历史（各段和全部条目）只在打开「历史」那一栏时拿；原话按对话拿一次，记着
-  let hist = null; let histLoading = null; const originals = new Map();
+  // 历史（各段和全部条目）只在打开「历史」那一栏时拿；原话在展开时读取
+  let hist = null; let histLoading = null;
   const openNotices = new Set();
   const viewScroll = new Map();
 
@@ -52,7 +52,17 @@
 
   function followHash() {
     const m = /^#m(\d+)$/.exec(location.hash); const h = /^#h(\d+)$/.exec(location.hash);
-    if (m) { setView('conversation'); chat?.reveal(Number(m[1])); }
+    if (m) {
+      setView('conversation');
+      const messageId = Number(m[1]);
+      chat?.reveal(messageId).then(async shown => {
+        if (shown || location.hash !== m[0]) return;
+        const message = await originalOf(data.conversation_id, messageId);
+        if (message?.archived && location.hash === m[0]) {
+          location.assign(app + '/creations/' + data.conversation_id + m[0]);
+        }
+      }).catch(console.error);
+    }
     else if (h) openEntry(Number(h[1]));
   }
   window.addEventListener('hashchange', followHash);
@@ -749,18 +759,23 @@
       box.append(node('div', (m.role === 'user' ? '你' : (m.author || 'AI')) + ' · ' + hm(m.created_at), 'cg-small'));
       if (m.role === 'user') box.append(node('p', m.content, 'cg-orig-text'));
       else box.append(md(m.content, 'cg-orig-text'));
-      const a = node('a', own ? '到对话里看前后' : '到那段对话里看前后'); a.className = 'cg-small';
-      a.href = own ? '#m' + r.id : app + '/creations/' + r.src + '#m' + r.id;
-      if (!own) { a.target = '_blank'; a.rel = 'noopener'; }
+      const inCurrentChat = own && !m.archived;
+      const a = node('a', m.archived ? '打开当时的对话' : '到对话里看前后'); a.className = 'cg-small';
+      a.href = inCurrentChat ? '#m' + r.id : app + '/creations/' + r.src + '#m' + r.id;
+      if (!inCurrentChat) { a.target = '_blank'; a.rel = 'noopener'; }
       box.append(a);
     });
     return wrap;
   }
 
   async function originalOf(src, mid) {
-    if (!originals.has(src)) originals.set(src, api('/creations/' + src + '/messages').then(b => b.messages || []));
-    try { return (await originals.get(src)).find(m => Number(m.id) === mid) || null; }
-    catch (e) { originals.delete(src); throw e; }
+    const response = await fetch(app + '/creations/' + src + '/messages?source=' + mid, {
+      headers: { requesttoken: OC.requestToken },
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const { messages } = await response.json();
+    return (messages || []).find(m => m.id === mid) || null;
   }
 
   // 这一块上次是谁什么时候改的；改得不对可以换回改之前那一版（换回也会留一版，能再换回来）

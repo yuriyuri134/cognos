@@ -12,6 +12,8 @@
     pending: null,
     notice: null,
     lastRun: null,
+    revision: 0,
+    revisions: [],
   };
 
   const PENDING_POLL_MS = 5000;
@@ -44,16 +46,6 @@
     attachEventListeners();
     loadCreationsList();
     loadCreationAndMessages();
-    window.CognosSpacePanel?.init(state.creationId);
-    window.CognosAgentPick?.mount(document.getElementById('chat-input-form'), state.creationId, {
-      onImport: (res) => window.CognosCreationDetail?.reload(res),
-    });
-    picker = window.CognosFilePicker?.mount({
-      creationId: state.creationId,
-      form: elements.chatForm,
-      input: elements.chatInput,
-      triggerBtn: elements.attachBtn,
-    }) || null;
   }
 
   function cacheElements() {
@@ -124,7 +116,7 @@
 
   // 像 ChatGPT 那样：改一句，它后面的都去掉，用改过的这句再叫一次；删一句，连回它的回答一起删
   async function handleMessageAction(act, messageId, button) {
-    if (state.sending || state.pending) return;
+    if (state.revision || state.sending || state.pending) return;
     const bubble = button.closest('.cognos-message');
     const message = state.messages.find(m => m.id === messageId);
     if (!message || !bubble) return;
@@ -149,20 +141,22 @@
       if (!text) return;
       const r = await changeMessage('PUT', messageId, { message: text });
       if (!r) return;
-      const i = state.messages.findIndex(m => m.id === messageId);
-      state.messages = state.messages.slice(0, i + 1);
-      state.messages[i] = { ...state.messages[i], content: text };
+      const removed = new Set(r.removed);
+      state.messages = state.messages.filter(m => !removed.has(m.id));
+      state.messages.push(r.message);
+      rememberRevision(r.revision, 'edit', messageId);
       renderMessages();
-      await callAgent({ recall: messageId });
+      await callAgent({ recall: r.id });
       return;
     }
     if (act === 'delete') {
-      const what = message.role === 'user' ? '删掉这句和回它的回答？' : '删掉这条回答？';
+      const what = message.role === 'user' ? '从当前对话收起这句和回它的回答？旧版本会保留。' : '从当前对话收起这条回答？旧版本会保留。';
       if (!window.confirm(what)) return;
       const r = await changeMessage('DELETE', messageId);
       if (!r) return;
       const gone = new Set(r.removed || [messageId]);
       state.messages = state.messages.filter(m => !gone.has(m.id));
+      rememberRevision(r.revision, 'delete', messageId);
       renderMessages();
     }
   }
@@ -361,13 +355,24 @@
       const creationData = await creationResponse.json();
       state.creation = creationData.creation;
 
-      // Load messages
-      const messagesResponse = await fetch(`/index.php/apps/cognos/creations/${state.creationId}/messages`, {
+      const query = new URLSearchParams({ history: '1' });
+      const view = new URLSearchParams(location.search);
+      const revision = view.get('revision');
+      const source = /^#m(\d+)$/.exec(location.hash)?.[1];
+      if (revision && /^\d+$/.test(revision)) query.set('revision', revision);
+      if (source) query.set('source', source);
+      let messagesResponse = await fetch(creationUrl() + '/messages?' + query, {
         headers: {
           'requesttoken': OC.requestToken,
         },
       });
 
+      if (messagesResponse.status === 404 && source && !revision) {
+        messagesResponse = await fetch(creationUrl() + '/messages?history=1', {
+          headers: { requesttoken: OC.requestToken },
+        });
+        state.notice = '找不到这句原话，下面是当前对话。';
+      }
       if (!messagesResponse.ok) {
         throw new Error('Failed to load messages');
       }
@@ -375,17 +380,89 @@
       const messagesData = await messagesResponse.json();
       state.messages = messagesData.messages || [];
       state.lastRun = messagesData.runs?.[0] || null;
-      showUsage(messagesData.usage);
-
+      state.revision = Number(messagesData.revision || 0);
+      state.revisions = messagesData.revisions || [];
       renderCreation();
+      renderRevisionBar();
       renderMessages();
-      resumePendingIfWaiting(messagesData.pending, messagesData.pending_who);
-      readWhatWasWritten();
+      if (state.revision) {
+        elements.chatTitle.contentEditable = 'false';
+        document.querySelector('.chat-footer').style.display = 'none';
+        document.getElementById('space-panel-toggle').style.display = 'none';
+        const readers = document.getElementById('space-panel');
+        if (readers) readers.style.display = 'none';
+      } else {
+        window.CognosSpacePanel?.init(state.creationId);
+        window.CognosAgentPick?.mount(elements.chatForm, state.creationId, {
+          onImport: (res) => window.CognosCreationDetail?.reload(res),
+        });
+        picker = window.CognosFilePicker?.mount({creationId: state.creationId, form: elements.chatForm,
+          input: elements.chatInput, triggerBtn: elements.attachBtn}) || null;
+        showUsage(messagesData.usage);
+        resumePendingIfWaiting(messagesData.pending, messagesData.pending_who);
+        if (!source && !view.has('restored') && !view.has('versions')) readWhatWasWritten();
+      }
     } catch (error) {
       console.error('Load error:', error);
       elements.chatTitle.textContent = '加载失败';
     } finally {
       state.loading = false;
+    }
+  }
+
+  function creationUrl() {
+    return '/index.php/apps/cognos/creations/' + state.creationId;
+  }
+
+  function rememberRevision(id, kind, anchorId) {
+    state.revisions.unshift({ id, kind, anchor_id: anchorId, created_at: Date.now() / 1000 });
+    renderRevisionBar();
+  }
+
+  function renderRevisionBar() {
+    const bar = document.getElementById('chat-revisions');
+    bar.hidden = !state.revision && !state.revisions.length;
+    const current = document.getElementById('chat-revision-current');
+    current.replaceChildren();
+    if (state.revision) {
+      const link = document.createElement('a');
+      link.href = creationUrl();
+      link.textContent = '回到当前对话';
+      const restore = document.createElement('button');
+      restore.type = 'button';
+      restore.textContent = '恢复这一版';
+      restore.addEventListener('click', () => restoreRevision(restore));
+      current.append('正在看旧版本　', link, '　', restore);
+    }
+    if (new URLSearchParams(location.search).has('versions')) bar.querySelector('details').open = true;
+    const list = document.getElementById('chat-revision-list');
+    list.replaceChildren(...state.revisions.map(revision => {
+      const row = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = creationUrl() + '?revision=' + Number(revision.id)
+        + (revision.anchor_id ? '#m' + Number(revision.anchor_id) : '');
+      const action = { edit: '修改前', delete: '删除前', restore: '恢复前' }[revision.kind] || '旧版本';
+      link.textContent = action + ' · ' + new Date(Number(revision.created_at) * 1000).toLocaleString('zh-CN');
+      row.append(link);
+      return row;
+    }));
+  }
+
+  async function restoreRevision(button) {
+    if (!window.confirm('恢复这一版？当前对话也会保存为一版。')) return;
+    button.disabled = true;
+    try {
+      const response = await fetch(creationUrl() + '/revisions/' + state.revision + '/restore', {
+        method: 'POST', headers: { requesttoken: OC.requestToken },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || 'HTTP ' + response.status);
+      }
+      location.assign(creationUrl() + '?restored=1');
+    } catch (error) {
+      document.getElementById('chat-revision-error').textContent = error.message;
+      button.disabled = false;
     }
   }
 
@@ -418,42 +495,47 @@
     window.CognosUsage?.show(el, usage);
   }
 
-  function renderMessages() {
+  function renderMessages({ followLatest = false } = {}) {
     if (!elements.messagesContainer) return;
+    const container = document.getElementById('messages-container');
+    const previousTop = container?.scrollTop ?? 0;
+    const anchored = anchorTop !== null && Math.abs(previousTop - anchorTop) < 1;
+    const nearLatest = container && container.scrollHeight - previousTop - container.clientHeight <= 96;
 
     // 空对话里也可能有人被叫进来（比如提出了反对写下的想法），那就显状态，不显「开始对话」
     if (state.messages.length === 0 && !state.pending && !state.notice) {
       elements.messagesContainer.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">💭</div>
-          <h3>开始对话</h3>
-          <p>在下方输入框中提出你的问题或想法</p>
+          <h3>${state.revision ? '这一版没有消息' : '开始对话'}</h3>
+          ${state.revision ? '' : '<p>在下方输入框中提出你的问题或想法</p>'}
         </div>
       `;
       return;
     }
 
     elements.messagesContainer.innerHTML = state.messages
-      .map((message, index) => createMessageBubble(message, isUnanswered(index)))
+      .map((message, index) => createMessageBubble(message, !state.revision && isUnanswered(index)))
       .join('') + createStatusBubble();
 
-    // 从空间的「历史」点「到对话里看」进来（#m123）：第一次停到那一句，闪一下；别的时候照旧到最新
     requestAnimationFrame(() => {
-      const container = document.getElementById('messages-container');
-      if (!container) return;
+      if (!container?.isConnected) return;
       const want = !revealed && /^#m(\d+)$/.exec(location.hash);
       const target = want && document.getElementById('m' + want[1]);
       if (target) {
         revealed = true;
         container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 24;
+        anchorTop = container.scrollTop;
         target.classList.add('cognos-message-found');
         setTimeout(() => target.classList.remove('cognos-message-found'), 2600);
         return;
       }
-      container.scrollTop = container.scrollHeight;
+      if (followLatest || !anchored) anchorTop = null;
+      container.scrollTop = followLatest || (!anchored && nearLatest) ? container.scrollHeight : previousTop;
     });
   }
   let revealed = false;
+  let anchorTop = null;
 
   function isUnanswered(index) {
     // 你说的话没人回，而且现在没人在做。回答记着它回的是哪一句（reply_to）；
@@ -482,10 +564,10 @@
           <span class="cognos-message-time">${timestamp}</span>
         </div>
         <div class="cognos-message-content">${role === 'user' ? formatMessageContent(message.content) : renderMarkdown(message.content)}</div>
-        <div class="msg-actions">
-          ${role === 'user' ? `<button type="button" class="msg-act" data-act="edit" data-message-id="${message.id}" title="改这句，后面的对话会去掉，用改过的这句重新回">改</button>` : ''}
+        ${state.revision ? '' : `<div class="msg-actions">
+          ${role === 'user' ? `<button type="button" class="msg-act" data-act="edit" data-message-id="${message.id}" title="改这句并继续，改动前的对话会保存">改</button>` : ''}
           <button type="button" class="msg-act" data-act="delete" data-message-id="${message.id}" title="${role === 'user' ? '删掉这句和回它的回答' : '删掉这条回答'}">删</button>
-        </div>
+        </div>`}
         ${unanswered ? `<button type="button" class="space-keep-btn recall-btn" data-message-id="${message.id}" title="这句没人回，用它再叫一次">没人回，再叫一次</button>` : ''}
       </div>
     `;
@@ -589,7 +671,7 @@
 
     const raw = elements.chatInput.value.trim();
     const hasAtt = !!picker?.hasAttachments();
-    if ((!raw && !hasAtt) || state.sending) return;
+    if ((!raw && !hasAtt) || state.revision || state.sending) return;
 
     const message = picker ? picker.buildMessage(raw) : raw;
     if (!message) return;
@@ -603,7 +685,7 @@
   }
 
   async function handleRecall(messageId) {
-    if (state.sending || state.pending) return;
+    if (state.revision || state.sending || state.pending) return;
     await callAgent({ recall: messageId });
   }
 
@@ -639,7 +721,6 @@
       }
       ok = response.ok || (data.messages || []).length > 0;
 
-      renderMessages();
       // 被叫进来的 agent 可能在这片空间里留下了尝试或读法
       window.CognosSpacePanel?.reload();
     } catch (error) {
@@ -651,7 +732,7 @@
       elements.sendBtn.style.display = 'flex';
       elements.stopBtn.style.display = 'none';
       elements.chatInput.focus();
-      renderMessages();
+      renderMessages({ followLatest: ok });
     }
     return ok;
   }
