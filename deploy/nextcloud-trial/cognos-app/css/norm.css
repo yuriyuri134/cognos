@@ -196,6 +196,7 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
 .cg-needs ul { margin: 4px 0 0; padding-left: 18px; color: var(--cg-ink); }
 .cg-placed { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--cg-line); color: var(--cg-ink); }
 .cg-placed-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cg-placed-row > .cg-btn { flex-shrink: 0; white-space: nowrap; }
 .cg-go { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 16px; border-radius: 12px; background: var(--cg-dark); color: var(--cg-dark-ink) !important; text-decoration: none; }
 .cg-readers .cg-btn { min-height: 38px; }
 .cg-spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--cg-line-strong); border-top-color: var(--cg-accent); border-radius: 50%; animation: cg-spin 1s linear infinite; vertical-align: -2px; margin-right: 6px; }
@@ -315,4 +316,87 @@ body[data-themes*="dark"] .cg-v2, body[data-themes*="dark"] .cg-home, body[data-
   .cg-ask .cg-btn { padding: 2px 10px; min-height: 28px; }
   /* 额度在手机上只留一行，点开对话页电脑上看全 */
   .cg-project .cg-usage { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* 自述：这个空间的主体写给自己的，一版一版留着 */
+.cg-self-meta { font-size: 13px; color: var(--cg-muted); margin-bottom: 8px; }
+.cg-self-meta strong { color: var(--cg-ink); }
+.cg-self-text { padding: 14px 16px; border-radius: 12px; background: var(--cg-card); border: 1px solid var(--cg-line); color: var(--cg-ink); white-space: normal; }
+.cg-self-change { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 12px 0 0; font-size: 13px; }
+.cg-self-change dt { color: var(--cg-muted); }
+.cg-self-change dd { margin: 0; color: var(--cg-ink-2); }
+.cg-self-bystander { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--cg-warm-bg); border: 1px solid var(--cg-warm-line); color: var(--cg-warm-text); }
+.cg-self-bystander .cg-small { color: var(--cg-warm-ink); }
+.cg-self-bystander p { margin: 6px 0 0; }
+.cg-self-empty { margin-top: 8px; }
+.cg-self-empty .cg-quote { border-color: var(--cg-warm-line); }
+.cg-self-act { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; }
+.cg-self-act p { flex-basis: 100%; margin: 0; }
+.cg-self-older { margin-top: 18px; }
+.cg-self-older summary { cursor: pointer; }
+.cg-self-older > summary { color: var(--cg-muted); }
+.cg-self-older details { margin-top: 10px; }
+.cg-self-older details > summary { font-size: 13px; color: var(--cg-ink-2); }
+.cg-self-older .cg-self-text { margin-top: 8px; }
+
+/* Initium 右边：来认领的空间，是不是它的 */
+.cg-claim-tag { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-weight: 400; background: var(--cg-chip); color: var(--cg-ink-2); }
+.cg-claim-mine .cg-claim-tag { background: var(--cg-accent); color: var(--cg-accent-ink); }
+.cg-claim-part .cg-claim-tag { background: var(--cg-warm-bg); color: var(--cg-warm-ink); box-shadow: inset 0 0 0 1px var(--cg-warm-line); }
+/* 总观、历史：它读完自己全部的原话以后写的 */
+.cg-ov-meta { font-size: 13px; color: var(--cg-muted); margin-bottom: 10px; }
+.cg-ov-meta strong { color: var(--cg-ink); }
+.cg-ov-now { margin: 0 0 6px; padding: 14px 16px; border-radius: 12px; background: var(--cg-card); border: 1px solid var(--cg-line); font-size: 15px; color: var(--cg-ink); }
+#cg-view-overview h3, #cg-view-history h3 { margin: 18px 0 8px; font-size: 14px; font-weight: 700; }
+.cg-ov-lines, .cg-ov-yours { display: grid; gap: 10px; }
+.cg-ov-line, .cg-ov-your { padding: 12px 14px; border-radius: 12px; background: var(--cg-card); border: 1px solid var(--cg-line); min-width: 0; }
+.cg-ov-your { background: var(--cg-warm-bg); border-color: var(--cg-warm-line); color: var(--cg-warm-text); }
+.cg-ov-your .cg-small { color: var(--cg-warm-ink); margin: 4px 0 0; }
+.cg-ov-line dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 8px 0 0; font-size: 13px; }
+.cg-ov-line dt { color: var(--cg-muted); }
+.cg-ov-line dd { margin: 0; color: var(--cg-ink-2); overflow-wrap: anywhere; }
+.cg-ov-next { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--cg-bg); border: 1px dashed var(--cg-line-strong); }
+.cg-ov-refs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 8px; font-size: 12px; }
+.cg-ref { font-size: 12px; text-align: left; overflow-wrap: anywhere; }
+.cg-read-box { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--cg-line); }
+.cg-read-box .cg-hint { margin: 0 0 8px; font-size: 13px; }
+.cg-tag { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--cg-chip); color: var(--cg-ink-2); font-size: 12px; line-height: 20px; white-space: nowrap; }
+.cg-warn { color: var(--cg-amber); }
+.cg-stages { display: flex; flex-direction: column; gap: 0; margin-top: 8px; border-left: 2px solid var(--cg-line); }
+.cg-stage { position: relative; padding: 4px 0 18px 18px; min-width: 0; }
+.cg-stage::before { content: ''; position: absolute; left: -7px; top: 10px; width: 12px; height: 12px; border-radius: 50%; background: var(--cg-bg); border: 2px solid var(--cg-line-strong); }
+.cg-stage-now::before { border-color: var(--cg-accent); background: var(--cg-accent); }
+.cg-stage-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.cg-stage-head h3 { margin: 0 !important; font-family: var(--cg-serif); font-size: 17px !important; }
+.cg-stage-text { margin: 6px 0 0; color: var(--cg-ink-2); }
+.cg-stage-fix { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--cg-warm-bg); border: 1px solid var(--cg-warm-line); color: var(--cg-warm-text); font-size: 13px; }
+.cg-stage-entries { margin-top: 8px; }
+.cg-stage-entries > summary, .cg-stage-skipped > summary { cursor: pointer; color: var(--cg-muted); font-size: 13px; }
+.cg-stage-dropped { margin-top: 8px; font-size: 13px; color: var(--cg-ink-2); }
+.cg-stage-dropped ul { margin: 2px 0 0; padding-left: 18px; }
+.cg-stage-turn { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--cg-card); border: 1px solid var(--cg-line-strong); }
+.cg-stage-turn p { margin: 0; }
+.cg-stage-turn .cg-small { margin-top: 6px; }
+.cg-stage-loose { border-top: 1px dashed var(--cg-line-strong); padding-top: 12px; }
+.cg-stage-skipped { margin-top: 14px; }
+.cg-entry { margin-top: 8px; padding: 10px 12px; border-radius: 10px; background: var(--cg-card); border: 1px solid var(--cg-line); min-width: 0; transition: box-shadow .3s; }
+.cg-entry p { margin: 6px 0 0; }
+.cg-entry-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.cg-entry-head time { color: var(--cg-muted); font-size: 12px; }
+.cg-entry-kind { font-size: 12px; color: var(--cg-accent); }
+.cg-entry-found { box-shadow: 0 0 0 2px var(--cg-accent); }
+.cg-entry-refs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin-top: 6px; }
+.cg-hq .cg-quote { margin-top: 8px; overflow-wrap: anywhere; }
+.cg-orig { min-width: 0; }
+/* 展开了的原话占整行，不挤在一排链接中间 */
+.cg-entry-refs .cg-orig-open { flex-basis: 100%; }
+.cg-orig-btn { font-size: 12px; text-align: left; }
+.cg-orig-box { margin-top: 6px; padding: 10px 12px; border-radius: 10px; background: var(--cg-bg); border: 1px solid var(--cg-line); max-height: 360px; overflow: auto; overflow-wrap: anywhere; }
+.cg-orig-text { margin: 4px 0 6px; white-space: pre-wrap; }
+.cg-orig-text.cg-md { white-space: normal; }
+.cg-msg-found { box-shadow: 0 0 0 2px var(--cg-accent); transition: box-shadow .3s; }
+@media (max-width: 760px) {
+  .cg-ov-line dl { grid-template-columns: 1fr; gap: 0; }
+  .cg-ov-line dt { margin-top: 4px; }
+  .cg-stage { padding-left: 14px; }
 }
